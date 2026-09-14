@@ -39,6 +39,11 @@ INCLUDE_ANDROID=0
 SIM_STALE_DAYS=60
 ANDROID_STALE_DAYS=60
 
+CONFIG_DIR="$HOME_DIR/.config/cleanmymac"
+CONFIG_FILE="$CONFIG_DIR/config.conf"
+CONFIG_SELECTED_CATEGORIES=""
+INTERACTIVE=0
+
 INSTALLED_IDS_NORM=()
 INSTALLED_NAMES_NORM=()
 _INSTALLED_BUILT=0
@@ -113,6 +118,8 @@ fi
 # ---------------------------------------------------------------------------
 
 log_init() {
+  TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
+  LOG_FILE="$LOG_DIR/clean-$TIMESTAMP.log"
   mkdir -p "$LOG_DIR"
   : > "$LOG_FILE"
 }
@@ -151,6 +158,14 @@ USAGE:
 MODES:
   --scan                 Report reclaimable space only. Deletes nothing. (default)
   --clean                Actually remove junk. Prompts for confirmation unless --yes.
+  -i, --interactive       Menu-driven mode: toggle categories, edit the
+                          whitelist, tune thresholds, run scan/clean, save
+                          your selection as the new default. Also entered
+                          automatically when you run ./clean.sh with no
+                          arguments at all from a real terminal (any flag —
+                          including --scan — keeps it fully scriptable).
+                          Settings saved from the menu persist to
+                          ~/.config/cleanmymac/config.conf.
 
 COMMON OPTIONS:
   -y, --yes              Do not prompt for confirmation before deleting.
@@ -246,6 +261,49 @@ EXAMPLES:
   ./clean.sh --clean --only caches,logs,dsstore --yes
   ./clean.sh --clean --include-trash --include-mail --yes
 EOF
+}
+
+load_config() {
+  [ -f "$CONFIG_FILE" ] || return 0
+  local key val
+  while IFS='=' read -r key val; do
+    case "$key" in
+      ''|'#'*) continue ;;
+    esac
+    case "$key" in
+      SIM_STALE_DAYS) SIM_STALE_DAYS="$val" ;;
+      ANDROID_STALE_DAYS) ANDROID_STALE_DAYS="$val" ;;
+      KEEP_DEVICE_SUPPORT) KEEP_DEVICE_SUPPORT="$val" ;;
+      WHITELIST)
+        local _wl
+        IFS=',' read -r -a _wl <<< "$val"
+        WHITELIST+=("${_wl[@]}")
+        ;;
+      SELECTED_CATEGORIES) CONFIG_SELECTED_CATEGORIES="$val" ;;
+    esac
+  done < "$CONFIG_FILE"
+}
+
+save_config() {
+  mkdir -p "$CONFIG_DIR"
+  local wl_joined="" w
+  for w in "${WHITELIST[@]:-}"; do
+    [ -z "$w" ] && continue
+    wl_joined="${wl_joined:+$wl_joined,}$w"
+  done
+  local sel_joined="" i
+  for i in "${!CATEGORY_STATE_IDS[@]}"; do
+    [ "${CATEGORY_STATE_ON[$i]}" = "1" ] && sel_joined="${sel_joined:+$sel_joined,}${CATEGORY_STATE_IDS[$i]}"
+  done
+  {
+    printf '# clean.sh saved settings — edit by hand or via the interactive menu (-i)\n'
+    printf 'SIM_STALE_DAYS=%s\n' "$SIM_STALE_DAYS"
+    printf 'ANDROID_STALE_DAYS=%s\n' "$ANDROID_STALE_DAYS"
+    printf 'KEEP_DEVICE_SUPPORT=%s\n' "$KEEP_DEVICE_SUPPORT"
+    printf 'WHITELIST=%s\n' "$wl_joined"
+    printf 'SELECTED_CATEGORIES=%s\n' "$sel_joined"
+  } > "$CONFIG_FILE"
+  ok "settings saved to $CONFIG_FILE"
 }
 
 human_kb() {
@@ -607,6 +665,24 @@ in_list() {
   return 1
 }
 
+# Maps an opt-in category id to the global flag variable that gates it, so
+# that passing --include-X is by itself enough to run it (see the ONLY_LIST
+# fixup below) — add one line here for any new opt-in category.
+category_include_var() {
+  case "$1" in
+    docker) printf '%s' "INCLUDE_DOCKER" ;;
+    docker-cache) printf '%s' "INCLUDE_DOCKER_CACHE" ;;
+    mail) printf '%s' "INCLUDE_MAIL" ;;
+    trash) printf '%s' "INCLUDE_TRASH" ;;
+    orphans) printf '%s' "INCLUDE_ORPHANS" ;;
+    whatsapp) printf '%s' "INCLUDE_WHATSAPP" ;;
+    sim-stale) printf '%s' "INCLUDE_SIM_STALE" ;;
+    claude-cache) printf '%s' "INCLUDE_CLAUDE_CACHE" ;;
+    android) printf '%s' "INCLUDE_ANDROID" ;;
+    *) printf '%s' "" ;;
+  esac
+}
+
 should_run_category() {
   local id="$1"
   # --skip always wins, even over an explicit --only or the default set.
@@ -658,6 +734,73 @@ category_info() {
 }
 
 ALL_CATEGORY_IDS="caches logs diagnostics dsstore quicklook xcode-derived xcode-archives sim-caches sim-unavailable device-support homebrew npm yarn pnpm cocoapods gradle pip timemachine docker docker-cache mail trash orphans whatsapp sim-stale claude-cache android"
+
+# Live on/off state for the interactive menu, parallel arrays keyed by index
+# (bash 3.2 has no associative arrays). Seeded from category_info() defaults,
+# then CONFIG_SELECTED_CATEGORIES (from the config file) if present.
+CATEGORY_STATE_IDS=()
+CATEGORY_STATE_ON=()
+
+sync_include_var() {
+  local id="$1" val="$2" varname
+  varname="$(category_include_var "$id")"
+  [ -n "$varname" ] && printf -v "$varname" '%s' "$val"
+}
+
+build_category_state() {
+  CATEGORY_STATE_IDS=()
+  CATEGORY_STATE_ON=()
+  local id info default
+  for id in $ALL_CATEGORY_IDS; do
+    info="$(category_info "$id")"
+    default="$(printf '%s' "$info" | cut -d'|' -f2)"
+    CATEGORY_STATE_IDS+=("$id")
+    CATEGORY_STATE_ON+=("$default")
+  done
+  if [ -n "$CONFIG_SELECTED_CATEGORIES" ]; then
+    local i
+    for i in "${!CATEGORY_STATE_IDS[@]}"; do
+      case ",$CONFIG_SELECTED_CATEGORIES," in
+        *",${CATEGORY_STATE_IDS[$i]},"*) CATEGORY_STATE_ON[$i]=1 ;;
+        *) CATEGORY_STATE_ON[$i]=0 ;;
+      esac
+    done
+  fi
+  local i
+  for i in "${!CATEGORY_STATE_IDS[@]}"; do
+    sync_include_var "${CATEGORY_STATE_IDS[$i]}" "${CATEGORY_STATE_ON[$i]}"
+  done
+}
+
+category_state_index() {
+  local i
+  for i in "${!CATEGORY_STATE_IDS[@]}"; do
+    if [ "${CATEGORY_STATE_IDS[$i]}" = "$1" ]; then
+      printf '%s' "$i"
+      return 0
+    fi
+  done
+  return 1
+}
+
+toggle_category_state() {
+  local idx
+  idx="$(category_state_index "$1")" || return 1
+  if [ "${CATEGORY_STATE_ON[$idx]}" = "1" ]; then
+    CATEGORY_STATE_ON[$idx]=0
+  else
+    CATEGORY_STATE_ON[$idx]=1
+  fi
+  sync_include_var "$1" "${CATEGORY_STATE_ON[$idx]}"
+}
+
+only_list_from_category_state() {
+  local joined="" i
+  for i in "${!CATEGORY_STATE_IDS[@]}"; do
+    [ "${CATEGORY_STATE_ON[$i]}" = "1" ] && joined="${joined:+$joined,}${CATEGORY_STATE_IDS[$i]}"
+  done
+  printf '%s' "$joined"
+}
 
 print_category_list() {
   printf '%-16s %-9s %-8s %s\n' "ID" "RISK" "DEFAULT" "DESCRIPTION"
@@ -1525,7 +1668,7 @@ apply_whitelist_preset() {
       ;;
     *)
       err "unknown whitelist preset: $1 (known: xcode-simulator, xcode-derived, node)"
-      exit 1
+      return 1
       ;;
   esac
 }
@@ -1534,8 +1677,17 @@ apply_whitelist_preset() {
 # Argument parsing
 # ---------------------------------------------------------------------------
 
+load_config
+
+# Bare invocation from an actual terminal drops into the interactive menu;
+# any flag at all keeps the script fully scriptable/non-interactive as before.
+if [ $# -eq 0 ] && [ -t 0 ] && [ -t 1 ]; then
+  INTERACTIVE=1
+fi
+
 while [ $# -gt 0 ]; do
   case "$1" in
+    -i|--interactive) INTERACTIVE=1; shift ;;
     --scan) MODE="scan"; shift ;;
     --clean) MODE="clean"; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
@@ -1603,12 +1755,255 @@ if [ -z "$ONLY_LIST" ]; then
   ONLY_LIST="${default_ids#,}"
 fi
 
+# Any --include-X flag is itself an explicit request to run that category,
+# whether or not --only named it (or code defaults would have included it).
+# --skip still wins (checked first in should_run_category).
+for _id in $ALL_CATEGORY_IDS; do
+  _var="$(category_include_var "$_id")"
+  if [ -n "$_var" ] && [ "${!_var}" = "1" ]; then
+    case ",$ONLY_LIST," in
+      *",$_id,"*) ;;
+      *) ONLY_LIST="${ONLY_LIST:+$ONLY_LIST,}$_id" ;;
+    esac
+  fi
+done
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-main() {
+# ---------------------------------------------------------------------------
+# Interactive mode
+# ---------------------------------------------------------------------------
+
+compute_code_default_ids() {
+  local ids="" id info default
+  for id in $ALL_CATEGORY_IDS; do
+    info="$(category_info "$id")"
+    default="$(printf '%s' "$info" | cut -d'|' -f2)"
+    [ "$default" = "1" ] && ids="${ids:+$ids,}$id"
+  done
+  printf '%s' "$ids"
+}
+
+reset_all_include_vars() {
+  local id var
+  for id in $ALL_CATEGORY_IDS; do
+    var="$(category_include_var "$id")"
+    [ -n "$var" ] && printf -v "$var" '0'
+  done
+}
+
+interactive_pause() {
+  read -r -p "Press Enter to continue..." _ </dev/tty
+}
+
+print_live_category_state() {
+  printf '%-16s %-9s %-6s %s\n' "ID" "RISK" "STATE" "DESCRIPTION"
+  local i id info risk desc state
+  for i in "${!CATEGORY_STATE_IDS[@]}"; do
+    id="${CATEGORY_STATE_IDS[$i]}"
+    info="$(category_info "$id")"
+    risk="$(printf '%s' "$info" | cut -d'|' -f1)"
+    desc="$(printf '%s' "$info" | cut -d'|' -f3)"
+    [ "${CATEGORY_STATE_ON[$i]}" = "1" ] && state="on" || state="off"
+    printf '%-16s %-9s %-6s %s\n' "$id" "$risk" "$state" "$desc"
+  done
+}
+
+view_last_log() {
+  local f
+  f="$(ls -t "$LOG_DIR"/clean-*.log 2>/dev/null | head -1)"
+  if [ -z "$f" ]; then
+    info "no log files yet"
+    return
+  fi
+  say "Showing last 60 lines of: $f"
+  say "---"
+  tail -60 "$f"
+  say "---"
+}
+
+interactive_choose_categories() {
+  local i id state marker info risk desc sel idx
+  while true; do
+    say ""
+    say "${C_BOLD}Choose categories${C_RESET} (number=toggle, s=all, n=none, r=reset to saved/defaults, w=run scan, c=run clean, b=back)"
+    for i in "${!CATEGORY_STATE_IDS[@]}"; do
+      id="${CATEGORY_STATE_IDS[$i]}"
+      info="$(category_info "$id")"
+      risk="$(printf '%s' "$info" | cut -d'|' -f1)"
+      desc="$(printf '%s' "$info" | cut -d'|' -f3)"
+      if [ "${CATEGORY_STATE_ON[$i]}" = "1" ]; then marker="[x]"; else marker="[ ]"; fi
+      printf '  %2d) %s %-16s %-9s %s\n' "$((i + 1))" "$marker" "$id" "$risk" "$desc"
+    done
+    read -r -p "> " sel </dev/tty
+    case "$sel" in
+      s|S)
+        for i in "${!CATEGORY_STATE_IDS[@]}"; do
+          CATEGORY_STATE_ON[$i]=1
+          sync_include_var "${CATEGORY_STATE_IDS[$i]}" 1
+        done
+        ;;
+      n|N)
+        for i in "${!CATEGORY_STATE_IDS[@]}"; do
+          CATEGORY_STATE_ON[$i]=0
+          sync_include_var "${CATEGORY_STATE_IDS[$i]}" 0
+        done
+        ;;
+      r|R) build_category_state ;;
+      w|W)
+        MODE=scan
+        ONLY_LIST="$(only_list_from_category_state)"
+        SKIP_LIST=""
+        run_selected_categories
+        interactive_pause
+        ;;
+      c|C)
+        MODE=clean
+        ONLY_LIST="$(only_list_from_category_state)"
+        SKIP_LIST=""
+        run_selected_categories
+        interactive_pause
+        ;;
+      b|B) return ;;
+      [0-9]*)
+        idx=$((sel - 1))
+        if [ "$idx" -ge 0 ] && [ "$idx" -lt "${#CATEGORY_STATE_IDS[@]}" ]; then
+          toggle_category_state "${CATEGORY_STATE_IDS[$idx]}"
+        else
+          warn "no such category number: $sel"
+        fi
+        ;;
+      *) warn "unrecognized option: $sel" ;;
+    esac
+  done
+}
+
+interactive_whitelist() {
+  local sel i w num newval pname
+  while true; do
+    say ""
+    say "${C_BOLD}Whitelist${C_RESET}"
+    i=0
+    for w in "${WHITELIST[@]:-}"; do
+      [ -z "$w" ] && continue
+      i=$((i + 1))
+      say "  $i) $w"
+    done
+    [ "$i" -eq 0 ] && say "  (empty)"
+    say "  a) Add entry (path, ~/path, or glob like com.vendor.*)"
+    say "  d) Remove entry by number"
+    say "  p) Apply preset (xcode-simulator / xcode-derived / node)"
+    say "  b) Back"
+    read -r -p "> " sel </dev/tty
+    case "$sel" in
+      a|A)
+        read -r -p "Entry to whitelist: " newval </dev/tty
+        [ -n "$newval" ] && WHITELIST+=("$newval")
+        ;;
+      d|D)
+        read -r -p "Number to remove: " num </dev/tty
+        if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le "${#WHITELIST[@]}" ]; then
+          unset "WHITELIST[$((num - 1))]"
+          WHITELIST=("${WHITELIST[@]}")
+        else
+          warn "invalid number"
+        fi
+        ;;
+      p|P)
+        read -r -p "Preset name: " pname </dev/tty
+        apply_whitelist_preset "$pname"
+        ;;
+      b|B) return ;;
+      *) warn "unrecognized option: $sel" ;;
+    esac
+  done
+}
+
+interactive_settings() {
+  local sel v
+  while true; do
+    say ""
+    say "${C_BOLD}Settings${C_RESET}"
+    say "  1) Xcode DeviceSupport versions to keep   = $KEEP_DEVICE_SUPPORT"
+    say "  2) Simulator staleness threshold (days)    = $SIM_STALE_DAYS"
+    say "  3) Android AVD staleness threshold (days)  = $ANDROID_STALE_DAYS"
+    say "  4) Aggressive mode                         = $( [ "$AGGRESSIVE" = 1 ] && echo on || echo off )"
+    say "  5) Verbose output                          = $( [ "$VERBOSE" = 1 ] && echo on || echo off )"
+    say "  6) Assume yes (skip confirmation prompts)  = $( [ "$ASSUME_YES" = 1 ] && echo on || echo off )"
+    say "  b) Back"
+    read -r -p "> " sel </dev/tty
+    case "$sel" in
+      1) read -r -p "New value [$KEEP_DEVICE_SUPPORT]: " v </dev/tty; [ -n "$v" ] && KEEP_DEVICE_SUPPORT="$v" ;;
+      2) read -r -p "New value [$SIM_STALE_DAYS]: " v </dev/tty; [ -n "$v" ] && SIM_STALE_DAYS="$v" ;;
+      3) read -r -p "New value [$ANDROID_STALE_DAYS]: " v </dev/tty; [ -n "$v" ] && ANDROID_STALE_DAYS="$v" ;;
+      4) [ "$AGGRESSIVE" = 1 ] && AGGRESSIVE=0 || AGGRESSIVE=1 ;;
+      5) [ "$VERBOSE" = 1 ] && VERBOSE=0 || VERBOSE=1 ;;
+      6) [ "$ASSUME_YES" = 1 ] && ASSUME_YES=0 || ASSUME_YES=1 ;;
+      b|B) return ;;
+      *) warn "unrecognized option: $sel" ;;
+    esac
+  done
+}
+
+interactive_main() {
   log_init
+  build_category_state
+  local sel
+  say "${C_BOLD}CleanMyMac — interactive mode${C_RESET}  (config: $CONFIG_FILE)"
+  while true; do
+    say ""
+    say "${C_BOLD}Main menu${C_RESET}"
+    say "  1) Quick scan   (code-default safe categories, no changes made)"
+    say "  2) Quick clean  (code-default safe categories)"
+    say "  3) Choose categories & run"
+    say "  4) Manage whitelist"
+    say "  5) Settings"
+    say "  6) View category list (current selection)"
+    say "  7) View most recent log"
+    say "  8) Save current selection + settings as default"
+    say "  0) Quit"
+    read -r -p "> " sel </dev/tty
+    case "$sel" in
+      1)
+        MODE=scan
+        reset_all_include_vars
+        ONLY_LIST="$(compute_code_default_ids)"
+        SKIP_LIST=""
+        run_selected_categories
+        interactive_pause
+        ;;
+      2)
+        MODE=clean
+        reset_all_include_vars
+        ONLY_LIST="$(compute_code_default_ids)"
+        SKIP_LIST=""
+        run_selected_categories
+        interactive_pause
+        ;;
+      3) interactive_choose_categories ;;
+      4) interactive_whitelist ;;
+      5) interactive_settings ;;
+      6) print_live_category_state; interactive_pause ;;
+      7) view_last_log; interactive_pause ;;
+      8) save_config ;;
+      0) exit 0 ;;
+      *) warn "unrecognized option: $sel" ;;
+    esac
+  done
+}
+
+# Runs exactly the categories currently selected via ONLY_LIST/SKIP_LIST.
+# Safe to call more than once in a process (interactive mode does) — resets
+# its own run-scoped accumulators and log file each time. Returns 1 if the
+# user aborted at the confirmation prompt, so a caller can return to a menu
+# instead of exiting the whole process.
+run_selected_categories() {
+  log_init
+  TOTAL_BEFORE_KB=0
+  TOTAL_RECLAIMED_KB=0
+  RAN_ANY=0
 
   say "${C_BOLD}clean.sh${C_RESET} — mode: ${C_BOLD}$MODE${C_RESET}  $( [ "$AGGRESSIVE" = 1 ] && echo '(aggressive)' )"
   say "Log: $LOG_FILE"
@@ -1626,7 +2021,7 @@ main() {
   if [ "$MODE" = "clean" ] && [ "$ASSUME_YES" != 1 ]; then
     if ! confirm "About to clean categories: $ONLY_LIST — proceed?"; then
       warn "aborted by user"
-      exit 0
+      return 1
     fi
   fi
 
@@ -1650,6 +2045,15 @@ main() {
     say "Free space before: $free_before  ->  after: $free_after"
   fi
   say "Full log: $LOG_FILE"
+  return 0
 }
 
-main
+main() {
+  run_selected_categories
+}
+
+if [ "$INTERACTIVE" = 1 ]; then
+  interactive_main
+else
+  main
+fi
