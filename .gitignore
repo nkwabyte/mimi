@@ -1,0 +1,42 @@
+# macOS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Editors and IDEs
+.idea/
+.vscode/
+.vs/
+*.swp
+*.swo
+*.swm
+*~
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Logs, process files, and temporary artifacts
+*.log
+*.pid
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+tmp/
+temp/
+
+# Local tool caches
+.cache/
