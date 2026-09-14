@@ -18,6 +18,58 @@ parts of that bucket that are genuinely safe to remove (they get
 regenerated automatically) — it does not and cannot touch actual macOS
 system files, and it never runs as root.
 
+## Interactive mode
+
+Run it with no arguments from a real terminal and you get a menu instead of
+a one-shot scan:
+
+```bash
+./clean.sh
+# or explicitly, even with other flags pre-set:
+./clean.sh -i
+```
+
+(Any flag at all — including `--scan` — keeps the script fully scriptable/
+non-interactive, exactly as documented below. Only a truly bare invocation
+from an actual terminal enters the menu.)
+
+```
+Main menu
+  1) Quick scan   (code-default safe categories, no changes made)
+  2) Quick clean  (code-default safe categories)
+  3) Choose categories & run
+  4) Manage whitelist
+  5) Settings
+  6) View category list (current selection)
+  7) View most recent log
+  8) Save current selection + settings as default
+  0) Quit
+```
+
+- **Choose categories & run** — a numbered checklist of every category
+  (including all the opt-in ones from this doc — WhatsApp, orphans,
+  Android, etc.). Type a number to toggle it, `s`/`n` to select all/none,
+  `w`/`c` to run a scan/clean with exactly what's checked, `b` to go back.
+  Toggling an opt-in category here automatically sets its `--include-*`
+  flag too — no need to remember flag names.
+- **Manage whitelist** — add/remove entries or apply a preset
+  (`xcode-simulator`, `xcode-derived`, `node`) without re-typing paths on
+  the command line.
+- **Settings** — adjust `--keep-device-support`, `--sim-stale-days`,
+  `--android-stale-days`, and toggle aggressive/verbose/assume-yes.
+- **Save current selection + settings as default** — writes everything to
+  `~/.config/cleanmymac/config.conf`. From then on, *every* invocation
+  (interactive or not) loads that file first: your saved whitelist entries
+  and thresholds apply automatically, and if you saved a category
+  selection, that becomes the new default set instead of the built-in
+  defaults (CLI flags like `--only`/`--skip` still override it for that
+  one run). Delete the file, or use the menu again, to change it.
+
+This is meant to be the extension point going forward — adding a new
+category is one `category_info()` line + one function + one
+`category_include_var()` line, and it shows up in the interactive menu
+automatically.
+
 ## Quick start
 
 ```bash
