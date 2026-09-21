@@ -1,0 +1,6 @@
+#!/bin/sh
+# Mock: uv — cache commands succeed silently, nothing is touched.
+case "$1" in
+  cache) exit 0 ;;
+  *)     exit 0 ;;
+esac

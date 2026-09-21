@@ -1,0 +1,3 @@
+#!/bin/sh
+# Mock: qlmanage — no-op cache reset
+exit 0

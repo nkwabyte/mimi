@@ -312,7 +312,35 @@ enough to run that category — you do not also need `--only`.
 | Code | Meaning |
 |---|---|
 | `0` | Success, including `--help`, `--list` and `--report` |
-| `1` | Unknown option, or you declined the confirmation prompt |
+| `1` | Invalid usage, or you declined the confirmation prompt |
+
+Every invalid-usage message is written to **stderr** with the same prefix, so
+it is easy to grep for in a wrapper script:
+
+```
+clean.sh: error: --only: unknown category 'cahces' (run './clean.sh --list' to see them all)
+Try './clean.sh --help' for the full list of options.
+```
+
+### What gets rejected
+
+| Input | Result |
+|---|---|
+| `--only` with no value | `--only requires a value` |
+| `--only --scan` | `--only requires a value (got the option '--scan')` |
+| `--only nosuchcategory` | `unknown category 'nosuchcategory'` |
+| `--only ""` or `--only ",,,"` | `--only requires at least one category name` |
+| `--keep-device-support abc` | `expects a whole number between 0 and 36500` |
+| `--tmp-stale-days -5` | same — negatives, floats and whitespace are all rejected |
+| `--whitelist-preset nosuch` | `unknown whitelist preset`, and the message lists all five |
+| `--remove-orphans-from missing.txt` | `cannot read review file` |
+
+Lists tolerate surrounding whitespace (`--only " caches , logs "`) and silently
+drop duplicates (`--only caches,caches`). Values from the config file go
+through exactly the same checks, and the error names the file and key rather
+than a flag you never typed — but `--help` and `--list` keep working even when
+the config is unusable, so you can always reach the documentation that
+explains the fix.
 
 ---
 

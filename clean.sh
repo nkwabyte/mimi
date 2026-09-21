@@ -193,6 +193,129 @@ verbose() { [ "$VERBOSE" = 1 ] && say "${C_DIM}    [v] $*${C_RESET}"; return 0; 
 # Utility
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Argument and configuration validation  (P0-T08)
+#
+# Every value that reaches arithmetic, find(1) or a category lookup is checked
+# here first. The rules are identical whether the value came from the command
+# line or from the saved config file, so a hand-edited config cannot smuggle
+# past what the CLI would reject.
+#
+# Invalid usage always exits 1 with the same `clean.sh: error:` prefix, and
+# always writes to stderr — this runs before any log file exists.
+# ---------------------------------------------------------------------------
+
+EXIT_USAGE=1
+
+# Upper bound for every count/day setting. Generous enough that no real
+# retention policy hits it, small enough that a typo or an overflow attempt
+# does not reach arithmetic.
+VALIDATE_INT_MAX=36500
+
+die_usage() {
+  printf 'clean.sh: error: %s\n' "$*" >&2
+  printf "Try './%s --help' for the full list of options.\n" "$SCRIPT_NAME" >&2
+  exit "$EXIT_USAGE"
+}
+
+# require_arg <flag> <remaining-arg-count> <candidate-value>
+#
+# Guards `$2` before anything reads it, so `set -u` can never surface a raw
+# "unbound variable" to the user. A candidate that is itself a long option is
+# treated as missing: `--only --scan` is a typo, not a category named
+# "--scan". A leading single dash is allowed through so that a negative
+# number reaches the numeric validator and gets its more specific message.
+require_arg() {
+  local flag="$1" remaining="$2" candidate="${3-}"
+  if [ "$remaining" -lt 2 ]; then
+    die_usage "$flag requires a value"
+  fi
+  case "$candidate" in
+    --*) die_usage "$flag requires a value (got the option '$candidate')" ;;
+  esac
+  return 0
+}
+
+# validate_int <source-label> <value>
+#
+# Accepts a bounded non-negative integer and nothing else: no signs, no
+# decimals, no whitespace, no empty string. <source-label> is the flag name
+# for CLI values and a config-file description for config values, so the
+# error always points at what the user actually has to edit.
+validate_int() {
+  local src="$1" val="${2-}"
+  case "$val" in
+    ''|*[!0-9]*)
+      die_usage "$src expects a whole number between 0 and $VALIDATE_INT_MAX (got: '$val')" ;;
+  esac
+  if [ "$val" -gt "$VALIDATE_INT_MAX" ]; then
+    die_usage "$src expects a whole number between 0 and $VALIDATE_INT_MAX (got: '$val')"
+  fi
+  return 0
+}
+
+is_known_category() {
+  local needle="$1" id
+  for id in $ALL_CATEGORY_IDS; do
+    [ "$id" = "$needle" ] && return 0
+  done
+  return 1
+}
+
+# normalize_category_list <source-label> <comma-separated-list>
+#
+# Trims whitespace around each id, drops empty fields, removes duplicates and
+# rejects anything that is not a real category. Prints the normalized list.
+# An empty result is an error: `--only ""` almost certainly means the shell
+# ate an argument, and silently running everything would be the worst
+# possible interpretation.
+normalize_category_list() {
+  local src="$1" raw="$2" out="" item
+  local oldifs="$IFS"
+  IFS=','
+  set -- $raw
+  IFS="$oldifs"
+  for item in "$@"; do
+    # Strip surrounding whitespace (bash 3.2: no ${var//pattern} niceties
+    # that handle this in one step reliably).
+    item="${item#"${item%%[![:space:]]*}"}"
+    item="${item%"${item##*[![:space:]]}"}"
+    [ -z "$item" ] && continue
+    if ! is_known_category "$item"; then
+      die_usage "$src: unknown category '$item' (run './$SCRIPT_NAME --list' to see them all)"
+    fi
+    case ",$out," in
+      *",$item,"*) continue ;;    # already present, drop the duplicate
+    esac
+    out="${out:+$out,}$item"
+  done
+  if [ -z "$out" ]; then
+    die_usage "$src requires at least one category name"
+  fi
+  printf '%s' "$out"
+}
+
+# Applies the CLI validation rules to whatever the config file supplied, with
+# an error that names the file and key rather than a flag the user never
+# typed. Called once, after argument parsing.
+validate_config_values() {
+  local line key val
+  local oldifs="$IFS"
+  while IFS='	' read -r key val; do
+    [ -z "$key" ] && continue
+    validate_int "$CONFIG_FILE ($key)" "$val"
+  done <<EOF
+$CONFIG_NUMERIC_SEEN
+EOF
+  IFS="$oldifs"
+
+  if [ -n "$CONFIG_SELECTED_CATEGORIES" ]; then
+    CONFIG_SELECTED_CATEGORIES="$(normalize_category_list "$CONFIG_FILE (SELECTED_CATEGORIES)" "$CONFIG_SELECTED_CATEGORIES")" \
+      || exit "$EXIT_USAGE"
+  fi
+  return 0
+}
+
 usage() {
   cat <<'EOF'
 clean.sh — macOS junk cleaner (Xcode/simulator aware)
@@ -372,12 +495,23 @@ INTERACTIVE CONTROLS:
 EOF
 }
 
+# Numeric keys the config file supplied, as "KEY<TAB>value" lines. Validated
+# by validate_config_values() after argument parsing, so that an unusable
+# config still leaves --help and --list working — otherwise the user has no
+# in-tool way to find out how to fix it.
+CONFIG_NUMERIC_SEEN=""
+
 load_config() {
   [ -f "$CONFIG_FILE" ] || return 0
   local key val
   while IFS='=' read -r key val; do
     case "$key" in
       ''|'#'*) continue ;;
+    esac
+    case "$key" in
+      SIM_STALE_DAYS|ANDROID_STALE_DAYS|KEEP_DEVICE_SUPPORT|TMP_STALE_DAYS|KEEP_TOOLCHAINS|KEEP_LOGS)
+        CONFIG_NUMERIC_SEEN="$CONFIG_NUMERIC_SEEN$key	$val
+" ;;
     esac
     case "$key" in
       SIM_STALE_DAYS) SIM_STALE_DAYS="$val" ;;
@@ -977,10 +1111,18 @@ cat_caches() {
   section "User caches"
   local base="$HOME_DIR/Library/Caches"
   [ -d "$base" ] || { info "no caches dir found"; return; }
+  # Entries here are usually per-app directories, but loose files turn up too
+  # (stray plists, single-file caches). clear_dir_contents only handles
+  # directories, so a bare file would otherwise be skipped silently and never
+  # counted in the estimate either.
   local sub
   for sub in "$base"/*; do
     [ -e "$sub" ] || continue
-    clear_dir_contents "$sub"
+    if [ -d "$sub" ]; then
+      clear_dir_contents "$sub"
+    else
+      remove_path "$sub"
+    fi
   done
 }
 
@@ -997,7 +1139,13 @@ cat_logs() {
     # delete the transcript currently being written and any orphan review
     # file the user has not acted on yet. It is size-capped by KEEP_LOGS.
     [ "$sub" = "$LOG_DIR" ] && { verbose "skipping own log dir: $sub"; continue; }
-    clear_dir_contents "$sub"
+    # Same as caches: ~/Library/Logs holds loose .log files as well as
+    # per-app directories, and clear_dir_contents ignores non-directories.
+    if [ -d "$sub" ]; then
+      clear_dir_contents "$sub"
+    else
+      remove_path "$sub"
+    fi
   done
 }
 
@@ -2942,7 +3090,8 @@ apply_whitelist_preset() {
       WHITELIST+=("$HOME_DIR/Library/pnpm")
       ;;
     *)
-      err "unknown whitelist preset: $1 (known: xcode-simulator, xcode-derived, node)"
+      printf 'clean.sh: error: unknown whitelist preset: %s\n' "$1" >&2
+      printf '  known presets: xcode-simulator, xcode-derived, node, browsers, ml\n' >&2
       return 1
       ;;
   esac
@@ -2969,25 +3118,32 @@ while [ $# -gt 0 ]; do
     -v|--verbose) VERBOSE=1; shift ;;
     --aggressive) AGGRESSIVE=1; shift ;;
     --keep-device-support)
+      require_arg "--keep-device-support" "$#" "${2-}"
+      validate_int "--keep-device-support" "$2"
       KEEP_DEVICE_SUPPORT="$2"; shift 2 ;;
     --keep-device-support=*)
+      validate_int "--keep-device-support" "${1#*=}"
       KEEP_DEVICE_SUPPORT="${1#*=}"; shift ;;
     --only)
-      ONLY_LIST="$2"; shift 2 ;;
+      require_arg "--only" "$#" "${2-}"
+      ONLY_LIST="$(normalize_category_list "--only" "$2")" || exit "$EXIT_USAGE"; shift 2 ;;
     --only=*)
-      ONLY_LIST="${1#*=}"; shift ;;
+      ONLY_LIST="$(normalize_category_list "--only" "${1#*=}")" || exit "$EXIT_USAGE"; shift ;;
     --skip)
-      SKIP_LIST="$2"; shift 2 ;;
+      require_arg "--skip" "$#" "${2-}"
+      SKIP_LIST="$(normalize_category_list "--skip" "$2")" || exit "$EXIT_USAGE"; shift 2 ;;
     --skip=*)
-      SKIP_LIST="${1#*=}"; shift ;;
+      SKIP_LIST="$(normalize_category_list "--skip" "${1#*=}")" || exit "$EXIT_USAGE"; shift ;;
     --whitelist)
+      require_arg "--whitelist" "$#" "${2-}"
       IFS=',' read -r -a _wl <<< "$2"; WHITELIST+=("${_wl[@]}"); shift 2 ;;
     --whitelist=*)
       IFS=',' read -r -a _wl <<< "${1#*=}"; WHITELIST+=("${_wl[@]}"); shift ;;
     --whitelist-preset)
-      apply_whitelist_preset "$2"; shift 2 ;;
+      require_arg "--whitelist-preset" "$#" "${2-}"
+      apply_whitelist_preset "$2" || exit "$EXIT_USAGE"; shift 2 ;;
     --whitelist-preset=*)
-      apply_whitelist_preset "${1#*=}"; shift ;;
+      apply_whitelist_preset "${1#*=}" || exit "$EXIT_USAGE"; shift ;;
     --include-trash) INCLUDE_TRASH=1; shift ;;
     --include-mail) INCLUDE_MAIL=1; shift ;;
     --include-docker) INCLUDE_DOCKER=1; shift ;;
@@ -2996,8 +3152,11 @@ while [ $# -gt 0 ]; do
     --include-whatsapp) INCLUDE_WHATSAPP=1; shift ;;
     --include-sim-stale) INCLUDE_SIM_STALE=1; shift ;;
     --sim-stale-days)
+      require_arg "--sim-stale-days" "$#" "${2-}"
+      validate_int "--sim-stale-days" "$2"
       SIM_STALE_DAYS="$2"; shift 2 ;;
     --sim-stale-days=*)
+      validate_int "--sim-stale-days" "${1#*=}"
       SIM_STALE_DAYS="${1#*=}"; shift ;;
     --include-claude-cache) INCLUDE_CLAUDE_CACHE=1; shift ;;
     --include-android) INCLUDE_ANDROID=1; shift ;;
@@ -3006,26 +3165,41 @@ while [ $# -gt 0 ]; do
     --include-ios-backups) INCLUDE_IOS_BACKUPS=1; shift ;;
     --include-toolchains) INCLUDE_TOOLCHAINS=1; shift ;;
     --tmp-stale-days)
+      require_arg "--tmp-stale-days" "$#" "${2-}"
+      validate_int "--tmp-stale-days" "$2"
       TMP_STALE_DAYS="$2"; shift 2 ;;
     --tmp-stale-days=*)
+      validate_int "--tmp-stale-days" "${1#*=}"
       TMP_STALE_DAYS="${1#*=}"; shift ;;
     --keep-toolchains)
+      require_arg "--keep-toolchains" "$#" "${2-}"
+      validate_int "--keep-toolchains" "$2"
       KEEP_TOOLCHAINS="$2"; shift 2 ;;
     --keep-toolchains=*)
+      validate_int "--keep-toolchains" "${1#*=}"
       KEEP_TOOLCHAINS="${1#*=}"; shift ;;
     --report) REPORT_ONLY=1; shift ;;
     --no-log) NO_LOG=1; shift ;;
     --keep-logs)
+      require_arg "--keep-logs" "$#" "${2-}"
+      validate_int "--keep-logs" "$2"
       KEEP_LOGS="$2"; shift 2 ;;
     --keep-logs=*)
+      validate_int "--keep-logs" "${1#*=}"
       KEEP_LOGS="${1#*=}"; shift ;;
     --android-stale-days)
+      require_arg "--android-stale-days" "$#" "${2-}"
+      validate_int "--android-stale-days" "$2"
       ANDROID_STALE_DAYS="$2"; shift 2 ;;
     --android-stale-days=*)
+      validate_int "--android-stale-days" "${1#*=}"
       ANDROID_STALE_DAYS="${1#*=}"; shift ;;
     --remove-orphans-from)
+      require_arg "--remove-orphans-from" "$#" "${2-}"
+      [ -r "$2" ] || die_usage "--remove-orphans-from: cannot read review file '$2'"
       REMOVE_ORPHANS_FILE="$2"; shift 2 ;;
     --remove-orphans-from=*)
+      [ -r "${1#*=}" ] || die_usage "--remove-orphans-from: cannot read review file '${1#*=}'"
       REMOVE_ORPHANS_FILE="${1#*=}"; shift ;;
     --list) print_category_list; exit 0 ;;
     -h|--help) usage; exit 0 ;;
@@ -3036,6 +3210,11 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+# The config file gets the same treatment the CLI just got. Deliberately after
+# the parse loop: --help and --list exit inside it, so documentation stays
+# reachable even when the saved config is broken.
+validate_config_values
 
 # Apply default-on/off filtering only when --only wasn't explicitly given.
 #

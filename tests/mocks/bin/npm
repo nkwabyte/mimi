@@ -1,0 +1,3 @@
+#!/bin/sh
+# Mock: npm — no-op cache clean
+exit 0

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Mock: pod (CocoaPods) — no cache found
+exit 1

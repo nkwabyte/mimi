@@ -45,9 +45,9 @@ Do not start plan/apply, application uninstalling, privileged helpers, new clean
 - Main implementation: `clean.sh`
 - Current size at planning time: 2,059 lines
 - Runtime target: macOS system Bash 3.2+
-- Current tests: none
+- Current tests: 63 Bats tests in `tests/` (`./tests/run`) — as of 2026-09-21
 - Current CI: none
-- Current static tools in review environment: ShellCheck and shfmt not installed
+- Current static tools in review environment: ShellCheck and shfmt still not installed (documented in `tests/README.md`, not yet enforced)
 - Syntax check: `/bin/bash -n clean.sh` passes
 - Current persisted config: `~/.config/cleanmymac/config.conf`
 - Current logs: `~/Library/Logs/cleanmymac`
@@ -115,13 +115,15 @@ Phase objective: remove known unsafe behavior and build enough test infrastructu
 
 ### `P0-T01` — Test harness and disposable filesystem
 
-- [ ] Add `tests/` with Bats-core-compatible helpers.
-- [ ] Add a single repository command such as `./tests/run` or `make test`.
-- [ ] Create a fresh temporary fake home for every test.
-- [ ] Prepend mocked macOS/tool commands to `PATH`.
-- [ ] Add sentinel files above and beside every allowed test root.
-- [ ] Fail teardown if a sentinel changes or any target escapes the fixture.
-- [ ] Document how contributors install/run Bats, ShellCheck, and shfmt.
+Status: `[x]` complete — 2026-09-21
+
+- [x] Add `tests/` with Bats-core-compatible helpers.
+- [x] Add a single repository command such as `./tests/run` or `make test`.
+- [x] Create a fresh temporary fake home for every test.
+- [x] Prepend mocked macOS/tool commands to `PATH`.
+- [x] Add sentinel files above and beside every allowed test root.
+- [x] Fail teardown if a sentinel changes or any target escapes the fixture.
+- [x] Document how contributors install/run Bats, ShellCheck, and shfmt.
 
 Expected files:
 
@@ -136,21 +138,29 @@ tests/
 
 Acceptance:
 
-- Tests run using `/bin/bash` 3.2 on macOS.
-- The harness proves `HOME`, logs, config, Trash, and Library paths point only into the temporary fixture.
-- A deliberately failing sentinel test demonstrates escape detection.
+- Tests run using `/bin/bash` 3.2 on macOS. **Met** — `run_clean` invokes
+  `/bin/bash` explicitly so a newer Homebrew bash cannot mask a 3.2 problem.
+- The harness proves `HOME`, logs, config, Trash, and Library paths point only into the temporary fixture. **Met** — `harness: config and logs are redirected inside the fixture`, `harness: TMPDIR is redirected inside the fixture`.
+- A deliberately failing sentinel test demonstrates escape detection. **Met, but implemented differently**: a skipped test proves nothing, so instead
+  `verify_sentinels` was extracted from `teardown` and two live tests tamper
+  with a sentinel (modify, then delete), assert the alarm fires, and restore
+  it. Detection is exercised on every run rather than documented in a comment.
 
 Depends on: none.
 
 ### `P0-T02` — Characterize the current CLI
 
-- [ ] Test `--help` and `--list` exit successfully.
-- [ ] Snapshot category IDs, risks, and defaults.
-- [ ] Test scan is the non-interactive default when a flag is supplied.
-- [ ] Test `--only`, `--skip`, repeated whitelist, and presets.
-- [ ] Test configuration load/save precedence.
-- [ ] Capture current missing-value, invalid-number, and unknown-category behavior before fixing it.
-- [ ] Test that a scan does not remove fixture files.
+Status: `[~]` partially complete — 2026-09-21 (Batch A subset)
+
+- [x] Test `--help` and `--list` exit successfully.
+- [~] Snapshot category IDs, risks, and defaults. *(IDs and the risk column are
+  asserted; a full golden-file snapshot of all 35 rows is still outstanding.)*
+- [x] Test scan is the non-interactive default when a flag is supplied.
+- [x] Test `--only`, `--skip`, repeated whitelist, and presets.
+- [x] Test configuration load/save precedence. *(load and precedence covered;
+  `save_config` round-tripping is not yet tested.)*
+- [x] Capture current missing-value, invalid-number, and unknown-category behavior before fixing it.
+- [x] Test that a scan does not remove fixture files.
 
 Acceptance:
 
@@ -258,13 +268,15 @@ Depends on: `P0-T02`.
 
 ### `P0-T08` — Argument and configuration validation
 
-- [ ] Add helpers that require option values before reading `$2`.
-- [ ] Validate modes and known category IDs.
-- [ ] Validate bounded non-negative integers for retention/staleness settings.
-- [ ] Normalize comma lists and reject empty/duplicate/unknown values intentionally.
-- [ ] Validate configuration values using the same code as CLI values.
-- [ ] Make config writes atomic with restrictive permissions.
-- [ ] Define stable invalid-usage errors and exit code.
+Status: `[~]` partially complete — 2026-09-21 (Batch A subset)
+
+- [x] Add helpers that require option values before reading `$2`. *(`require_arg`)*
+- [x] Validate modes and known category IDs. *(`is_known_category`, `normalize_category_list`)*
+- [x] Validate bounded non-negative integers for retention/staleness settings. *(`validate_int`, bound `VALIDATE_INT_MAX=36500`)*
+- [x] Normalize comma lists and reject empty/duplicate/unknown values intentionally. *(see DEC-005)*
+- [x] Validate configuration values using the same code as CLI values. *(`validate_config_values`)*
+- [ ] Make config writes atomic with restrictive permissions. **Not started** — deferred, `save_config` still writes in place.
+- [x] Define stable invalid-usage errors and exit code. *(see DEC-004)*
 
 Acceptance:
 
@@ -777,6 +789,10 @@ Resolve decisions only when their owning phase needs them. Do not let later-phas
 | 2026-09-14 | DEC-001 | CLI safety work takes priority over the GUI wrapper. | The GUI must not wrap unsafe or unstable mutation behavior. | All Phase 0-2 tasks |
 | 2026-09-14 | DEC-002 | New uninstall behavior will use evidence-based plan/apply and recovery. | A broader name heuristic is not safe enough for app removal. | Phase 2-5 |
 | 2026-09-14 | DEC-003 | Phase 0 avoids large modularization changes. | Small safety patches are easier to review and regression-test. | Phase 0-1 |
+| 2026-09-21 | DEC-004 | All invalid usage exits `1`, not a new dedicated code. | `1` is already the documented exit for an unknown option and is asserted by an existing test. Introducing `2` would break a published contract for no safety gain. The stability the task asked for is delivered by a single `clean.sh: error: <msg>` prefix on stderr via `die_usage`. | `P0-T08` |
+| 2026-09-21 | DEC-005 | Comma lists reject empty and unknown ids, but silently de-duplicate. | `--only caches,caches` is unambiguous and harmless, so erroring would be hostile. `--only ""` is almost always a shell-expansion accident, and running the full default set would be the worst possible reading of it. | `P0-T08` |
+| 2026-09-21 | DEC-006 | An invalid config file fails the run even when the CLI overrides that same key. | Validating only the final effective value would let a broken config sit unnoticed until the day the flag is omitted. `--help` and `--list` still work, so the user can always reach the documentation that explains the fix. | `P0-T08` |
+| 2026-09-21 | DEC-007 | The integer validator is named `validate_int` and accepts zero, rather than the planned `validate_positive_int`. | `--keep-logs 0` and `--keep-toolchains 0` are meaningful, so "positive" would have been an inaccurate name for the required behaviour. The task text asks for *bounded non-negative* integers. | `P0-T08` |
 
 ## 19. Blocker log
 
@@ -794,6 +810,11 @@ Add newly discovered work here before assigning it to a phase. Do not silently e
 - [ ] Define allocated versus logical byte reporting across APFS clones and sparse files.
 - [ ] Determine how to expose Full Disk Access limitations without treating denial as an empty result.
 - [ ] Audit the current project name before public packaging.
+- [ ] `save_config` is not atomic and does not set restrictive permissions (remaining `P0-T08` item).
+- [ ] No golden-file snapshot of `--list` yet; the category table is asserted only by spot-check (remaining `P0-T02` item).
+- [ ] `save_config` round-trip is untested — only `load_config` and precedence are covered.
+- [ ] ShellCheck and shfmt are documented in `tests/README.md` but not yet installed or wired into `tests/run`; the definition-of-done lint gate is therefore not enforced.
+- [ ] Interactive TUI screens (category picker, settings, whitelist) have no automated coverage; they were verified manually through a pseudo-terminal.
 
 ## 21. Progress log
 
@@ -804,6 +825,43 @@ Append one short entry when a task starts, pauses, or completes.
 - Created the phased CLI implementation scratchpad.
 - Selected `P0-T01` as the first implementation task.
 - Deferred GUI implementation until CLI protocol and safety gates are complete.
+
+### 2026-09-21 — Phase 0 Batch A
+
+- `P0-T01` **complete**. `tests/` harness landed: `run` entry point,
+  `test_helper.bash` (per-test disposable fake home, `HOME`/`TMPDIR`
+  redirection, sentinels, mock `PATH`), 21 command mocks, `fixtures/`
+  placeholder, `tests/README.md` contributor guide.
+- Escape detection is now self-verifying rather than skipped: `verify_sentinels`
+  was extracted from `teardown`, and two tests tamper with a sentinel and
+  assert the alarm fires.
+- Added mocks for `uv`, `go`, `yarn`, `pgrep`, `pip3`, `python3`, `avdmanager`,
+  `osascript`, `diskutil`. `pgrep` returning "nothing running" removes a real
+  non-determinism: `app_is_running()` previously consulted the developer's
+  actual open applications.
+- `P0-T02` **partial**. `smoke.bats` (28 tests) characterizes help/list, mode
+  defaults, `--only`/`--skip`, whitelist, config precedence, and scan
+  non-destructiveness.
+- `P0-T08` **partial**. `arg_validation.bats` (34 tests) was written first and
+  failed 22/34 against the then-current behaviour; `require_arg`,
+  `validate_int`, `is_known_category`, `normalize_category_list` and
+  `validate_config_values` were then added to make it pass.
+- Suite: **63 tests, 0 failures, 0 skipped.** `/bin/bash -n clean.sh` passes.
+
+Defects found and fixed while doing the above:
+
+- `cat_caches` and `cat_logs` iterated `"$base"/*` and handed every entry to
+  `clear_dir_contents`, which returns early on anything that is not a
+  directory. Loose files directly under `~/Library/Caches` and
+  `~/Library/Logs` were therefore never removed **and never counted in the
+  scan estimate**. Caught by the one smoke test that was already failing.
+- `normalize_category_list` is called inside `$( )`, so its `die_usage` exit
+  ended only the subshell and the parent continued with an empty list. Every
+  caller now propagates with `|| exit "$EXIT_USAGE"`.
+- `apply_whitelist_preset` returned `1` on an unknown preset but the caller
+  ignored it, so a typo was silently a no-op. Its error message also still
+  listed only three of the five presets.
+- `--remove-orphans-from` accepted an unreadable path without complaint.
 
 ## 22. Next-session handoff template
 

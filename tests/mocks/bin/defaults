@@ -1,0 +1,3 @@
+#!/bin/sh
+# Mock: defaults — returns empty for bundle identifier queries
+exit 1

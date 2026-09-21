@@ -1,0 +1,7 @@
+#!/bin/sh
+# Mock: brew — no-op for autoremove and cleanup
+case "$1" in
+  autoremove) printf '    (none — no unused dependencies)\n'; exit 0 ;;
+  cleanup)    exit 0 ;;
+  *)          exit 0 ;;
+esac

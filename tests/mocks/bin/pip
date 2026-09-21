@@ -1,0 +1,3 @@
+#!/bin/sh
+# Mock: pip — no-op cache purge
+exit 0
