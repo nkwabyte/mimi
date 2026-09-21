@@ -1,0 +1,3 @@
+#!/bin/sh
+# Mock: mdfind — returns empty results (no Spotlight)
+exit 0

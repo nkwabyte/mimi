@@ -1,0 +1,7 @@
+#!/bin/sh
+# Mock: tmutil — no local snapshots
+case "$1" in
+  listlocalsnapshots) exit 0 ;;
+  deletelocalsnapshots) exit 0 ;;
+  *) exit 0 ;;
+esac

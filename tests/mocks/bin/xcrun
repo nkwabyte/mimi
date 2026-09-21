@@ -1,0 +1,7 @@
+#!/bin/sh
+# Mock: xcrun — stubs simctl delete unavailable
+case "$*" in
+  *"simctl delete unavailable"*) exit 0 ;;
+  *simctl*) exit 0 ;;
+  *) exit 0 ;;
+esac

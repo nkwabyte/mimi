@@ -1,0 +1,8 @@
+#!/bin/sh
+# Mock: go — report a GOCACHE inside the sandbox so cat_dev_caches has a
+# deterministic, disposable target instead of the developer's real one.
+if [ "$1" = "env" ] && [ "$2" = "GOCACHE" ]; then
+  printf '%s\n' "${TMPDIR:-/tmp}/go-build-mock"
+  exit 0
+fi
+exit 0

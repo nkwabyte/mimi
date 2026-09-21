@@ -1,0 +1,4 @@
+#!/bin/sh
+# Mock: mdls — returns null for all metadata queries
+printf '(null)\n'
+exit 0

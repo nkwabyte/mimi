@@ -1,0 +1,3 @@
+#!/bin/sh
+# Mock: pnpm — no-op store prune
+exit 0

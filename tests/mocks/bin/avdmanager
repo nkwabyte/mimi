@@ -1,0 +1,3 @@
+#!/bin/sh
+# Mock: avdmanager — no AVDs defined.
+exit 0
