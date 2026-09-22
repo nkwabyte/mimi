@@ -109,6 +109,72 @@ report_action() {
   return 1
 }
 
+# Run a delegated cleanup tool and account for what it actually did.
+#
+#   tool_cleanup "label" "<dir to measure, or empty>" cmd [args...]
+#
+# This is the delegated-command half of what fs_remove does for our own
+# removals. Every one of these sites used to look like:
+#
+#     npm cache clean --force >>"$LOG_FILE" 2>&1
+#     ok "npm cache cleaned (freed ...)"
+#
+# — the exit status was discarded, so a tool that refused to run, was not
+# logged in, or died halfway still reported success. The freed figure was
+# measured and therefore honest, but "cleaned" was not.
+#
+# The measured directory is optional: `docker system prune` and
+# `tmutil thinlocalsnapshots` have no single directory whose shrinkage
+# describes what they did, so they pass "" and report without a byte figure
+# rather than inventing one.
+TOOL_CLEANUP_RECLAIMED_KB=0
+tool_cleanup() {
+  local label="$1" measure="$2"
+  shift 2
+  local before=0 after=0 reclaimed=0 rc=0
+
+  TOOL_CLEANUP_RECLAIMED_KB=0
+
+  if interrupted; then
+    record_action skipped
+    verbose "interrupted, not started: $label"
+    return 1
+  fi
+
+  if [ -n "$measure" ] && [ -e "$measure" ]; then
+    before="$(dir_size_kb "$measure")"
+  fi
+
+  "$@" >> "$LOG_FILE" 2>&1 || rc=$?
+
+  if [ -n "$measure" ]; then
+    after=0
+    [ -e "$measure" ] && after="$(dir_size_kb "$measure")"
+    reclaimed=$((before - after))
+    [ "$reclaimed" -lt 0 ] && reclaimed=0
+    TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
+    TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + reclaimed))
+    TOOL_CLEANUP_RECLAIMED_KB="$reclaimed"
+  fi
+
+  if [ "$rc" -ne 0 ]; then
+    record_action failed
+    err "$label failed (exit $rc) — see the log for what it said"
+    if [ "$reclaimed" -gt 0 ]; then
+      info "it did free $(human_kb "$reclaimed") before failing"
+    fi
+    return 1
+  fi
+
+  record_action ok
+  if [ -n "$measure" ]; then
+    ok "$label (freed $(human_kb "$reclaimed"))"
+  else
+    ok "$label"
+  fi
+  return 0
+}
+
 # Signal handling. The handler does not exit: killing the process mid-rm is
 # how a half-deleted tree and a wrong total happen. It raises a flag instead,
 # and every action checks the flag before starting.

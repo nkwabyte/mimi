@@ -18,6 +18,7 @@ is what the whole suite exercises.
 ./tests/run orphan_report   # ditto
 ./tests/run mutation        # ditto
 ./tests/run layout          # ditto
+./tests/run defects         # ditto
 ```
 
 `tests/run` installs bats-core via Homebrew if it is missing, runs
@@ -56,6 +57,7 @@ tests/
 ├── orphan_report.bats  # report-only orphan discovery (P0-T06)
 ├── mutation.bats       # checked removals and truthful accounting (P0-T05)
 ├── layout.bats         # bin/lib split and the clean.sh shim
+├── defects.bats        # contained correctness defects (P0-T10)
 ├── fixtures/           # static read-only fixture data (see its README)
 └── mocks/bin/          # stubs for every external command clean.sh may call
 ```
@@ -102,6 +104,30 @@ gone by the time the assertion reads it. Call the function directly when the
 global is the thing under test. The same trap bites inside the script itself:
 `x="$(path_authorize "$p")"` gets the path but loses the reason, which is why
 `path_authorize` also publishes `PATH_CANONICAL`.
+
+## Driving the mocks
+
+Two environment variables let a test steer any mocked command:
+
+| Variable | Effect |
+|---|---|
+| `MOCK_CALL_LOG` | Every invocation is appended to this file as `<name> <args>`. Use it to count calls — that is how the duplicate QuickLook reset is pinned. |
+| `MOCK_FAIL_CMDS` | A `\|`-separated list of glob patterns matched against the whole invocation. Any match exits 7 with a message on stderr. |
+
+`MOCK_FAIL_CMDS` matches the *whole* invocation, not just the command name, on
+purpose. Failing every `npm` call also breaks `npm config get cache`, and the
+category then skips before it ever reaches the cleanup — so the test would pass
+while proving nothing. Write the pattern for the call you mean:
+
+```bash
+export MOCK_FAIL_CMDS="npm cache clean*"     # the cleanup fails, queries work
+export MOCK_FAIL_CMDS="yarn cache clean*|brew cleanup*"
+```
+
+A mock that answers queries has to be taught the answer. `npm config get
+cache`, `pnpm store path` and `yarn cache dir` all return fixture paths; if you
+add a category that asks a tool where its cache lives, extend that tool's mock
+too or the category will silently skip.
 
 ## One thing the harness cannot isolate
 

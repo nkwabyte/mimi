@@ -336,6 +336,54 @@ validate_orphan_target() {
   return 0
 }
 
+# Stop a user LaunchAgent before its plist is deleted.
+#
+# `launchctl unload <path>` is the legacy interface; it still works but is
+# deprecated and reports nothing useful. The current form is domain-scoped:
+# gui/<uid> for a per-user agent. The label, not the path, is what the modern
+# subcommands address, so it is read out of the plist first.
+#
+# This is deliberately not fatal. If the agent cannot be stopped, deleting its
+# plist still prevents it coming back at next login — but the user is told,
+# because the job keeps running until then, and the old `|| true` hid that
+# completely.
+unload_launch_agent() {
+  local plist="$1" label="" uid
+
+  uid="$(id -u)"
+
+  if command -v plutil > /dev/null 2>&1; then
+    label="$(plutil -extract Label raw -o - "$plist" 2>/dev/null || true)"
+  fi
+  if [ -z "$label" ] && command -v defaults > /dev/null 2>&1; then
+    label="$(defaults read "${plist%.plist}" Label 2>/dev/null || true)"
+  fi
+
+  command -v launchctl > /dev/null 2>&1 || {
+    warn "launchctl not available; $(basename "$plist") is removed but may still be running"
+    return 1
+  }
+
+  if [ -n "$label" ]; then
+    if launchctl bootout "gui/$uid/$label" > /dev/null 2>&1; then
+      verbose "booted out gui/$uid/$label"
+      return 0
+    fi
+    # bootout fails with ESRCH when the job simply is not loaded, which is the
+    # normal case for a leftover from an uninstalled app.
+    if ! launchctl print "gui/$uid/$label" > /dev/null 2>&1; then
+      verbose "not loaded, nothing to stop: $label"
+      return 0
+    fi
+    warn "could not stop $label; it will not return after you log out"
+    return 1
+  fi
+
+  warn "no Label in $(basename "$plist"); cannot stop it by name"
+  warn "if something from it is running, it will stop at your next login"
+  return 1
+}
+
 # Human wording for the current ORPHAN_DENY_REASON.
 orphan_deny_message() {
   case "${ORPHAN_DENY_REASON:-}" in
@@ -707,10 +755,10 @@ cat_quicklook() {
     info "would reset QuickLook thumbnail cache (qlmanage -r cache)"
     return
   fi
-  if command -v qlmanage >/dev/null 2>&1; then
-    qlmanage -r cache >/dev/null 2>>"$LOG_FILE"
-    qlmanage -r cache >/dev/null 2>>"$LOG_FILE"
-    ok "QuickLook thumbnail cache reset"
+  if command -v qlmanage > /dev/null 2>&1; then
+    # This used to run twice in a row. There is no second-pass effect to gain;
+    # it was a copy-paste, and it doubled the time the category takes.
+    tool_cleanup "QuickLook thumbnail cache reset" "" qlmanage -r cache
   else
     warn "qlmanage not found, skipped"
   fi
@@ -758,12 +806,8 @@ cat_sim_unavailable() {
     info "would run: xcrun simctl delete unavailable (devices dir currently: $(human_kb "$before"))"
     return
   fi
-  xcrun simctl delete unavailable >/dev/null 2>>"$LOG_FILE"
-  after="$(dir_size_kb "$sim_root")"
-  reclaimed=$((before - after))
-  [ "$reclaimed" -lt 0 ] && reclaimed=0
-  TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + reclaimed))
-  ok "deleted unavailable simulator devices (freed $(human_kb "$reclaimed"))"
+  tool_cleanup "deleted unavailable simulator devices" "$sim_root" \
+    xcrun simctl delete unavailable
 }
 
 cat_device_support() {
@@ -842,27 +886,13 @@ cat_homebrew() {
 
   # autoremove first: it uninstalls formulae, which then leaves more for
   # cleanup to sweep out of the cache.
-  brew autoremove >>"$LOG_FILE" 2>&1
-  local cellar_after=0
-  [ -n "$cellar_dir" ] && [ -d "$cellar_dir" ] && cellar_after="$(dir_size_kb "$cellar_dir")"
-  local cellar_freed=$((cellar_before - cellar_after))
-  [ "$cellar_freed" -lt 0 ] && cellar_freed=0
-  if [ "$cellar_freed" -gt 0 ]; then
-    TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + cellar_freed))
-    TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + cellar_freed))
-    ok "brew autoremove removed unused dependencies (freed $(human_kb "$cellar_freed"))"
-  else
-    info "brew autoremove: no unused dependencies"
+  if tool_cleanup "brew autoremove" "$cellar_dir" brew autoremove; then
+    if [ "$TOOL_CLEANUP_RECLAIMED_KB" -eq 0 ]; then
+      info "brew autoremove: no unused dependencies"
+    fi
   fi
 
-  brew cleanup -s --prune=all >>"$LOG_FILE" 2>&1
-  local after=0
-  [ -n "$cache_dir" ] && after="$(dir_size_kb "$cache_dir")"
-  local reclaimed=$((before - after))
-  [ "$reclaimed" -lt 0 ] && reclaimed=0
-  TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
-  TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + reclaimed))
-  ok "brew cleanup done (freed $(human_kb "$reclaimed"))"
+  tool_cleanup "brew cleanup" "$cache_dir" brew cleanup -s --prune=all
 }
 
 cat_npm() {
@@ -882,13 +912,7 @@ cat_npm() {
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
     return
   fi
-  npm cache clean --force >>"$LOG_FILE" 2>&1
-  after="$(dir_size_kb "$cache_dir")"
-  reclaimed=$((before - after))
-  [ "$reclaimed" -lt 0 ] && reclaimed=0
-  TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
-  TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + reclaimed))
-  ok "npm cache cleaned (freed $(human_kb "$reclaimed"))"
+  tool_cleanup "npm cache cleaned" "$cache_dir" npm cache clean --force
 }
 
 cat_yarn() {
@@ -924,13 +948,7 @@ cat_yarn() {
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
     return
   fi
-  yarn cache clean >>"$LOG_FILE" 2>&1
-  after="$(dir_size_kb "$cache_dir")"
-  reclaimed=$((before - after))
-  [ "$reclaimed" -lt 0 ] && reclaimed=0
-  TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
-  TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + reclaimed))
-  ok "yarn cache cleaned (freed $(human_kb "$reclaimed"))"
+  tool_cleanup "yarn cache cleaned" "$cache_dir" yarn cache clean
   [ -d "$HOME_DIR/.yarn/berry/cache" ] && clear_dir_contents "$HOME_DIR/.yarn/berry/cache"
   return 0
 }
@@ -952,13 +970,7 @@ cat_pnpm() {
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
     return
   fi
-  pnpm store prune >>"$LOG_FILE" 2>&1
-  after="$(dir_size_kb "$store_dir")"
-  reclaimed=$((before - after))
-  [ "$reclaimed" -lt 0 ] && reclaimed=0
-  TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
-  TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + reclaimed))
-  ok "pnpm store pruned (freed $(human_kb "$reclaimed"))"
+  tool_cleanup "pnpm store pruned" "$store_dir" pnpm store prune
 }
 
 cat_cocoapods() {
@@ -1021,8 +1033,10 @@ cat_timemachine() {
   fi
   info "thinning local snapshots (this only affects local disk space, not your Time Machine backup drive)"
   # 4 = urgency level "as much as possible while keeping at least one recent snapshot"
-  tmutil thinlocalsnapshots / 999999999999 4 >>"$LOG_FILE" 2>&1
-  ok "requested thinning of $count local snapshot(s)"
+  # No directory shrinks measurably here — thinning frees purgeable space that
+  # du never counted — so this reports success or failure and no byte figure.
+  tool_cleanup "requested thinning of $count local snapshot(s)" "" \
+    tmutil thinlocalsnapshots / 999999999999 4
 }
 
 cat_docker() {
@@ -1047,8 +1061,8 @@ cat_docker() {
     warn "skipped by user"
     return
   fi
-  docker system prune -af --volumes >>"$LOG_FILE" 2>&1
-  ok "docker system prune complete (see log for reclaimed space)"
+  tool_cleanup "docker system prune complete (see log for reclaimed space)" "" \
+    docker system prune -af --volumes
 }
 
 cat_docker_cache() {
@@ -1080,16 +1094,29 @@ cat_docker_cache() {
     return
   fi
 
-  docker builder prune -f >>"$LOG_FILE" 2>&1
-  docker image prune -f >>"$LOG_FILE" 2>&1
+  # Both prunes are attempted even if the first fails: they clean different
+  # things, and a builder-cache failure is no reason to skip dangling images.
+  local prune_failed=0
+  tool_cleanup "docker builder prune" "" docker builder prune -f || prune_failed=1
+  tool_cleanup "docker image prune (dangling)" "" docker image prune -f || prune_failed=1
 
+  # Docker.raw is sparse: du reports blocks actually allocated, which is the
+  # figure that matches what the volume gets back. Note that Docker only
+  # returns those blocks to the filesystem when it decides to compact the
+  # image, so a successful prune can legitimately shrink it by nothing.
   local after=0
   [ -e "$raw_disk" ] && after="$(dir_size_kb "$raw_disk")"
   local reclaimed=$((before - after))
   [ "$reclaimed" -lt 0 ] && reclaimed=0
   TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
   TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + reclaimed))
-  ok "docker build cache + unused images pruned (Docker.raw shrank by $(human_kb "$reclaimed"))"
+  if [ "$prune_failed" = 1 ]; then
+    warn "Docker.raw allocated size changed by $(human_kb "$reclaimed") despite the failure above"
+  elif [ "$reclaimed" -eq 0 ]; then
+    ok "docker build cache + unused images pruned (Docker.raw has not released its blocks yet)"
+  else
+    ok "docker build cache + unused images pruned (Docker.raw shrank by $(human_kb "$reclaimed"))"
+  fi
 }
 
 cat_mail() {
@@ -1283,7 +1310,7 @@ process_orphans_review_file() {
       continue
     fi
     if [[ "$ORPHAN_CANONICAL" == *"/LaunchAgents/"* ]]; then
-      launchctl unload "$ORPHAN_CANONICAL" > /dev/null 2>&1 || true
+      unload_launch_agent "$ORPHAN_CANONICAL"
     fi
     remove_path "$ORPHAN_CANONICAL"
   done
@@ -1453,27 +1480,77 @@ cat_android() {
   fi
 
   local sdk_images="$HOME_DIR/Library/Android/sdk/system-images"
-  local avd_root="$HOME_DIR/.android/avd"
+  # ANDROID_AVD_HOME relocates the AVD directory, and Android Studio sets it
+  # for anyone who moved their AVDs off the boot volume. Reading only
+  # ~/.android/avd on such a machine finds no AVDs at all, which used to mean
+  # "nothing references any image" — and every system image was deleted.
+  local avd_root="${ANDROID_AVD_HOME:-$HOME_DIR/.android/avd}"
 
   if [ -d "$sdk_images" ] && ! is_whitelisted "$sdk_images"; then
     # Each leaf 3-level dir under system-images (api/tag/abi) is one image.
     # An AVD references one via its config.ini's image.sysdir.N value, e.g.
-    # "system-images/android-34/google_apis/arm64-v8a/". Any leaf with no
-    # AVD referencing it is safe to remove (re-installable via SDK Manager).
+    # "system-images/android-34/google_apis/arm64-v8a/".
+    #
+    # Deleting an image because no AVD was found referencing it is an argument
+    # from absence, and it is only worth anything if the evidence is sound. So
+    # every reference is format-checked, and anything that does not parse
+    # cleanly disables deletion for the whole category rather than being
+    # skipped quietly.
     local -a referenced=()
-    if [ -d "$avd_root" ]; then
-      local ini
+    local evidence_ok=1 ini_count=0 bad_refs=0
+
+    if [ ! -d "$avd_root" ]; then
+      evidence_ok=0
+      warn "no AVD directory at $avd_root — cannot tell which system images are in use"
+    else
+      local ini key val
       for ini in "$avd_root"/*.avd/config.ini; do
         [ -e "$ini" ] || continue
+        if [ ! -r "$ini" ]; then
+          evidence_ok=0
+          warn "unreadable: $ini"
+          continue
+        fi
+        ini_count=$((ini_count + 1))
         while IFS='=' read -r key val; do
+          # config.ini is written by a cross-platform tool and turns up with
+          # CRLF endings. A trailing \r made the reference match nothing, so a
+          # referenced image looked unused.
+          key="${key%$'\r'}"
+          val="${val%$'\r'}"
           case "$key" in
             image.sysdir.*)
               val="${val%/}"
-              referenced+=("$val")
+              case "$val" in
+                system-images/*/*/*)
+                  # Exactly three components after the prefix, no traversal.
+                  case "$val" in
+                    */../* | */..) bad_refs=$((bad_refs + 1)) ;;
+                    system-images/*/*/*/*) bad_refs=$((bad_refs + 1)) ;;
+                    *) referenced+=("$val") ;;
+                  esac
+                  ;;
+                "")
+                  bad_refs=$((bad_refs + 1))
+                  ;;
+                *)
+                  bad_refs=$((bad_refs + 1))
+                  ;;
+              esac
               ;;
           esac
         done < "$ini"
       done
+
+      if [ "$bad_refs" -gt 0 ]; then
+        evidence_ok=0
+        warn "$bad_refs image reference(s) in $avd_root did not match the expected"
+        warn "system-images/<api>/<tag>/<abi> form; not deleting anything"
+      fi
+      if [ "$ini_count" -eq 0 ]; then
+        evidence_ok=0
+        warn "no readable AVD config.ini under $avd_root — cannot tell which images are in use"
+      fi
     fi
 
     local api_dir tag_dir abi_dir leaf rel found
@@ -1490,10 +1567,16 @@ cat_android() {
           for r in "${referenced[@]:-}"; do
             [ "$r" = "$rel" ] && { found=1; break; }
           done
-          if [ "$found" -eq 0 ]; then
-            info "unreferenced by any AVD:"
-            remove_path "$leaf"
+          [ "$found" -eq 1 ] && continue
+
+          if [ "$evidence_ok" != 1 ]; then
+            # Report-only: the image may well be unused, but nothing here
+            # establishes that, and re-downloading is cheaper than guessing.
+            info "possibly unused (NOT removed — see the warning above): $rel  ($(human_kb "$(dir_size_kb "$leaf")"))"
+            continue
           fi
+          info "unreferenced by any AVD:"
+          remove_path "$leaf"
         done
       done
     done
@@ -1530,8 +1613,14 @@ cat_android() {
         warn "skipped by user: $name"
         continue
       fi
-      if command -v avdmanager >/dev/null 2>&1; then
-        avdmanager delete avd -n "$name" >>"$LOG_FILE" 2>&1
+      if command -v avdmanager > /dev/null 2>&1; then
+        # If this fails the AVD stays registered in Android Studio's Device
+        # Manager while its files go away, which looks like a broken entry
+        # rather than a deleted one. Say so instead of hiding it.
+        if ! tool_cleanup "deregistered AVD '$name'" "" \
+          avdmanager delete avd -n "$name"; then
+          warn "'$name' may still be listed in Device Manager; remove it there"
+        fi
       fi
       remove_path "$avd_dir"
       remove_path "$ini"
@@ -1974,13 +2063,8 @@ cat_dev_caches() {
     elif is_whitelisted "$HOME_DIR/.cache/uv"; then
       info "whitelisted, skipped: ~/.cache/uv"
     else
-      uv cache "$uv_cmd" >>"$LOG_FILE" 2>&1
-      local uv_after reclaimed
-      uv_after="$(dir_size_kb "$HOME_DIR/.cache/uv")"
-      reclaimed=$((uv_before - uv_after)); [ "$reclaimed" -lt 0 ] && reclaimed=0
-      TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + reclaimed))
-      TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + reclaimed))
-      ok "uv cache $uv_cmd done (freed $(human_kb "$reclaimed"))"
+      tool_cleanup "uv cache $uv_cmd done" "$HOME_DIR/.cache/uv" \
+        uv cache "$uv_cmd"
     fi
   fi
 
@@ -2311,6 +2395,14 @@ report_system_data() {
         3) sum3=$((sum3 + kb)) ;;
       esac
       printf '  %9s  %-40s %s\n' "$(human_kb "$kb")" "$label" "${C_DIM}$advice${C_RESET}" | tee -a "$LOG_FILE"
+      # A VM disk image is sparse: Finder shows what it claims to be, this
+      # column shows what it occupies. Saying both stops the report looking
+      # like it is under-counting by tens of gigabytes.
+      if [ -f "$path" ] && is_sparse_file "$path"; then
+        printf '  %9s  %-40s %s\n' "" "" \
+          "${C_DIM}sparse: appears as $(human_kb "$(path_logical_kb "$path")"), occupies the $(human_kb "$kb") above${C_RESET}" \
+          | tee -a "$LOG_FILE"
+      fi
     done
   done
 

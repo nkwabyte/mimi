@@ -352,10 +352,14 @@ unlock() {
     | sed -E 's/^[[:space:]]+//' | sort)"
 
   # Exactly these three, all operating on this tool's own log directory.
+  # save_config writes to a temporary file and renames it into place; the two
+  # rm's below clean up that temporary file when the write or the rename fails.
   expected="$(printf '%s\n' \
     'find "$LOG_DIR" -maxdepth 1 -name '"'"'orphans-review-*.txt'"'"' -mtime +30 -delete 2>/dev/null' \
     'rm -f "$LOG_FILE"' \
-    'rm -f "$f"' | sort)"
+    'rm -f "$f"' \
+    'rm -f "$tmp"' \
+    'rm -f "$tmp"' | sort)"
 
   if [ "$found" != "$expected" ]; then
     echo "A raw removal appeared outside fs_remove. Route it through fs_remove," >&2
@@ -372,4 +376,5 @@ unlock() {
   grep -qr "Justified raw rm: this is the tool's own transcript housekeeping" "$CLEANMYMAC_LIB"
   grep -qr 'Justified raw rm: the scratch log this process created' "$CLEANMYMAC_LIB"
   grep -qr 'raw delete for the same reason as the rm above' "$CLEANMYMAC_LIB"
+  grep -qr 'Justified raw rm: our own half-written temporary file' "$CLEANMYMAC_LIB"
 }
