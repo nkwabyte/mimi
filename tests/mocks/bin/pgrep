@@ -1,0 +1,4 @@
+#!/bin/sh
+# Mock: pgrep — nothing is ever running, so app_is_running() is deterministic
+# and tests never depend on what the developer happens to have open.
+exit 1
