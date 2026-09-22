@@ -28,17 +28,14 @@ Only one task should normally be `[~]` at a time. A task is not complete because
 
 Current phase: Phase 0 — Safety stabilization
 
-Current task: none in progress — `P0-T05` completed 2026-09-22; a partial
-`P1-T02`/`P1-T03` was pulled forward out of phase order on 2026-09-22 at the
-maintainer's request (see DEC-021).
+Current task: none in progress — `P0-T07` completed 2026-09-22, which closes
+Batch E (`P0-T08` was already complete).
 
 Next tasks:
 
-1. `P0-T10` — fix contained correctness defects (finishes Batch D).
-2. `P0-T07` — typed confirmations and force policy (Batch E).
-3. `P0-T09` — reclassify defaults and profiles (Batch F).
-4. `P0-T12` — documentation and safety contract parity (Batch F).
-5. `P0-T11` — static checks and CI (Batch G).
+1. `P0-T09` — reclassify defaults and profiles (Batch F).
+2. `P0-T12` — documentation and safety contract parity (Batch F).
+3. `P0-T11` — static checks and CI (Batch G).
 
 Do not start plan/apply, application uninstalling, privileged helpers, new cleanup categories, or GUI integration until the Phase 0 exit gate passes.
 
@@ -47,13 +44,15 @@ Do not start plan/apply, application uninstalling, privileged helpers, new clean
 - Main implementation: `bin/mimi` + `lib/*.sh`, with `clean.sh` as a deprecated shim (was a single `clean.sh` until 2026-09-22)
 - Current size at planning time: 2,059 lines; 5,012 lines as of 2026-09-22, now split across `bin/` and `lib/` (largest module: `lib/core.sh`, 3,582 lines)
 - Runtime target: macOS system Bash 3.2+
-- Current tests: 269 Bats tests in `tests/` (`./tests/run`) — as of 2026-09-22
+- Current tests: 315 Bats tests in `tests/` (`./tests/run`) — as of 2026-09-22
 - Current CI: none
 - Current static tools in review environment: ShellCheck and shfmt still not installed (documented in `tests/README.md`, not yet enforced)
 - Syntax check: `/bin/bash -n clean.sh` passes
 - Current persisted config: `~/.config/mimi/config.conf` (migrated from `~/.config/cleanmymac` on first run)
 - Current logs: `~/Library/Logs/mimi` (migrated from `~/Library/Logs/cleanmymac` on first run)
-- Current execution model: scan or immediate clean
+- Current execution model: scan or immediate clean, with every prompt in one
+  of four confirmation classes (`lib/confirm.sh`); `--yes` answers the
+  recoverable ones only
 - Current recovery model: none (but every action is now verified and counted)
 - Current orphan model: report-only, with `strong`/`weak` confidence labels (was: heuristic `auto` tier that bulk-deleted)
 
@@ -333,17 +332,38 @@ Depends on: `P0-T02`; secure report consumption depends on `P0-T04`.
 
 ### `P0-T07` — Typed confirmations and force policy
 
-- [ ] Define confirmation classes: read-only, recoverable, risky, and irreversible.
-- [ ] Rename or constrain `--yes` so it skips safe/recoverable prompts only.
-- [ ] Require an explicit separate flag and plan identifier for risky automation.
-- [ ] Keep Trash emptying, Docker volume deletion, reviewed remnants, and permanent purge outside ordinary `--yes` behavior.
-- [ ] Return a distinct user-cancelled exit code.
-- [ ] Ensure non-TTY operation fails clearly when required confirmation is unavailable.
+Status: `[x]` complete — 2026-09-22
+
+- [x] Define confirmation classes: read-only, recoverable, risky, and
+  irreversible. *`lib/confirm.sh`. `confirm_class` is a single hand-written
+  table; an id with no entry degrades to `recoverable`, so a prompt added
+  later without a classification cannot silently become un-answerable.*
+- [x] Rename or constrain `--yes` so it skips safe/recoverable prompts only.
+  *Constrained rather than renamed: the spelling is in every existing script
+  and its meaning for safe categories is unchanged. `confirm()` now serves
+  only recoverable prompts; `confirm_action` serves the classed ones.*
+- [x] Require an explicit separate flag and plan identifier for risky
+  automation. *`--force-risky <names>`. The identifier is the action id — see
+  DEC-030 for why that, and not a plan id, is what exists to name today.*
+- [x] Keep Trash emptying, Docker volume deletion, reviewed remnants, and
+  permanent purge outside ordinary `--yes` behavior. *All four, plus
+  `mail`, `sim-stale`, `android` and `ios-backups`. `mail` had no
+  confirmation at all despite being registered `risky`; it has one now.
+  Permanent purge does not exist yet (`P2-T05`) and inherits the class.*
+- [x] Return a distinct user-cancelled exit code. *`EXIT_CANCELLED=5`; see
+  DEC-029.*
+- [x] Ensure non-TTY operation fails clearly when required confirmation is
+  unavailable. *`preflight_confirmations` runs before the first category and
+  names each missing authorization with the exact flag that grants it.*
 
 Acceptance:
 
-- `--yes` alone cannot authorize any irreversible/risky category.
-- Help, README, and behavior use identical terminology.
+- `--yes` alone cannot authorize any irreversible/risky category. **Met** —
+  one test per gated action asserts exit `5` and an intact fixture, each of
+  which fails against the previous code.
+- Help, README, and behavior use identical terminology. **Met** — the four
+  class names appear in `--help`, `README.md` and `docs/USAGE.md`, and a test
+  asserts the help lists every name `--force-risky` accepts.
 
 Depends on: `P0-T02`.
 
@@ -935,6 +955,11 @@ Resolve decisions only when their owning phase needs them. Do not let later-phas
 | 2026-09-22 | DEC-026 | Every size the tool measures is allocated (on-disk) bytes; logical size is reporting-only and may never reach a reclaimed total. | `du -skx` already reported allocated blocks, which is the figure that answers "how much would I get back", so the accounting was right — what was missing was saying so. A sparse Docker.raw that Finder shows as 64G may occupy 5G, and the report looked like it was under-counting by tens of gigabytes. `path_logical_kb` and `is_sparse_file` annotate the difference without ever feeding it into a total. The APFS clone over-count is documented as a known limitation rather than papered over. | `P0-T10`, `P6-T11` |
 | 2026-09-22 | DEC-027 | The product and command are named `mimi`; the GitHub repository is renamed to match. Resolves `D-007`. | The maintainer's choice. It also clears a real problem the old name had: "CleanMyMac" is a registered commercial product from MacPaw, which `P7-T01` would have had to deal with before any public packaging. `--cleaner` is the documented clean flag, with `--clean` still accepted because every script and every version of the README until now used it. | `P7-T01`, `P7-T02`, all user-facing text |
 | 2026-09-22 | DEC-028 | State left by the old name is moved, not left behind or duplicated: `~/.config/cleanmymac` → `~/.config/mimi`, same for the log directory. | A whitelist that silently stops being read protects nothing, which makes "just use the new path" a safety regression rather than a cosmetic one. Moving rather than copying means it happens once and leaves nothing to drift out of sync. Migration never overwrites an existing `mimi` config, and it degrades to reading the old location if the move fails. Orphan review files carrying the old marker are still accepted on input. | `P7-T03` |
+| 2026-09-22 | DEC-029 | A declined or unobtainable confirmation exits `5`, not `1`. | DEC-004 put *invalid usage* on `1`, and this is not that: the command line was well-formed and the answer was simply "no". A cron job needs to tell "you typed the flags wrong" (`1`), "the work ran and some of it failed" (`3`) and "you never authorized this" (`5`) apart, because the fix for each is different. Declining one category mid-run stays a skip, not a cancellation — the run did finish. | `P0-T07`, `P1-T05` |
+| 2026-09-22 | DEC-030 | `--force-risky` takes action ids and has no `all`. | The plan called for "an exact plan ID", but plans are `P2-T01` and do not exist yet; inventing a throwaway identifier now would mean designing it twice (the same reasoning as DEC-012). The action id is the identifier that does exist, it is the vocabulary `--only`/`--skip` already use, and requiring each one to be named is what stops the flag outliving the reason it was added. `all` is rejected explicitly rather than merely unimplemented, because a silently-unsupported spelling would look like it worked. It authorizes but does not select: `--include-<name>` is still required, so neither flag is dangerous alone. | `P0-T07`, `P2-T01` |
+| 2026-09-22 | DEC-031 | `--force-risky` is command-line only: never read from the config file, never written by `save_config`. | An authorization that can be saved once and forgotten is indistinguishable from the `--yes` behaviour this task removed. `load_config` reads an explicit key allowlist, so a hand-added `FORCE_RISKY_LIST=` line is ignored rather than honoured, and a test asserts it. | `P0-T07` |
+| 2026-09-22 | DEC-032 | A non-interactive run that selected unauthorized risky work fails before the first category instead of skipping that category and continuing. | Skipping would leave the run exiting `0` with the dangerous work quietly undone, which is the same class of untruth `P0-T05` fixed for action accounting. Failing up front also costs nothing: no category has run, so there is no half-finished state to reason about. The cost is that a cron line which relied on `--yes --include-trash` now does nothing until it is updated — which is the intended breaking change, not a side effect. | `P0-T07`, `P0-T05` |
+| 2026-09-22 | DEC-033 | At a terminal, an irreversible action is confirmed by typing the action's own id; a risky one keeps `y/N`. The typed answer is given once per id per run. | "y" is muscle memory and an irreversible prompt needs an answer a hand cannot give by accident. Asking per item would be the same keystroke repeated, so the typed answer authorizes the *class* of action once and each individual item still gets its own `y/N` — strictly stronger than the single `y/N` per item that existed before. | `P0-T07` |
 | 2026-09-21 | DEC-007 | The integer validator is named `validate_int` and accepts zero, rather than the planned `validate_positive_int`. | `--keep-logs 0` and `--keep-toolchains 0` are meaningful, so "positive" would have been an inaccurate name for the required behaviour. The task text asks for *bounded non-negative* integers. | `P0-T08` |
 
 ## 19. Blocker log
@@ -960,8 +985,9 @@ Add newly discovered work here before assigning it to a phase. Do not silently e
 - [ ] Interactive TUI screens (category picker, settings, whitelist) have no automated coverage; they were verified manually through a pseudo-terminal.
 - [x] ~~The `CLEANMYMAC_LIB_ONLY=1` test hook only exposes helpers defined above the argument-parsing banner.~~ Resolved 2026-09-22: the hook is gone and `lib/load.sh` exposes everything.
 - [x] ~~Any `err`/`warn` before `log_init` writes to a log path whose directory does not exist yet.~~ Resolved 2026-09-22: `LOG_FILE` starts as `/dev/null` and `log_init` opens the real transcript.
-- [ ] `lib/core.sh` is still 3,582 lines. The next extraction pass should take the confirmation helpers, the category registry, the report and the TUI out of it.
-- [ ] The suite now takes roughly a minute per full run (206 tests, each with a fresh fixture and several full CLI invocations). Still fine locally, but `P0-T11` should decide whether CI runs files in parallel before it grows much further.
+- [ ] `lib/core.sh` is still 3694 lines. The confirmation helpers left in `P0-T07` (`lib/confirm.sh`); the next extraction pass should take the category registry, the report and the TUI out of it.
+- [ ] `mail`, `sim-stale` and `android` are gated as risky by `lib/confirm.sh` while `category_info` still carries its own `safe|moderate|risky` column. The two agree today, but they are two tables saying related things; `P0-T09` should decide whether the category risk facet and the confirmation class come from one source.
+- [ ] The suite now takes roughly 80 seconds per full run (315 tests, each with a fresh fixture and several full CLI invocations). Still fine locally, but `P0-T11` should decide whether CI runs files in parallel before it grows much further.
 - [ ] `path_canonicalize` walks each component in pure Bash and forks `readlink` only for real symlinks. It has not been benchmarked against a `~/Library/Caches` with tens of thousands of entries; `P6-T11` should measure it.
 - [ ] `--report`/top-offenders code reads `~/Desktop`, `~/Documents` and friends without going through `path_authorize`. That is correct today because it never mutates, but the read paths should be routed through the API once plan/apply exists so that "what was inspected" is auditable.
 
@@ -1289,6 +1315,31 @@ before any public release. That item is now largely satisfied.
 Still outstanding from `P7-T01`: bundle/package identifiers for the future GUI
 and privileged helper have not been chosen.
 
+### 2026-09-22 — Phase 0 Batch E
+
+- `P0-T07` **complete**. Every confirmation now belongs to one of four classes
+  (`lib/confirm.sh`), and the class — not the prompt's wording — decides what
+  can answer it. `--yes` answers the recoverable prompts and the whole-run
+  gate; it can no longer authorize `docker`, `mail`, `trash`, `orphans`,
+  `sim-stale`, `android` or `ios-backups`.
+- `--force-risky <names>` is the new authorization flag: comma-separated
+  action ids, no `all`, command line only. It authorizes but does not select,
+  so `--include-<name>` is still required (DEC-030, DEC-031).
+- `mail` was registered `risky` in the category table and had no confirmation
+  at all. It has one now.
+- A non-interactive run that selected unauthorized risky work fails *before*
+  the first category, naming each action, its class and the exact flag that
+  grants it, and exits `5` having removed nothing (DEC-029, DEC-032).
+- At a terminal, an irreversible action is confirmed by typing its id rather
+  than `y`, once per id per run; each individual item still gets its own
+  `y/N` (DEC-033).
+- `tests/test_helper.bash` now pins stdin to `/dev/null`, so confirmation
+  behaviour is decided by the flags under test and never by whether the suite
+  happened to be started from a terminal.
+- 46 new tests in `tests/confirmations.bats`. 14 existing tests that used
+  `--yes` to authorize reviewed-orphan removal or AVD deletion now say
+  `--force-risky` instead — which is the contract change made visible.
+
 ## 22. Next-session handoff template
 
 Copy and fill this section at the end of an implementation session:
@@ -1309,26 +1360,46 @@ Exact next step:
 ## 23. Current handoff
 
 ```text
-Task:          Rename the product and command to `mimi` (resolves D-007)
+Task:          P0-T07 — typed confirmations and force policy
 Status:        complete
-Changed files: bin/mimi (renamed from bin/cleanmymac), clean.sh, install.sh
-               (new), lib/globals.sh, lib/config.sh, lib/core.sh, lib/usage.sh,
-               README.md, docs/USAGE.md, .gitignore, tests/* , scratchpad
+Changed files: lib/confirm.sh (new), lib/validate.sh, lib/globals.sh,
+               lib/load.sh, lib/core.sh, lib/usage.sh, bin/mimi,
+               tests/confirmations.bats (new), tests/test_helper.bash,
+               tests/orphan_review.bats, tests/orphan_report.bats,
+               tests/layout.bats, tests/defects.bats, README.md,
+               docs/USAGE.md, scratchpad
 Tests run:     ./tests/run
-Test result:   269 passed, 0 failed, 0 skipped
-Safety checks: /bin/bash -n on all 13 shell files; git diff --check OK;
-               migration verified on a real home directory and in fixtures;
-               remote connectivity confirmed after the GitHub rename
-Decisions:     DEC-027 (named mimi; --cleaner documented, --clean kept),
-               DEC-028 (old config and logs are moved, not abandoned)
-New risks:     anyone who cloned nkwabyte/mac-cleaner keeps working through
-               GitHub's redirect but should update their remote. The local
-               checkout directory is still named CleanMyMac; renaming it is a
-               manual step outside the repository.
+Test result:   315 passed, 0 failed, 0 skipped (269 before, 46 new)
+Safety checks: /bin/bash -n on all 14 shell files; git diff --check OK; every
+               new test asserts an intact fixture as well as an exit code;
+               the terminal paths (typed confirmation, wrong word, --yes not
+               skipping it) were exercised through a pseudo-terminal, since
+               the suite deliberately has no tty
+Decisions:     DEC-029 (exit 5), DEC-030 (--force-risky takes action ids, no
+               "all"), DEC-031 (never persisted), DEC-032 (fail before the
+               first category rather than skip it), DEC-033 (typed
+               confirmation for irreversible, once per id per run)
+New risks:     This is a deliberate breaking change for anyone whose script
+               relies on `--yes` to empty the Trash, prune Docker volumes,
+               clear the Mail cache, delete simulator devices/AVDs/iOS
+               backups, or apply a reviewed orphans file. Those runs now exit
+               5 and remove nothing until --force-risky names the action.
+               Help, README and USAGE all say so, but there is no runtime
+               upgrade notice — a user meets this as a failed cron job.
+               Incidental fixes made along the way: sync_include_var returned
+               non-zero for every category with no --include-* gate, which
+               aborted build_category_state under `set -e` (harmless in
+               production, since bin/mimi does not use -e, but it broke the
+               first test to call it); and the interactive header still
+               printed the pre-rename product name.
 Blocker:       none
-Exact next step: P0-T07 — typed confirmations and force policy (Batch E).
-               Define the confirmation classes, constrain --yes so it cannot
-               authorize risky or irreversible work, add a distinct
-               user-cancelled exit code, and make non-TTY runs fail clearly
-               when a required confirmation cannot be obtained.
+Exact next step: P0-T09 — reclassify defaults and profiles (Batch F). Define
+               the risk facets, establish the conservative Safe profile, move
+               Time Machine thinning, DeviceSupport pruning, old Homebrew
+               versions and broad app cache/log clearing out of unqualified
+               defaults, split Homebrew downloads from installed-version
+               cleanup, document selection precedence, and add golden tests
+               for profile contents. It should also settle whether
+               category_info's risk column and confirm_class are one table or
+               two (see the parking lot).
 ```
