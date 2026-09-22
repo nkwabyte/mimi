@@ -66,6 +66,16 @@ while [ $# -gt 0 ]; do
     # every existing script and every version of the README until now used.
     --cleaner | --clean) MODE="clean"; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
+    # Deliberately has no short form and no "all": each risky or irreversible
+    # action has to be named, which is the entire difference between this and
+    # --yes. See lib/confirm.sh.
+    --force-risky)
+      require_arg "--force-risky" "$#" "${2-}"
+      FORCE_RISKY_LIST="$(normalize_force_risky_list "--force-risky" "$2")" || exit "$EXIT_USAGE"
+      shift 2 ;;
+    --force-risky=*)
+      FORCE_RISKY_LIST="$(normalize_force_risky_list "--force-risky" "${1#*=}")" || exit "$EXIT_USAGE"
+      shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     --aggressive) AGGRESSIVE=1; shift ;;
     --keep-device-support)

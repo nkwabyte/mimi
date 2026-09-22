@@ -465,17 +465,6 @@ docker_daemon_ready() {
   run_with_timeout 8 docker info >/dev/null 2>&1
 }
 
-confirm() {
-  local prompt="$1"
-  [ "$ASSUME_YES" = 1 ] && return 0
-  local reply
-  read -r -p "${C_YELLOW}${prompt} [y/N] ${C_RESET}" reply </dev/tty
-  case "$reply" in
-    y|Y|yes|YES) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 in_list() {
   # in_list "needle" "comma,separated,list"
   local needle="$1" list="$2" item
@@ -578,7 +567,11 @@ CATEGORY_STATE_ON=()
 sync_include_var() {
   local id="$1" val="$2" varname
   varname="$(category_include_var "$id")"
+  # Most categories have no --include-* gate at all; that is the ordinary case
+  # and must not be reported as a failure, or the caller's loop looks like it
+  # died on the first default-on category.
   [ -n "$varname" ] && printf -v "$varname" '%s' "$val"
+  return 0
 }
 
 build_category_state() {
@@ -1060,8 +1053,8 @@ cat_docker() {
     info "would run: docker system prune -af --volumes"
     return
   fi
-  if ! confirm "This removes ALL unused Docker images, containers, and volumes. Continue?"; then
-    warn "skipped by user"
+  if ! confirm_action_ok docker \
+    "This removes ALL unused Docker images, containers, and volumes, including named volumes holding database data."; then
     return
   fi
   tool_cleanup "docker system prune complete (see log for reclaimed space)" "" \
@@ -1126,6 +1119,12 @@ cat_mail() {
   section "Mail.app download cache"
   if [ "$INCLUDE_MAIL" != 1 ]; then
     warn "skipped (opt-in only, pass --include-mail)"
+    return
+  fi
+  # An IMAP attachment re-downloads; a POP one, or one whose message has since
+  # been deleted on the server, does not. That is why this is gated at all.
+  if [ "$MODE" = "clean" ] && ! confirm_action_ok mail \
+    "Clear Mail.app's downloaded attachment cache? Attachments whose message is gone from the server are not re-downloadable."; then
     return
   fi
   clear_dir_contents "$HOME_DIR/Library/Containers/com.apple.mail/Data/Library/Mail Downloads"
@@ -1294,8 +1293,8 @@ process_orphans_review_file() {
     return
   fi
 
-  if ! confirm "Remove these $n reviewed item(s)? This is not heuristic — you already reviewed the file."; then
-    warn "skipped by user"
+  if ! confirm_action_ok orphans \
+    "Remove these $n reviewed item(s)? This is not heuristic — you already reviewed the file."; then
     return
   fi
 
@@ -1429,8 +1428,8 @@ for runtime, devs in d["devices"].items():
     return
   fi
 
-  if ! confirm "Delete these $n unused simulator device(s)? (Xcode recreates default devices on demand; custom ones are gone for good)"; then
-    warn "skipped by user"
+  if ! confirm_action_ok sim-stale \
+    "Delete these $n unused simulator device(s)? (Xcode recreates default devices on demand; custom ones are gone for good)"; then
     return
   fi
 
@@ -1613,8 +1612,8 @@ cat_android() {
         TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + size_kb))
         continue
       fi
-      if ! confirm "Delete AVD '$name' (unused $days days, $(human_kb "$size_kb"))? Recreatable, but any app data inside it is lost."; then
-        warn "skipped by user: $name"
+      if ! confirm_action_ok android \
+        "Delete AVD '$name' (unused $days days, $(human_kb "$size_kb"))? Recreatable, but any app data inside it is lost."; then
         continue
       fi
       if command -v avdmanager > /dev/null 2>&1; then
@@ -2241,8 +2240,9 @@ cat_ml_caches() {
 
   # Hugging Face: prefer its own GC so refs/symlinks stay consistent.
   if [ -d "$HOME_DIR/.cache/huggingface" ]; then
-    if [ "$MODE" = "clean" ] && ! confirm "Delete the Hugging Face model cache? Models will be re-downloaded on next use."; then
-      warn "skipped by user"
+    if [ "$MODE" = "clean" ] && ! confirm_action_ok ml-caches \
+      "Delete the Hugging Face model cache? Models will be re-downloaded on next use."; then
+      :
     else
       clear_dir_contents "$HOME_DIR/.cache/huggingface/hub"
       clear_dir_contents "$HOME_DIR/.cache/huggingface/datasets"
@@ -2294,7 +2294,9 @@ cat_ios_backups() {
     b="${b%/}"; [ -d "$b" ] || continue
     sz="$(dir_size_kb "$b")"
     if [ "$MODE" = "clean" ]; then
-      confirm "Delete backup $(basename "$b") ($(human_kb "$sz"), $(date -r "$b" '+%Y-%m-%d' 2>/dev/null))?" || { warn "kept"; continue; }
+      confirm_action_ok ios-backups \
+        "Delete backup $(basename "$b") ($(human_kb "$sz"), $(date -r "$b" '+%Y-%m-%d' 2>/dev/null))?" \
+        || continue
     fi
     remove_path "$b"
   done
@@ -2692,8 +2694,8 @@ cat_trash() {
     warn "skipped (opt-in only, pass --include-trash)"
     return
   fi
-  if [ "$MODE" = "clean" ] && ! confirm "Permanently empty ~/.Trash? This cannot be undone."; then
-    warn "skipped by user"
+  if [ "$MODE" = "clean" ] && ! confirm_action_ok trash \
+    "Permanently empty ~/.Trash."; then
     return
   fi
   clear_dir_contents "$HOME_DIR/.Trash"
@@ -3393,7 +3395,7 @@ SETTINGS_ROWS=(
   "keep-logs::num::KEEP_LOGS::0::Run logs to keep (0 = keep none)"
   "aggressive::bool::AGGRESSIVE::0::Aggressive mode (prunes harder)"
   "verbose::bool::VERBOSE::0::Verbose output"
-  "assume-yes::bool::ASSUME_YES::0::Assume yes (skip confirmation prompts)"
+  "assume-yes::bool::ASSUME_YES::0::Assume yes (ordinary prompts only, never risky ones)"
 )
 
 _settings_draw() {
@@ -3500,7 +3502,7 @@ interactive_settings_numeric() {
     say "  9) Run logs to keep                        = $KEEP_LOGS"
     say "  6) Aggressive mode                         = $( [ "$AGGRESSIVE" = 1 ] && echo on || echo off )"
     say "  7) Verbose output                          = $( [ "$VERBOSE" = 1 ] && echo on || echo off )"
-    say "  8) Assume yes (skip confirmation prompts)  = $( [ "$ASSUME_YES" = 1 ] && echo on || echo off )"
+    say "  8) Assume yes (ordinary prompts only)      = $( [ "$ASSUME_YES" = 1 ] && echo on || echo off )"
     say "  b) Back"
     read -r -p "> " sel </dev/tty
     case "$sel" in
@@ -3523,7 +3525,7 @@ interactive_main() {
   log_init
   build_category_state
   local last=0
-  say "${C_BOLD}CleanMyMac — interactive mode${C_RESET}  (config: $CONFIG_FILE)"
+  say "${C_BOLD}${SCRIPT_NAME} — interactive mode${C_RESET}  (config: $CONFIG_FILE)"
   if tui_available; then
     say "${C_DIM}Arrow keys to move, enter to select. Number keys still work.${C_RESET}"
   fi
@@ -3599,10 +3601,24 @@ run_selected_categories() {
   local free_before
   free_before="$(df -H / | awk 'NR==2{print $4}')"
 
+  # Everything this run could never confirm is reported before anything is
+  # removed, so a misconfigured scripted run costs nothing instead of stopping
+  # halfway through a category list.
+  if ! preflight_confirmations; then
+    return "$EXIT_CANCELLED"
+  fi
+
   if [ "$MODE" = "clean" ] && [ "$ASSUME_YES" != 1 ]; then
-    if ! confirm "About to clean categories: $ONLY_LIST — proceed?"; then
-      warn "aborted by user"
-      return 1
+    local gate_rc=0
+    confirm "About to clean categories: $ONLY_LIST — proceed?" || gate_rc=$?
+    if [ "$gate_rc" != 0 ]; then
+      if [ "$gate_rc" = 2 ]; then
+        err "no terminal to confirm on: pass --yes to approve ordinary prompts"
+        err "non-interactively. Nothing was removed."
+      else
+        warn "aborted by user"
+      fi
+      return "$EXIT_CANCELLED"
     fi
   fi
 

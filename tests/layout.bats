@@ -281,7 +281,7 @@ normalise_entrypoint_output() {
     printf '%s\n' "$target"
   } > "$f"
 
-  run_mimi --cleaner --yes --only orphans --remove-orphans-from "$f"
+  run_mimi --cleaner --yes --force-risky orphans --only orphans --remove-orphans-from "$f"
   [ "$status" -eq 0 ]
   [ ! -e "$target" ]
 }
