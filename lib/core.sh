@@ -248,7 +248,10 @@ collect_orphan_candidates() {
 # ---------------------------------------------------------------------------
 
 # First line of a review file. A file without it is refused.
-ORPHAN_REVIEW_FORMAT="cleanmymac-orphan-review v1"
+ORPHAN_REVIEW_FORMAT="mimi-orphan-review v1"
+# The marker written before the tool was renamed. Still accepted on input, so a
+# review file someone generated and is halfway through editing keeps working.
+ORPHAN_REVIEW_FORMAT_LEGACY="cleanmymac-orphan-review v1"
 
 # Results of the most recent validate_orphan_target call (see path_authorize
 # for why these are globals rather than stdout).
@@ -1216,6 +1219,7 @@ process_orphans_review_file() {
   IFS= read -r first < "$file" || first=""
   case "$first" in
     "# $ORPHAN_REVIEW_FORMAT"*) ;;
+    "# $ORPHAN_REVIEW_FORMAT_LEGACY"*) ;;
     *)
       err "not a $SCRIPT_NAME orphan review file — first line is not '# $ORPHAN_REVIEW_FORMAT'"
       err "regenerate it with: ./$SCRIPT_NAME --scan --only orphans --include-orphans"
@@ -3580,7 +3584,7 @@ run_selected_categories() {
   TOTAL_RECLAIMED_KB=0
   RAN_ANY=0
 
-  say "${C_BOLD}clean.sh${C_RESET} — mode: ${C_BOLD}$MODE${C_RESET}  $( [ "$AGGRESSIVE" = 1 ] && echo '(aggressive)' )"
+  say "${C_BOLD}${SCRIPT_NAME}${C_RESET} — mode: ${C_BOLD}$MODE${C_RESET}  $( [ "$AGGRESSIVE" = 1 ] && echo '(aggressive)' )"
   say "Log: $LOG_FILE"
   if [ "${#WHITELIST[@]}" -gt 0 ]; then
     say "Whitelisted paths:"
@@ -3638,7 +3642,7 @@ run_selected_categories() {
     local purgeable
     purgeable="$(df -k / 2>/dev/null | awk 'NR==2{print $4}')"
     say ""
-    info "Tip: run ${C_BOLD}./clean.sh --report${C_RESET} for a full breakdown of where the"
+    info "Tip: run ${C_BOLD}mimi --report${C_RESET} for a full breakdown of where the"
     info "rest of your disk went (VM disks, SDKs, model weights, node_modules)."
   fi
   if [ "$NO_LOG" = 1 ]; then
@@ -3662,7 +3666,7 @@ run_selected_categories() {
 main() {
   if [ "$REPORT_ONLY" = 1 ]; then
     log_init
-    say "${C_BOLD}clean.sh${C_RESET} — disk report"
+    say "${C_BOLD}${SCRIPT_NAME}${C_RESET} — disk report"
     say "Log: $LOG_FILE"
     report_system_data
     report_top_offenders

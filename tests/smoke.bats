@@ -17,7 +17,7 @@ load 'test_helper'
   # The real home must not equal the fake home set up by setup().
   [ "$HOME" != "$OLDPWD" ] || true   # OLDPWD is not HOME; just a guard
   # The key invariant: HOME points into the tmp fixture, not the user's dir.
-  [[ "$HOME" == */cleanmymac-test-* ]]
+  [[ "$HOME" == */mimi-test-* ]]
 }
 
 @test "harness: mocks/bin is on PATH before real tools" {
@@ -59,12 +59,12 @@ load 'test_helper'
   run_clean --scan --only caches
   [ "$status" -eq 0 ]
   # A log was written, and it landed under the fake HOME, not the real one.
-  [ -d "$FAKE_HOME/Library/Logs/cleanmymac" ]
+  [ -d "$FAKE_HOME/Library/Logs/mimi" ]
   [[ "$output" == *"$FAKE_HOME"* ]]
 }
 
 @test "harness: TMPDIR is redirected inside the fixture" {
-  [[ "$TMPDIR" == */cleanmymac-test-* ]]
+  [[ "$TMPDIR" == */mimi-test-* ]]
 }
 
 # ---------------------------------------------------------------------------

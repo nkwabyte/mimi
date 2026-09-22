@@ -1,4 +1,4 @@
-# clean.sh — complete usage reference
+# mimi — complete usage reference
 
 Every flag, category, key binding and config option, with what each one
 actually touches.
@@ -42,10 +42,10 @@ actually touches.
 | Root | never. The script does not use `sudo` and refuses to touch system paths |
 | Optional | `brew`, `npm`, `yarn`, `pnpm`, `pip`, `docker`, `xcrun`, `uv`, `go`, `adb` — each category skips itself cleanly if its tool is missing |
 
-Make it executable once:
+Install it once:
 
 ```bash
-chmod +x clean.sh
+./install.sh          # symlinks `mimi` onto your PATH
 ```
 
 ---
@@ -67,7 +67,7 @@ Affected: `~/Library/Application Support/Google/Chrome`, `.../Firefox`,
    Ghostty, Warp, VS Code…)
 3. **Fully quit and reopen it** — a window reload is not enough
 
-`clean.sh` prints a warning at the top of every run if this is missing, and
+`mimi` prints a warning at the top of every run if this is missing, and
 marks each directory it could not read with `no permission to read:`.
 
 ### Quit the apps you are about to clean
@@ -81,13 +81,13 @@ detects running apps and warns you — it never kills anything.
 ## Quick start
 
 ```bash
-./clean.sh                 # bare invocation from a terminal → interactive menu
-./clean.sh --scan          # report what would be freed, delete nothing
-./clean.sh --clean         # actually clean, asks once to confirm
-./clean.sh --clean --yes   # no prompts at all
-./clean.sh --report        # where did my disk space go? deletes nothing
-./clean.sh --list          # every category id, risk level, default state
-./clean.sh --help          # full flag list
+mimi                 # bare invocation from a terminal → interactive menu
+mimi --scan          # report what would be freed, delete nothing
+mimi --cleaner         # actually clean, asks once to confirm
+mimi --cleaner --yes   # no prompts at all
+mimi --report        # where did my disk space go? deletes nothing
+mimi --list          # every category id, risk level, default state
+mimi --help          # full flag list
 ```
 
 ---
@@ -111,7 +111,7 @@ The estimate is an upper bound. Categories that delegate to another tool
 (`brew cleanup`, `pnpm store prune`, `uv cache prune`) can only report the
 size of the directory, not how much that tool will decide to drop.
 
-### `--clean`
+### `--cleaner`
 
 Does the work. Prompts once before starting unless `--yes` is given, and
 prompts again per item for the genuinely destructive categories
@@ -129,7 +129,7 @@ Free space before: 48G  ->  after: 67G
 
 ## Interactive mode
 
-Entered by running `./clean.sh` with **no arguments at all** from a real
+Entered by running `mimi` with **no arguments at all** from a real
 terminal, or explicitly with `-i` / `--interactive`. Any other flag keeps the
 script fully scriptable.
 
@@ -241,7 +241,7 @@ Whitelist  (2 entries)
 | Flag | Effect |
 |---|---|
 | `--scan` | Report only, delete nothing. **Default.** |
-| `--clean` | Actually delete. Confirms once unless `--yes`. |
+| `--cleaner` | Actually delete. Confirms once unless `--yes`. |
 | `--report` | Print a full disk breakdown, then exit. Deletes nothing. |
 | `--list` | Print every category id, risk and default state, then exit. |
 | `-i`, `--interactive` | Force the menu even when other flags are present. |
@@ -305,7 +305,7 @@ enough to run that category — you do not also need `--only`.
 
 | Flag | Effect |
 |---|---|
-| `--remove-orphans-from <file>` | Remove exactly the paths listed in a review file produced by `--include-orphans`. The file must still carry its `# cleanmymac-orphan-review v1` header, `#` comments a line out only in the first column, and each path must resolve to a direct child of a scanned orphan location. Refused lines are reported with a reason code. |
+| `--remove-orphans-from <file>` | Remove exactly the paths listed in a review file produced by `--include-orphans`. The file must still carry its `# mimi-orphan-review v1` header, `#` comments a line out only in the first column, and each path must resolve to a direct child of a scanned orphan location. Refused lines are reported with a reason code. |
 
 ### Exit codes
 
@@ -348,8 +348,8 @@ Every invalid-usage message is written to **stderr** with the same prefix, so
 it is easy to grep for in a wrapper script:
 
 ```
-clean.sh: error: --only: unknown category 'cahces' (run './clean.sh --list' to see them all)
-Try './clean.sh --help' for the full list of options.
+mimi: error: --only: unknown category 'cahces' (run 'mimi --list' to see them all)
+Try 'mimi --help' for the full list of options.
 ```
 
 ### What gets rejected
@@ -376,7 +376,7 @@ explains the fix.
 
 ## Category reference
 
-`./clean.sh --list` prints the live list. Risk levels mean:
+`mimi --list` prints the live list. Risk levels mean:
 
 - **safe** — regenerated automatically, nothing is lost but time
 - **moderate** — regenerated, but re-downloading or rebuilding costs real time
@@ -472,10 +472,10 @@ On top of that, **any `--include-X` flag adds X to the run list**, whether or
 not `--only` named it. `--skip` still removes it.
 
 ```bash
-./clean.sh --scan --only caches,logs,dsstore      # only these three
-./clean.sh --clean --skip homebrew,gradle         # defaults minus two
-./clean.sh --clean --include-trash                # defaults plus trash
-./clean.sh --clean --only browsers --include-docker-cache   # browsers + docker-cache
+mimi --scan --only caches,logs,dsstore      # only these three
+mimi --cleaner --skip homebrew,gradle         # defaults minus two
+mimi --cleaner --include-trash                # defaults plus trash
+mimi --cleaner --only browsers --include-docker-cache   # browsers + docker-cache
 ```
 
 ---
@@ -489,9 +489,9 @@ A whitelist entry is either:
   whose inferred name or bundle id matches
 
 ```bash
-./clean.sh --clean --whitelist ~/Library/Caches/JetBrains
-./clean.sh --clean --whitelist 'com.adobe.*,com.figma.*'
-./clean.sh --clean --whitelist ~/Dev --whitelist ~/Documents   # repeatable
+mimi --cleaner --whitelist ~/Library/Caches/JetBrains
+mimi --cleaner --whitelist 'com.adobe.*,com.figma.*'
+mimi --cleaner --whitelist ~/Dev --whitelist ~/Documents   # repeatable
 ```
 
 Whitelisted paths are reported as `whitelisted, skipped:` so you can see the
@@ -508,8 +508,8 @@ protection working.
 | `ml` | Hugging Face, torch, Ollama and LM Studio model caches |
 
 ```bash
-./clean.sh --clean --whitelist-preset xcode-simulator
-./clean.sh --clean --whitelist-preset browsers --whitelist-preset ml
+mimi --cleaner --whitelist-preset xcode-simulator
+mimi --cleaner --whitelist-preset browsers --whitelist-preset ml
 ```
 
 ---
@@ -519,7 +519,7 @@ protection working.
 `orphans` looks for config, preferences, caches, containers and LaunchAgents
 whose names no installed application claims.
 
-**It never deletes anything** — not with `--clean`, `--yes` or `--aggressive`.
+**It never deletes anything** — not with `--cleaner`, `--yes` or `--aggressive`.
 It writes a report. Removing any of it is a separate, deliberate step
 (`--remove-orphans-from`).
 
@@ -550,14 +550,14 @@ plain directory walk finds, the run says so and marks every candidate
 
 ```bash
 # 1. Report only — nothing is touched, under any flag
-./clean.sh --only orphans --include-orphans --scan
+mimi --only orphans --include-orphans --scan
 
 # 2. Edit the generated review file — delete a line, or put a # in its FIRST
 #    column, for anything to keep. Keep the header line: the file is refused
 #    without it.
 
 # 3. Remove exactly what remains
-./clean.sh --clean --remove-orphans-from ~/Library/Logs/cleanmymac/orphans-review-<timestamp>.txt
+mimi --cleaner --remove-orphans-from ~/Library/Logs/mimi/orphans-review-<timestamp>.txt
 ```
 
 ---
@@ -565,7 +565,7 @@ plain directory walk finds, the run says so and marks every candidate
 ## The disk report
 
 ```bash
-./clean.sh --report
+mimi --report
 ```
 
 Deletes nothing. It exists because the categories above only remove what is
@@ -602,7 +602,7 @@ It walks your whole home directory, so give it a few minutes.
 
 ## Config file
 
-`~/.config/cleanmymac/config.conf`, written by **Save current selection +
+`~/.config/mimi/config.conf`, written by **Save current selection +
 settings as default** in the interactive menu. Loaded at the start of *every*
 invocation, interactive or not. Plain `KEY=value`; edit it by hand if you
 prefer.
@@ -627,7 +627,7 @@ Delete the file to go back to built-in defaults.
 Every run writes a full transcript to:
 
 ```
-~/Library/Logs/cleanmymac/clean-YYYYMMDD-HHMMSS.log
+~/Library/Logs/mimi/clean-YYYYMMDD-HHMMSS.log
 ```
 
 It includes the stderr of every delegated command (`brew`, `docker`, `npm`…),
@@ -643,12 +643,12 @@ and fed back in.
 Want none of it at all:
 
 ```bash
-./clean.sh --clean --no-log     # transcript goes to a scratch file, deleted on exit
-./clean.sh --clean --keep-logs 0  # write this run's log, keep nothing older
+mimi --cleaner --no-log     # transcript goes to a scratch file, deleted on exit
+mimi --cleaner --keep-logs 0  # write this run's log, keep nothing older
 ```
 
 The `logs` category clears `~/Library/Logs/*` but explicitly skips
-`cleanmymac` — otherwise it would delete the transcript it is writing
+`mimi` — otherwise it would delete the transcript it is writing
 mid-run, along with any orphan review file you had not acted on yet.
 
 ---
@@ -660,19 +660,19 @@ mid-run, along with any orphan review file you had not acted on yet.
 ```bash
 # 0. Grant Full Disk Access, quit your browsers and Electron apps.
 # 1. See where everything actually is — deletes nothing.
-./clean.sh --report
+mimi --report
 
 # 2. Scan, then clean the safe default set.
-./clean.sh --scan
-./clean.sh --clean
+mimi --scan
+mimi --cleaner
 
 # 3. The opt-in wins, one at a time so you can see each result.
-./clean.sh --clean --only docker-cache --include-docker-cache   # start Docker first
-./clean.sh --clean --only toolchains --include-toolchains
-./clean.sh --clean --only ide-stale --include-ide-stale
-./clean.sh --clean --only android --include-android
-./clean.sh --clean --only ml-caches --include-ml-caches         # re-downloads models
-./clean.sh --clean --only ios-backups --include-ios-backups     # irreversible
+mimi --cleaner --only docker-cache --include-docker-cache   # start Docker first
+mimi --cleaner --only toolchains --include-toolchains
+mimi --cleaner --only ide-stale --include-ide-stale
+mimi --cleaner --only android --include-android
+mimi --cleaner --only ml-caches --include-ml-caches         # re-downloads models
+mimi --cleaner --only ios-backups --include-ios-backups     # irreversible
 
 # 4. Reboot — purgeable space and snapshots are only released on restart.
 ```
@@ -680,13 +680,13 @@ mid-run, along with any orphan review file you had not acted on yet.
 ### Just the browser and Electron win
 
 ```bash
-./clean.sh --clean --only browsers,electron --yes
+mimi --cleaner --only browsers,electron --yes
 ```
 
 ### A conservative weekly run
 
 ```bash
-./clean.sh --clean --yes \
+mimi --cleaner --yes \
   --skip timemachine,device-support \
   --whitelist-preset xcode-simulator
 ```
@@ -694,13 +694,13 @@ mid-run, along with any orphan review file you had not acted on yet.
 ### Free space fast without touching anything downloadable
 
 ```bash
-./clean.sh --clean --only caches,tmp,logs,diagnostics,xcode-derived --yes
+mimi --cleaner --only caches,tmp,logs,diagnostics,xcode-derived --yes
 ```
 
 ### Scriptable / cron
 
 ```bash
-./clean.sh --clean --yes --only caches,logs,tmp,dsstore >> ~/clean-cron.log 2>&1
+mimi --cleaner --yes --only caches,logs,tmp,dsstore >> ~/clean-cron.log 2>&1
 ```
 
 `--yes` suppresses all prompts, and non-terminal stdin disables the
@@ -715,7 +715,7 @@ interactive menu and all colour, so output stays log-friendly.
   `/usr`, `/bin`, `/sbin`, `/etc`, `/var`, `/private`, `/Users` and `$HOME`
   itself can never be the target of a removal, regardless of category or
   whitelist bugs.
-- **Scan is the default.** You have to ask for `--clean` explicitly.
+- **Scan is the default.** You have to ask for `--cleaner` explicitly.
 - **Destructive categories are opt-in and confirmed**, per item where the
   items are individually meaningful (backups, AVDs, Simulator devices).
 - **The whitelist is checked on every single path**, including each entry

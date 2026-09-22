@@ -1,9 +1,14 @@
-# CleanMyMac (clean.sh)
+# mimi
 
-A bash script that finds and removes common macOS "junk" — caches, logs,
+A bash tool that finds and removes common macOS "junk" — caches, logs,
 old Xcode build artifacts, package-manager caches, and more — and reports
 how much space it freed. Built for Apple Silicon Macs with Xcode/iOS
 Simulator workflows in mind.
+
+```bash
+mimi              # scan: show what would go, delete nothing
+mimi --cleaner    # actually clean
+```
 
 It never touches anything outside categories you enable, always scans
 before it cleans, and lets you protect any directory with `--whitelist`
@@ -31,7 +36,7 @@ alone routinely hoards 10+ GB there.
    Code — whichever one you run the script from)
 3. **Fully quit and reopen** the terminal (a reload is not enough)
 
-`clean.sh` prints a loud warning at the top of every run if it is
+`mimi` prints a loud warning at the top of every run if it is
 missing, and marks each directory it could not read.
 
 ## Why "System Data" is huge in Storage settings
@@ -57,7 +62,7 @@ categorise. On a developer Mac it is overwhelmingly:
 | `node_modules` you forgot about | anywhere in `~` | reported by `--report` |
 | Purgeable space + APFS snapshots | invisible | `timemachine`, reboot |
 
-Run `./clean.sh --report` for the live breakdown on *your* machine. It
+Run `mimi --report` for the live breakdown on *your* machine. It
 deletes nothing — it just tells you where the space went, including the
 things no cleaner should ever delete for you.
 
@@ -67,9 +72,9 @@ Run it with no arguments from a real terminal and you get a menu instead of
 a one-shot scan:
 
 ```bash
-./clean.sh
+mimi
 # or explicitly, even with other flags pre-set:
-./clean.sh -i
+mimi -i
 ```
 
 (Any flag at all — including `--scan` — keeps the script fully scriptable/
@@ -146,7 +151,7 @@ Main menu
 - **Settings** — adjust `--keep-device-support`, `--sim-stale-days`,
   `--android-stale-days`, and toggle aggressive/verbose/assume-yes.
 - **Save current selection + settings as default** — writes everything to
-  `~/.config/cleanmymac/config.conf`. From then on, *every* invocation
+  `~/.config/mimi/config.conf`. From then on, *every* invocation
   (interactive or not) loads that file first: your saved whitelist entries
   and thresholds apply automatically, and if you saved a category
   selection, that becomes the new default set instead of the built-in
@@ -158,32 +163,50 @@ category is one `category_info()` line + one function + one
 `category_include_var()` line, and it shows up in the interactive menu
 automatically.
 
+## Install
+
+```bash
+git clone https://github.com/nkwabyte/mimi.git
+cd mimi
+./install.sh
+```
+
+That symlinks `bin/mimi` into the first writable directory it finds on your
+`PATH` (`/usr/local/bin`, then Homebrew's `bin`, then `~/.local/bin`), and
+tells you what to add to your shell profile if that directory is not on
+`PATH` yet. Pick the location yourself with `./install.sh --prefix DIR`, and
+undo it with `./install.sh --uninstall`.
+
+It links rather than copies, so `git pull` here updates the installed command
+too.
+
+No install needed to try it — `./bin/mimi` works straight out of the checkout.
+
 ## Quick start
 
 ```bash
-chmod +x clean.sh
-
-# 1. See what would be cleaned and how much space you'd get back (safe, deletes nothing)
-./clean.sh
+# 1. See what would be cleaned and how much space you'd get back (deletes nothing)
+mimi
 
 # 2. Actually clean it, confirming once
-./clean.sh --clean
+mimi --cleaner
 
 # 3. Actually clean it without any prompts
-./clean.sh --clean --yes
+mimi --cleaner --yes
 ```
 
-`--scan` (the default) **never deletes anything**. You always have to
-pass `--clean` to remove files.
+`--scan` (the default) **never deletes anything**. You always have to pass
+`--cleaner` to remove files. `--clean` is accepted as well, since that is what
+every version of this tool before the rename used.
 
 ## Project layout
 
-`./clean.sh` is the documented entry point and always will be — it is a small
-shim over `bin/cleanmymac`, which loads the library in `lib/`.
+`bin/mimi` is the entry point; it loads the library in `lib/`.
 
 ```text
-clean.sh            # compatibility shim; sources bin/cleanmymac
-bin/cleanmymac      # entry point: finds lib/, loads it, parses args, dispatches
+bin/mimi            # entry point: finds lib/, loads it, parses args, dispatches
+install.sh          # symlinks bin/mimi onto your PATH
+clean.sh            # deprecated shim for the tool's previous name
 lib/
   load.sh           # sources the modules below, in order
   globals.sh        # every variable the rest of the tool reads
@@ -191,7 +214,7 @@ lib/
   util.sh           # size formatting and measurement
   validate.sh       # argument and configuration validation
   usage.sh          # the --help text
-  config.sh         # ~/.config/cleanmymac/config.conf
+  config.sh         # ~/.config/mimi/config.conf
   path.sh           # canonical path resolution and containment checks
   action.sh         # the checked removal layer
   core.sh           # categories, the orphan scan, the report, the TUI, main()
@@ -199,10 +222,19 @@ tests/              # bats suite; ./tests/run
 docs/               # plans, usage reference
 ```
 
-`clean.sh` *sources* `bin/cleanmymac` rather than exec'ing it, so `./clean.sh`
-keeps running under whichever bash you invoked it with and the tool keeps
-calling itself "clean.sh" in its messages. Running `bin/cleanmymac` directly
-works identically; it just calls itself "cleanmymac".
+### The old name
+
+This tool used to be `clean.sh`. That entry point still works and prints a
+one-line notice on stderr pointing at `mimi`; nothing anyone scripted against
+it breaks. It *sources* `bin/mimi` rather than exec'ing it, so it keeps running
+under whichever bash invoked it and the tool keeps calling itself "clean.sh" in
+its own messages.
+
+Saved settings and logs move themselves on first run:
+`~/.config/cleanmymac` → `~/.config/mimi`, and
+`~/Library/Logs/cleanmymac` → `~/Library/Logs/mimi`. Your whitelist comes with
+them — a whitelist that silently stopped being read would protect nothing.
+Orphan review files written under the old name are still accepted.
 
 `lib/core.sh` is the part that has not been broken up yet, and it is the
 largest file by far. Splitting it further is tracked in
@@ -220,14 +252,14 @@ no matter what category runs:
   scattered across five different directories.
 
 ```bash
-./clean.sh --clean --whitelist "$HOME/Library/Developer/CoreSimulator,$HOME/Library/Caches/SomeApp"
-./clean.sh --clean --include-orphans --whitelist "com.adobe.*,Vivaldi"
+mimi --cleaner --whitelist "$HOME/Library/Developer/CoreSimulator,$HOME/Library/Caches/SomeApp"
+mimi --cleaner --include-orphans --whitelist "com.adobe.*,Vivaldi"
 ```
 
 You can also repeat the flag:
 
 ```bash
-./clean.sh --clean --whitelist "$HOME/Library/Developer/CoreSimulator" --whitelist "$HOME/Library/Caches/SomeApp"
+mimi --cleaner --whitelist "$HOME/Library/Developer/CoreSimulator" --whitelist "$HOME/Library/Caches/SomeApp"
 ```
 
 ### Presets
@@ -236,7 +268,7 @@ Since Xcode/iOS Simulator files are the most common thing people want to
 protect, there's a shortcut:
 
 ```bash
-./clean.sh --clean --whitelist-preset xcode-simulator
+mimi --cleaner --whitelist-preset xcode-simulator
 ```
 
 | Preset | Protects |
@@ -249,7 +281,7 @@ Presets and `--whitelist` can be combined and used multiple times.
 
 ## What it cleans
 
-Run `./clean.sh --list` to print the live list with current risk level
+Run `mimi --list` to print the live list with current risk level
 and default on/off state. As of writing:
 
 | ID | Risk | Default | What it is |
@@ -331,9 +363,9 @@ Two things worth knowing:
 Both categories are on by default. To skip browser cleaning entirely:
 
 ```bash
-./clean.sh --clean --skip browsers,electron
+mimi --cleaner --skip browsers,electron
 # or protect specific browsers only:
-./clean.sh --clean --whitelist-preset browsers
+mimi --cleaner --whitelist-preset browsers
 ```
 
 ## Finding the rest: `--report`
@@ -344,7 +376,7 @@ should ever delete for you — SDKs, VM images, model weights, datasets,
 `node_modules`. `--report` finds them and deletes nothing:
 
 ```bash
-./clean.sh --report
+mimi --report
 ```
 
 It opens with a **"what is in that System Data number"** table that maps the
@@ -426,13 +458,13 @@ says so prominently and marks every candidate `[weak]`, rather than reading
 the missing apps as evidence that they were uninstalled.
 
 Every run with `--include-orphans` writes a review file to
-`~/Library/Logs/cleanmymac/orphans-review-<timestamp>.txt` listing every
+`~/Library/Logs/mimi/orphans-review-<timestamp>.txt` listing every
 candidate (both tiers) with its size. Open it, delete the line — or put a `#`
 in its **first column** — for anything you recognize as still in use, save,
 then run:
 
 ```bash
-./clean.sh --clean --remove-orphans-from "~/Library/Logs/cleanmymac/orphans-review-<timestamp>.txt"
+mimi --cleaner --remove-orphans-from "~/Library/Logs/mimi/orphans-review-<timestamp>.txt"
 ```
 
 A `#` anywhere other than the first column is part of the filename, so a
@@ -442,7 +474,7 @@ That file is treated as untrusted input, not as a list of paths to delete.
 Before anything is removed, and again immediately before each individual
 removal:
 
-- the file must still carry the `# cleanmymac-orphan-review v1` header this
+- the file must still carry the `# mimi-orphan-review v1` header this
   tool wrote — keep that first line, or the file is refused outright;
 - every path is resolved to its real location, with symlinks followed and
   `..` rejected outright, so no line can point somewhere other than where it
@@ -462,13 +494,13 @@ them: this is not a general "delete these paths" flag.
 
 ```bash
 # 1. Preview only — nothing is touched
-./clean.sh --only orphans --include-orphans --scan
+mimi --only orphans --include-orphans --scan
 
 # 2. Open the generated review file. Delete the line — or put a # in its
 #    first column — for everything you want to KEEP.
 
 # 3. Remove exactly what is left:
-./clean.sh --clean --remove-orphans-from "<path from step 1 output>"
+mimi --cleaner --remove-orphans-from "<path from step 1 output>"
 ```
 
 A known limitation: matching is by the app's *technical* bundle id, not its
@@ -499,7 +531,7 @@ folders, plus WhatsApp's own `Library/Caches` and `Logs`. It never touches
 non-`.status` media folder — those hold your actual conversation history.
 
 ```bash
-./clean.sh --clean --include-whatsapp --yes
+mimi --cleaner --include-whatsapp --yes
 ```
 
 ### `sim-stale` — long-unused Simulator devices
@@ -514,7 +546,7 @@ removing those and Xcode just recreates them. Requires `python3` to parse
 Simulator metadata (ships with Xcode's Command Line Tools).
 
 ```bash
-./clean.sh --clean --include-sim-stale --sim-stale-days 45
+mimi --cleaner --include-sim-stale --sim-stale-days 45
 ```
 
 ### `claude-cache` — Claude desktop app cache
@@ -530,7 +562,7 @@ re-acquiring it isn't a simple redownload-on-next-launch in every case, so
 that decision is left to you.
 
 ```bash
-./clean.sh --clean --include-claude-cache --yes
+mimi --cleaner --include-claude-cache --yes
 ```
 
 ### `android` — unreferenced system images + stale AVDs
@@ -548,7 +580,7 @@ Two independent checks:
   AVD itself is quick, but its contents are not recoverable.
 
 ```bash
-./clean.sh --clean --include-android --android-stale-days 45
+mimi --cleaner --include-android --android-stale-days 45
 ```
 
 "Safe" categories only ever remove files that the owning app/tool
@@ -560,13 +592,13 @@ theoretically cost you a re-download or a few seconds of re-indexing.
 
 ```bash
 # Only run these categories, ignore everything else
-./clean.sh --clean --only caches,logs,dsstore,homebrew
+mimi --cleaner --only caches,logs,dsstore,homebrew
 
 # Run the normal default set, but skip Homebrew and Gradle
-./clean.sh --clean --skip homebrew,gradle
+mimi --cleaner --skip homebrew,gradle
 
 # List every category id, its risk level, and whether it's on by default
-./clean.sh --list
+mimi --list
 ```
 
 `--skip` always wins, even over `--only` or the defaults.
@@ -612,20 +644,20 @@ theoretically cost you a re-download or a few seconds of re-indexing.
 ```bash
 # 0. Grant Full Disk Access (see top) and quit your browsers.
 # 1. See where everything actually is — deletes nothing.
-./clean.sh --report
+mimi --report
 
 # 2. Scan the safe default set.
-./clean.sh --scan
+mimi --scan
 
 # 3. Clean it.
-./clean.sh --clean
+mimi --cleaner
 
 # 4. The opt-in wins, one at a time so you can see each result.
-./clean.sh --clean --only docker-cache --include-docker-cache
-./clean.sh --clean --only ide-stale --include-ide-stale
-./clean.sh --clean --only android --include-android
-./clean.sh --clean --only ml-caches --include-ml-caches      # re-downloads models
-./clean.sh --clean --only ios-backups --include-ios-backups  # irreversible
+mimi --cleaner --only docker-cache --include-docker-cache
+mimi --cleaner --only ide-stale --include-ide-stale
+mimi --cleaner --only android --include-android
+mimi --cleaner --only ml-caches --include-ml-caches      # re-downloads models
+mimi --cleaner --only ios-backups --include-ios-backups  # irreversible
 
 # 5. Reboot. Purgeable space and APFS snapshots are only actually released
 #    on restart, which is when the Storage graph finally moves.
@@ -640,7 +672,7 @@ theoretically cost you a re-download or a few seconds of re-indexing.
   or whitelist bugs.
 - **Never runs as root / never asks for sudo.** Everything it touches is
   writable by your own user account.
-- **Every run is logged** to `~/Library/Logs/cleanmymac/clean-<timestamp>.log`,
+- **Every run is logged** to `~/Library/Logs/mimi/clean-<timestamp>.log`,
   including which files were removed and any errors encountered.
 - Cache/log directories have their *contents* removed, not the directory
   itself — apps that expect the folder to exist keep working.
@@ -676,11 +708,11 @@ script needs to be able to detect.
 ## Recommended first run
 
 ```bash
-./clean.sh --scan --whitelist-preset xcode-simulator
+mimi --scan --whitelist-preset xcode-simulator
 ```
 
 Look over the output, then when you're happy:
 
 ```bash
-./clean.sh --clean --whitelist-preset xcode-simulator --yes
+mimi --cleaner --whitelist-preset xcode-simulator --yes
 ```
