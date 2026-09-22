@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+#
+# tests/run — single command to install tools and execute the test suite.
+#
+# Usage:
+#   ./tests/run          # run all tests
+#   ./tests/run smoke    # run only smoke.bats
+#
+# Requirements: macOS, Homebrew (for bats-core if not already installed).
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+TESTS_DIR="$REPO_ROOT/tests"
+
+# ---------------------------------------------------------------------------
+# 1. Ensure bats-core is available
+# ---------------------------------------------------------------------------
+
+if ! command -v bats > /dev/null 2>&1; then
+  if command -v brew > /dev/null 2>&1; then
+    echo "==> Installing bats-core via Homebrew..."
+    brew install bats-core
+  else
+    echo "ERROR: bats-core is not installed and Homebrew is not available." >&2
+    echo "Install bats-core manually: https://bats-core.readthedocs.io" >&2
+    exit 1
+  fi
+fi
+
+BATS_VERSION="$(bats --version 2>/dev/null | awk '{print $NF}')"
+echo "==> bats-core ${BATS_VERSION}"
+
+# ---------------------------------------------------------------------------
+# 2. Static syntax check on clean.sh before running tests
+# ---------------------------------------------------------------------------
+
+echo "==> Syntax check: /bin/bash -n on every shell file"
+_syntax_failed=0
+for _f in "$REPO_ROOT/clean.sh" "$REPO_ROOT/bin/cleanmymac" "$REPO_ROOT"/lib/*.sh; do
+  if ! /bin/bash -n "$_f"; then
+    echo "ERROR: ${_f#"$REPO_ROOT"/} failed /bin/bash -n syntax check." >&2
+    _syntax_failed=1
+  fi
+done
+[ "$_syntax_failed" = 0 ] || exit 1
+echo "    OK"
+
+# ---------------------------------------------------------------------------
+# 3. Run the test suite
+# ---------------------------------------------------------------------------
+
+if [ $# -gt 0 ]; then
+  # Run only the named test file(s)
+  FILES=()
+  for arg in "$@"; do
+    # Accept "smoke", "smoke.bats", or a full path
+    if [ -f "$TESTS_DIR/${arg%.bats}.bats" ]; then
+      FILES+=("$TESTS_DIR/${arg%.bats}.bats")
+    elif [ -f "$arg" ]; then
+      FILES+=("$arg")
+    else
+      echo "ERROR: test file not found: $arg" >&2
+      exit 1
+    fi
+  done
+  echo "==> Running: ${FILES[*]}"
+  bats --tap "${FILES[@]}"
+else
+  echo "==> Running all tests in $TESTS_DIR"
+  bats --tap "$TESTS_DIR"/*.bats
+fi

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Mock: mdfind — Spotlight.
+#
+# By default returns nothing, which is what a machine with Spotlight disabled
+# or still indexing looks like. A test that needs a populated index points
+# MOCK_APP_INDEX at a file of "<app path>|<bundle id>" lines; the paths are
+# printed for an application-bundle query.
+if [ -n "${MOCK_APP_INDEX:-}" ] && [ -f "${MOCK_APP_INDEX}" ]; then
+  case "$*" in
+    *application-bundle*)
+      awk -F'|' 'NF { print $1 }' "$MOCK_APP_INDEX"
+      ;;
+  esac
+fi
+exit 0

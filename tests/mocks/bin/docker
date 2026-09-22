@@ -1,0 +1,34 @@
+#!/bin/sh
+# Mock: docker — daemon unavailable (exit 1) for docker info;
+# other subcommands succeed to allow category logic to run.
+# --- test harness hooks (see tests/README.md) ------------------------------
+# MOCK_CALL_LOG: append every invocation, so a test can count them.
+# MOCK_FAIL_CMDS: space-separated command names that must exit non-zero, so a
+# test can prove the caller checks the exit status.
+if [ -n "${MOCK_CALL_LOG:-}" ]; then
+  printf '%s %s\n' "$(basename "$0")" "$*" >> "$MOCK_CALL_LOG"
+fi
+# MOCK_FAIL_CMDS is a |-separated list of glob patterns matched against the
+# whole invocation ("npm cache clean --force"), not just the command name, so a
+# test can fail the cleanup call while leaving the tool's own config queries
+# working — which is what the real failure looks like.
+if [ -n "${MOCK_FAIL_CMDS:-}" ]; then
+  _mock_inv="$(basename "$0") $*"
+  _mock_rest="${MOCK_FAIL_CMDS}|"
+  while [ -n "$_mock_rest" ]; do
+    _mock_pat="${_mock_rest%%|*}"
+    _mock_rest="${_mock_rest#*|}"
+    [ -n "$_mock_pat" ] || continue
+    case "$_mock_inv" in
+      $_mock_pat)
+        echo "$(basename "$0"): mock failure" >&2
+        exit 7
+        ;;
+    esac
+  done
+fi
+# ---------------------------------------------------------------------------
+case "$1" in
+  info) exit 1 ;;
+  *)    exit 0 ;;
+esac

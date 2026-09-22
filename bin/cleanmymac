@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+#
+# bin/cleanmymac — macOS junk cleaner (Apple Silicon safe, Xcode/simulator aware)
+# Usage: see README.md or run ./clean.sh --help
+#
+# Written for bash 3.2+ compatibility (no associative arrays) since macOS's
+# system /bin/bash is still 3.2 even when a newer bash is on PATH.
+#
+# This file is the entry point: it locates lib/, loads it, parses arguments and
+# dispatches. Everything else lives in lib/. The repository root still has a
+# clean.sh shim, so the documented ./clean.sh invocation is unchanged.
+
+set -uo pipefail
+shopt -s nullglob
+
+# ---------------------------------------------------------------------------
+# Locate lib/
+#
+# Resolved from BASH_SOURCE, not from $0 or $PWD. $0 is deliberately not used:
+# the clean.sh shim sources this file so that the program still calls itself
+# "clean.sh" in its messages, which means $0 points at the shim, not here.
+# Symlinks to this file are followed so it can be linked onto PATH.
+# ---------------------------------------------------------------------------
+
+_cmm_self="${BASH_SOURCE[0]}"
+while [ -L "$_cmm_self" ]; do
+  _cmm_dir="$(cd -P "$(dirname "$_cmm_self")" > /dev/null 2>&1 && pwd)"
+  _cmm_self="$(readlink "$_cmm_self")"
+  case "$_cmm_self" in
+    /*) ;;
+    *) _cmm_self="$_cmm_dir/$_cmm_self" ;;
+  esac
+done
+_cmm_dir="$(cd -P "$(dirname "$_cmm_self")" > /dev/null 2>&1 && pwd)"
+
+# Not overridable from the environment on purpose: this path is sourced, so an
+# override would be arbitrary code execution wearing a configuration hat.
+CLEANMYMAC_LIB_DIR="$_cmm_dir/../lib"
+if [ ! -f "$CLEANMYMAC_LIB_DIR/load.sh" ]; then
+  printf '%s: error: cannot find lib/load.sh next to %s\n' "$(basename "$0")" "$_cmm_dir" >&2
+  exit 1
+fi
+
+# shellcheck source=lib/load.sh
+. "$CLEANMYMAC_LIB_DIR/load.sh"
+unset _cmm_self _cmm_dir
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+
+load_config
+
+# Bare invocation from an actual terminal drops into the interactive menu;
+# any flag at all keeps the script fully scriptable/non-interactive as before.
+if [ $# -eq 0 ] && [ -t 0 ] && [ -t 1 ]; then
+  INTERACTIVE=1
+fi
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -i|--interactive) INTERACTIVE=1; shift ;;
+    --scan) MODE="scan"; shift ;;
+    --clean) MODE="clean"; shift ;;
+    -y|--yes) ASSUME_YES=1; shift ;;
+    -v|--verbose) VERBOSE=1; shift ;;
+    --aggressive) AGGRESSIVE=1; shift ;;
+    --keep-device-support)
+      require_arg "--keep-device-support" "$#" "${2-}"
+      validate_int "--keep-device-support" "$2"
+      KEEP_DEVICE_SUPPORT="$2"; shift 2 ;;
+    --keep-device-support=*)
+      validate_int "--keep-device-support" "${1#*=}"
+      KEEP_DEVICE_SUPPORT="${1#*=}"; shift ;;
+    --only)
+      require_arg "--only" "$#" "${2-}"
+      ONLY_LIST="$(normalize_category_list "--only" "$2")" || exit "$EXIT_USAGE"; shift 2 ;;
+    --only=*)
+      ONLY_LIST="$(normalize_category_list "--only" "${1#*=}")" || exit "$EXIT_USAGE"; shift ;;
+    --skip)
+      require_arg "--skip" "$#" "${2-}"
+      SKIP_LIST="$(normalize_category_list "--skip" "$2")" || exit "$EXIT_USAGE"; shift 2 ;;
+    --skip=*)
+      SKIP_LIST="$(normalize_category_list "--skip" "${1#*=}")" || exit "$EXIT_USAGE"; shift ;;
+    --whitelist)
+      require_arg "--whitelist" "$#" "${2-}"
+      IFS=',' read -r -a _wl <<< "$2"; WHITELIST+=("${_wl[@]}"); shift 2 ;;
+    --whitelist=*)
+      IFS=',' read -r -a _wl <<< "${1#*=}"; WHITELIST+=("${_wl[@]}"); shift ;;
+    --whitelist-preset)
+      require_arg "--whitelist-preset" "$#" "${2-}"
+      apply_whitelist_preset "$2" || exit "$EXIT_USAGE"; shift 2 ;;
+    --whitelist-preset=*)
+      apply_whitelist_preset "${1#*=}" || exit "$EXIT_USAGE"; shift ;;
+    --include-trash) INCLUDE_TRASH=1; shift ;;
+    --include-mail) INCLUDE_MAIL=1; shift ;;
+    --include-docker) INCLUDE_DOCKER=1; shift ;;
+    --include-docker-cache) INCLUDE_DOCKER_CACHE=1; shift ;;
+    --include-orphans) INCLUDE_ORPHANS=1; shift ;;
+    --include-whatsapp) INCLUDE_WHATSAPP=1; shift ;;
+    --include-sim-stale) INCLUDE_SIM_STALE=1; shift ;;
+    --sim-stale-days)
+      require_arg "--sim-stale-days" "$#" "${2-}"
+      validate_int "--sim-stale-days" "$2"
+      SIM_STALE_DAYS="$2"; shift 2 ;;
+    --sim-stale-days=*)
+      validate_int "--sim-stale-days" "${1#*=}"
+      SIM_STALE_DAYS="${1#*=}"; shift ;;
+    --include-claude-cache) INCLUDE_CLAUDE_CACHE=1; shift ;;
+    --include-android) INCLUDE_ANDROID=1; shift ;;
+    --include-ide-stale) INCLUDE_IDE_STALE=1; shift ;;
+    --include-ml-caches) INCLUDE_ML_CACHES=1; shift ;;
+    --include-ios-backups) INCLUDE_IOS_BACKUPS=1; shift ;;
+    --include-toolchains) INCLUDE_TOOLCHAINS=1; shift ;;
+    --tmp-stale-days)
+      require_arg "--tmp-stale-days" "$#" "${2-}"
+      validate_int "--tmp-stale-days" "$2"
+      TMP_STALE_DAYS="$2"; shift 2 ;;
+    --tmp-stale-days=*)
+      validate_int "--tmp-stale-days" "${1#*=}"
+      TMP_STALE_DAYS="${1#*=}"; shift ;;
+    --keep-toolchains)
+      require_arg "--keep-toolchains" "$#" "${2-}"
+      validate_int "--keep-toolchains" "$2"
+      KEEP_TOOLCHAINS="$2"; shift 2 ;;
+    --keep-toolchains=*)
+      validate_int "--keep-toolchains" "${1#*=}"
+      KEEP_TOOLCHAINS="${1#*=}"; shift ;;
+    --report) REPORT_ONLY=1; shift ;;
+    --no-log) NO_LOG=1; shift ;;
+    --keep-logs)
+      require_arg "--keep-logs" "$#" "${2-}"
+      validate_int "--keep-logs" "$2"
+      KEEP_LOGS="$2"; shift 2 ;;
+    --keep-logs=*)
+      validate_int "--keep-logs" "${1#*=}"
+      KEEP_LOGS="${1#*=}"; shift ;;
+    --android-stale-days)
+      require_arg "--android-stale-days" "$#" "${2-}"
+      validate_int "--android-stale-days" "$2"
+      ANDROID_STALE_DAYS="$2"; shift 2 ;;
+    --android-stale-days=*)
+      validate_int "--android-stale-days" "${1#*=}"
+      ANDROID_STALE_DAYS="${1#*=}"; shift ;;
+    --remove-orphans-from)
+      require_arg "--remove-orphans-from" "$#" "${2-}"
+      [ -r "$2" ] || die_usage "--remove-orphans-from: cannot read review file '$2'"
+      REMOVE_ORPHANS_FILE="$2"; shift 2 ;;
+    --remove-orphans-from=*)
+      [ -r "${1#*=}" ] || die_usage "--remove-orphans-from: cannot read review file '${1#*=}'"
+      REMOVE_ORPHANS_FILE="${1#*=}"; shift ;;
+    --list) print_category_list; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
+    *)
+      err "unknown option: $1"
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+# The config file gets the same treatment the CLI just got. Deliberately after
+# the parse loop: --help and --list exit inside it, so documentation stays
+# reachable even when the saved config is broken.
+validate_config_values
+
+# Apply default-on/off filtering only when --only wasn't explicitly given.
+#
+# A category selection saved from the interactive menu takes precedence over
+# the built-in defaults, for scripted runs as much as interactive ones — that
+# is the whole point of saving it. An explicit --only still beats both.
+if [ -z "$ONLY_LIST" ]; then
+  if [ -n "$CONFIG_SELECTED_CATEGORIES" ]; then
+    ONLY_LIST="$CONFIG_SELECTED_CATEGORIES"
+    # An opt-in category named in the saved selection also needs its
+    # --include-* gate opened, or it would appear in the run list and then
+    # refuse to do anything ("skipped (opt-in only)").
+    for _id in $ALL_CATEGORY_IDS; do
+      case ",$ONLY_LIST," in
+        *",$_id,"*)
+          _var="$(category_include_var "$_id")"
+          [ -n "$_var" ] && printf -v "$_var" '1'
+          ;;
+      esac
+    done
+  else
+    default_ids=""
+    for _id in $ALL_CATEGORY_IDS; do
+      _info_line="$(category_info "$_id")"
+      _default="$(echo "$_info_line" | cut -d'|' -f2)"
+      [ "$_default" = "1" ] && default_ids="$default_ids,$_id"
+    done
+    ONLY_LIST="${default_ids#,}"
+  fi
+fi
+
+# Any --include-X flag is itself an explicit request to run that category,
+# whether or not --only named it (or code defaults would have included it).
+# --skip still wins (checked first in should_run_category).
+for _id in $ALL_CATEGORY_IDS; do
+  _var="$(category_include_var "$_id")"
+  if [ -n "$_var" ] && [ "${!_var}" = "1" ]; then
+    case ",$ONLY_LIST," in
+      *",$_id,"*) ;;
+      *) ONLY_LIST="${ONLY_LIST:+$ONLY_LIST,}$_id" ;;
+    esac
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+if [ "$INTERACTIVE" = 1 ]; then
+  interactive_main
+else
+  main
+fi

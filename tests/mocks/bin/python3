@@ -1,0 +1,3 @@
+#!/bin/sh
+# Mock: python3 — only used for pip-cache discovery; report nothing.
+exit 1
