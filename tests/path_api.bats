@@ -3,7 +3,7 @@
 # path_api.bats — P0-T03: canonical path and containment API.
 #
 # Two layers:
-#   1. unit tests that source clean.sh with CLEANMYMAC_LIB_ONLY=1 and call the
+#   1. unit tests that source clean.sh with MIMI_LIB_ONLY=1 and call the
 #      path helpers directly;
 #   2. end-to-end tests that drive the real CLI and assert that nothing outside
 #      the fixture's allowed roots was touched.

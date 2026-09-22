@@ -8,10 +8,10 @@
 
 usage() {
   cat <<'EOF'
-clean.sh — macOS junk cleaner (Xcode/simulator aware)
+mimi — macOS junk cleaner (Xcode/simulator aware)
 
 USAGE:
-  ./clean.sh [--scan | --clean] [options]
+  mimi [--scan | --cleaner] [options]
 
 MODES:
   --scan                 Report reclaimable space only. Deletes nothing. (default)
@@ -19,11 +19,11 @@ MODES:
   -i, --interactive       Menu-driven mode: toggle categories, edit the
                           whitelist, tune thresholds, run scan/clean, save
                           your selection as the new default. Also entered
-                          automatically when you run ./clean.sh with no
+                          automatically when you run mimi with no
                           arguments at all from a real terminal (any flag —
                           including --scan — keeps it fully scriptable).
                           Settings saved from the menu persist to
-                          ~/.config/cleanmymac/config.conf.
+                          ~/.config/mimi/config.conf.
 
 COMMON OPTIONS:
   -y, --yes              Do not prompt for confirmation before deleting.
@@ -80,7 +80,7 @@ OPT-IN (destructive / can remove wanted data — off unless requested):
                           bare macOS service names, or well-known shared
                           vendor folders (Adobe, Google, Microsoft, Dropbox,
                           iCloud, etc). Preview safely first with:
-                            ./clean.sh --only orphans --include-orphans --scan
+                            mimi --only orphans --include-orphans --scan
   --remove-orphans-from <file>
                           Remove exactly the paths listed in a review file
                           produced by --include-orphans. Edit it first: delete
@@ -121,7 +121,7 @@ OPT-IN (destructive / can remove wanted data — off unless requested):
                           still goes to the terminal; the transcript lives in
                           a scratch file that is deleted when the run ends.
   --keep-logs N             Number of past run logs to keep in
-                          ~/Library/Logs/cleanmymac (default 5, 0 = none).
+                          ~/Library/Logs/mimi (default 5, 0 = none).
                           Older ones are pruned at the start of every run,
                           so this tool does not become the junk it removes.
   --tmp-stale-days N        Age threshold for the `tmp` category (default 3).
@@ -165,14 +165,14 @@ WHITELIST (protect paths from being touched):
   -h, --help              Show this help.
 
 EXAMPLES:
-  ./clean.sh                                   # scan only, see what would be freed
-  ./clean.sh --clean                            # clean safe categories, ask to confirm
-  ./clean.sh --clean --yes                      # clean safe categories, no prompts
-  ./clean.sh --clean --whitelist-preset xcode-simulator
-  ./clean.sh --clean --only caches,logs,dsstore --yes
-  ./clean.sh --clean --include-trash --include-mail --yes
-  ./clean.sh --report                           # where did my disk space go?
-  ./clean.sh --clean --only browsers,electron --yes   # the big browser/Electron win
+  mimi                                   # scan only, see what would be freed
+  mimi --clean                            # clean safe categories, ask to confirm
+  mimi --clean --yes                      # clean safe categories, no prompts
+  mimi --clean --whitelist-preset xcode-simulator
+  mimi --clean --only caches,logs,dsstore --yes
+  mimi --clean --include-trash --include-mail --yes
+  mimi --report                           # where did my disk space go?
+  mimi --clean --only browsers,electron --yes   # the big browser/Electron win
 
 FULL DISK ACCESS:
   macOS protects ~/Library/Application Support/{Google/Chrome,Firefox,

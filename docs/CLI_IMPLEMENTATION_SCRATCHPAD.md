@@ -44,15 +44,15 @@ Do not start plan/apply, application uninstalling, privileged helpers, new clean
 
 ## 4. Baseline snapshot
 
-- Main implementation: `bin/cleanmymac` + `lib/*.sh`, with `clean.sh` as a compatibility shim (was a single `clean.sh` until 2026-09-22)
+- Main implementation: `bin/mimi` + `lib/*.sh`, with `clean.sh` as a deprecated shim (was a single `clean.sh` until 2026-09-22)
 - Current size at planning time: 2,059 lines; 5,012 lines as of 2026-09-22, now split across `bin/` and `lib/` (largest module: `lib/core.sh`, 3,582 lines)
 - Runtime target: macOS system Bash 3.2+
-- Current tests: 224 Bats tests in `tests/` (`./tests/run`) — as of 2026-09-22
+- Current tests: 269 Bats tests in `tests/` (`./tests/run`) — as of 2026-09-22
 - Current CI: none
 - Current static tools in review environment: ShellCheck and shfmt still not installed (documented in `tests/README.md`, not yet enforced)
 - Syntax check: `/bin/bash -n clean.sh` passes
-- Current persisted config: `~/.config/cleanmymac/config.conf`
-- Current logs: `~/Library/Logs/cleanmymac`
+- Current persisted config: `~/.config/mimi/config.conf` (migrated from `~/.config/cleanmymac` on first run)
+- Current logs: `~/Library/Logs/mimi` (migrated from `~/Library/Logs/cleanmymac` on first run)
 - Current execution model: scan or immediate clean
 - Current recovery model: none (but every action is now verified and counted)
 - Current orphan model: report-only, with `strong`/`weak` confidence labels (was: heuristic `auto` tier that bulk-deleted)
@@ -356,7 +356,11 @@ Status: `[~]` partially complete — 2026-09-21 (Batch A subset)
 - [x] Validate bounded non-negative integers for retention/staleness settings. *(`validate_int`, bound `VALIDATE_INT_MAX=36500`)*
 - [x] Normalize comma lists and reject empty/duplicate/unknown values intentionally. *(see DEC-005)*
 - [x] Validate configuration values using the same code as CLI values. *(`validate_config_values`)*
-- [ ] Make config writes atomic with restrictive permissions. **Not started** — deferred, `save_config` still writes in place.
+- [x] Make config writes atomic with restrictive permissions. *Completed
+  2026-09-22: written to a `mktemp` file in the same directory at `0600`, then
+  renamed over the target. This matters because DEC-006 makes a malformed
+  config fatal, so a half-written file would have locked the user out of every
+  run until they hand-edited it.*
 - [x] Define stable invalid-usage errors and exit code. *(see DEC-004)*
 
 Acceptance:
@@ -384,17 +388,30 @@ Depends on: `P0-T07`, `P0-T08`.
 
 ### `P0-T10` — Fix contained correctness defects
 
-- [ ] Remove the duplicate QuickLook reset invocation.
-- [ ] Audit each category for command status handling.
-- [ ] Fix `.DS_Store` success accounting.
-- [ ] Validate Android SDK image reference formats or make deletion report-only.
-- [ ] Replace deprecated `launchctl unload` behavior with current, correctly scoped behavior where safe.
-- [ ] Audit sparse-file size reporting and distinguish allocated from logical bytes.
+Status: `[x]` complete — 2026-09-22
+
+- [x] Remove the duplicate QuickLook reset invocation. *It also reported
+  success unconditionally; it now goes through `tool_cleanup`.*
+- [x] Audit each category for command status handling. *All 13 delegated
+  invocations now run through `tool_cleanup` (`lib/action.sh`), which is the
+  delegated-command counterpart of `fs_remove`.*
+- [x] Fix `.DS_Store` success accounting. *Done in `P0-T05`.*
+- [x] Validate Android SDK image reference formats or make deletion
+  report-only. *Both: references are format-checked, and anything unparseable
+  makes the whole category report-only (see DEC-024).*
+- [x] Replace deprecated `launchctl unload` behavior with current, correctly
+  scoped behavior where safe. *(see DEC-025)*
+- [x] Audit sparse-file size reporting and distinguish allocated from logical
+  bytes. *(see DEC-026)*
 
 Acceptance:
 
-- Each fixed defect has a focused regression test.
-- Unverified Android ownership cannot trigger deletion.
+- Each fixed defect has a focused regression test. **Met** —
+  `tests/defects.bats` (30 tests). Verified by restoring each pre-fix
+  behaviour in a scratch copy of the tree: 11 tests bite.
+- Unverified Android ownership cannot trigger deletion. **Met** — five tests
+  cover the absent, relocated, unreadable, malformed and traversal cases, and
+  a sixth proves the category still deletes when the evidence *is* sound.
 
 Depends on: `P0-T05` for shared action results.
 
@@ -883,7 +900,7 @@ Destructive integration tests must run only inside a disposable fixture or VM sn
 - [ ] `D-004` What is the initial minimum supported macOS version?
 - [ ] `D-005` How long should legacy `clean.sh` flags remain supported?
 - [ ] `D-006` Which one low-risk category should pilot plan/apply/restore?
-- [ ] `D-007` What is the final project/command name?
+- [x] `D-007` What is the final project/command name? **Resolved 2026-09-22: `mimi`** (see DEC-027).
 
 Resolve decisions only when their owning phase needs them. Do not let later-phase choices block Phase 0 safety work.
 
@@ -913,6 +930,11 @@ Resolve decisions only when their owning phase needs them. Do not let later-phas
 | 2026-09-22 | DEC-021 | `P1-T02`/`P1-T03` were pulled forward and partially done while Phase 0 is still open, at the maintainer's explicit request after the concern was raised. | This contradicts DEC-003 and the "do not combine Phase 0 safety changes with large modularization diffs" rule, and the conflict was stated before the work began. The risk was mitigated by doing it as a *pure move* in its own change set: no behaviour was altered, coverage of the split was verified line-by-line (5,012/5,012 lines assigned, no overlaps), and old-vs-new output was diffed across ten invocations. The remaining Phase 0 tasks are unaffected — they touch `lib/core.sh`, which is a contiguous copy of what they would have touched before. | `P1-T02`, `P1-T03`, Phase 0 remainder |
 | 2026-09-22 | DEC-022 | `clean.sh` *sources* `bin/cleanmymac` instead of `exec`-ing it. | An exec re-enters through the `#!/usr/bin/env bash` line, which on a developer machine finds Homebrew's bash 5 — silently destroying the test suite's macOS bash 3.2 guarantee, which is the single most load-bearing property of the harness. Sourcing also keeps `$0` pointing at the shim, so the tool still calls itself "clean.sh" in usage errors, preserving DEC-004's contract without any special-casing. | `P1-T02` |
 | 2026-09-22 | DEC-023 | The usage-error prefix became `$SCRIPT_NAME: error:` instead of a hardcoded `clean.sh: error:`. | With two entry points a hardcoded name is wrong for one of them. Deriving it from `$0` is the standard Unix convention and means the tool is always truthful about how it was invoked: `clean.sh` through the shim (unchanged for every existing user and every existing test), `cleanmymac` when `bin/` is run directly. It also sidesteps `D-007` (the final command name) entirely. | `P1-T02`, `P0-T08` |
+| 2026-09-22 | DEC-024 | An Android system image is deleted only when the AVD evidence parses cleanly; anything else makes the category report-only. | This was the same mistake `P0-T06` fixed for orphans, with worse consequences. An image was removed because no AVD referenced it — but the reference list was empty whenever `ANDROID_AVD_HOME` pointed elsewhere, when no `config.ini` was readable, or when the file had CRLF endings, and "no references found" was read as "nothing uses these". Format-checking each reference and refusing to act on a broken list costs a re-download at worst. | `P0-T10` |
+| 2026-09-22 | DEC-025 | `launchctl unload <path>` was replaced by `launchctl bootout gui/<uid>/<label>`, and failing to stop an agent is reported rather than swallowed. | `unload` is the deprecated interface and says nothing useful; the modern subcommands address a job by label, so the label is read from the plist. The old call ended in `\|\| true`, which hid the one fact the user needed: if the agent cannot be stopped, deleting its plist stops it coming back at next login but does not stop it now. | `P0-T10`, `P4-T04` |
+| 2026-09-22 | DEC-026 | Every size the tool measures is allocated (on-disk) bytes; logical size is reporting-only and may never reach a reclaimed total. | `du -skx` already reported allocated blocks, which is the figure that answers "how much would I get back", so the accounting was right — what was missing was saying so. A sparse Docker.raw that Finder shows as 64G may occupy 5G, and the report looked like it was under-counting by tens of gigabytes. `path_logical_kb` and `is_sparse_file` annotate the difference without ever feeding it into a total. The APFS clone over-count is documented as a known limitation rather than papered over. | `P0-T10`, `P6-T11` |
+| 2026-09-22 | DEC-027 | The product and command are named `mimi`; the GitHub repository is renamed to match. Resolves `D-007`. | The maintainer's choice. It also clears a real problem the old name had: "CleanMyMac" is a registered commercial product from MacPaw, which `P7-T01` would have had to deal with before any public packaging. `--cleaner` is the documented clean flag, with `--clean` still accepted because every script and every version of the README until now used it. | `P7-T01`, `P7-T02`, all user-facing text |
+| 2026-09-22 | DEC-028 | State left by the old name is moved, not left behind or duplicated: `~/.config/cleanmymac` → `~/.config/mimi`, same for the log directory. | A whitelist that silently stops being read protects nothing, which makes "just use the new path" a safety regression rather than a cosmetic one. Moving rather than copying means it happens once and leaves nothing to drift out of sync. Migration never overwrites an existing `mimi` config, and it degrades to reading the old location if the move fails. Orphan review files carrying the old marker are still accepted on input. | `P7-T03` |
 | 2026-09-21 | DEC-007 | The integer validator is named `validate_int` and accepts zero, rather than the planned `validate_positive_int`. | `--keep-logs 0` and `--keep-toolchains 0` are meaningful, so "positive" would have been an inaccurate name for the required behaviour. The task text asks for *bounded non-negative* integers. | `P0-T08` |
 
 ## 19. Blocker log
@@ -930,14 +952,14 @@ Add newly discovered work here before assigning it to a phase. Do not silently e
 - [ ] Research safe last-used application signals; do not infer from arbitrary file modification times.
 - [ ] Define allocated versus logical byte reporting across APFS clones and sparse files.
 - [ ] Determine how to expose Full Disk Access limitations without treating denial as an empty result.
-- [ ] Audit the current project name before public packaging.
-- [ ] `save_config` is not atomic and does not set restrictive permissions (remaining `P0-T08` item).
+- [x] ~~Audit the current project name before public packaging.~~ Resolved 2026-09-22: renamed to `mimi`, which also avoids the MacPaw "CleanMyMac" trademark.
+- [x] ~~`save_config` is not atomic and does not set restrictive permissions.~~ Resolved 2026-09-22.
 - [ ] No golden-file snapshot of `--list` yet; the category table is asserted only by spot-check (remaining `P0-T02` item).
-- [ ] `save_config` round-trip is untested — only `load_config` and precedence are covered.
+- [x] ~~`save_config` round-trip is untested.~~ Resolved 2026-09-22 in `tests/defects.bats`.
 - [ ] ShellCheck and shfmt are documented in `tests/README.md` but not yet installed or wired into `tests/run`; the definition-of-done lint gate is therefore not enforced.
 - [ ] Interactive TUI screens (category picker, settings, whitelist) have no automated coverage; they were verified manually through a pseudo-terminal.
 - [x] ~~The `CLEANMYMAC_LIB_ONLY=1` test hook only exposes helpers defined above the argument-parsing banner.~~ Resolved 2026-09-22: the hook is gone and `lib/load.sh` exposes everything.
-- [ ] Any `err`/`warn` before `log_init` writes to a log path whose directory does not exist yet, so every usage error is accompanied by a raw shell redirection error on stderr. Pre-existing; belongs to `P0-T10`.
+- [x] ~~Any `err`/`warn` before `log_init` writes to a log path whose directory does not exist yet.~~ Resolved 2026-09-22: `LOG_FILE` starts as `/dev/null` and `log_init` opens the real transcript.
 - [ ] `lib/core.sh` is still 3,582 lines. The next extraction pass should take the confirmation helpers, the category registry, the report and the TUI out of it.
 - [ ] The suite now takes roughly a minute per full run (206 tests, each with a fresh fixture and several full CLI invocations). Still fine locally, but `P0-T11` should decide whether CI runs files in parallel before it grows much further.
 - [ ] `path_canonicalize` walks each component in pure Bash and forks `readlink` only for real symlinks. It has not been benchmarked against a `~/Library/Caches` with tens of thousands of entries; `P6-T11` should measure it.
@@ -1197,6 +1219,76 @@ Found while doing this, **not** fixed here (kept to one concern):
   dash was read as an option. One character, done here because it is part of
   the entry-point change.
 
+### 2026-09-22 — Phase 0 Batch D (part 2)
+
+- `P0-T10` **complete**, which closes **Batch D**. The last open `P0-T08` item
+  (atomic config writes) is done too. `tests/defects.bats` adds 30 tests.
+  Suite: **254 tests, 0 failures.**
+- New: `tool_cleanup` in `lib/action.sh`, `unload_launch_agent`,
+  `path_logical_kb` and `is_sparse_file`.
+- The mocks gained two hooks — `MOCK_CALL_LOG` (count invocations) and
+  `MOCK_FAIL_CMDS` (fail a matching invocation). The latter matches the whole
+  command line rather than the command name, because failing every `npm` call
+  also breaks `npm config get cache`, and the category then skips before it
+  reaches the cleanup — a test that would pass while proving nothing.
+
+Defects fixed:
+
+- **Android system images were deleted on absent evidence.** An image went if
+  no AVD referenced it, but the reference list came out empty whenever
+  `ANDROID_AVD_HOME` relocated the AVD directory, no `config.ini` was
+  readable, or the file had CRLF endings — a `\r` made every reference match
+  nothing. On such a machine the category deleted every installed system
+  image. The same absence-as-proof error `P0-T06` fixed for orphans.
+- **All 13 delegated commands discarded their exit status.** `npm cache clean
+  --force` could fail outright and the run still printed "npm cache cleaned"
+  and exited 0. The freed byte figures were measured and therefore honest, but
+  the words were not.
+- **The QuickLook cache reset ran twice**, doubling the category's runtime for
+  no second-pass effect, and reported success whether or not `qlmanage` worked.
+- **`launchctl unload` ended in `|| true`**, hiding the fact that an agent it
+  could not stop keeps running until the next login.
+- **Every message printed before `log_init`** — each usage error, for one —
+  was appended to a log path inside a directory that did not exist yet, so it
+  came with a raw shell redirection error underneath it.
+- **`save_config` wrote in place with default permissions.** Since DEC-006
+  makes a malformed config fatal, an interrupted save locked the user out of
+  every subsequent run.
+
+One test-quality note worth keeping: the first CRLF test passed *without* the
+fix, because an unstripped `\r` makes the reference look malformed, which also
+protects the image. Surviving was not evidence the reference had been
+understood. The test now also asserts no malformed-reference warning appeared
+and that an unreferenced image was still removed.
+
+### 2026-09-22 — Rename to `mimi` (out of phase order, `P7-T01` in part)
+
+Requested by the maintainer. Resolves the long-open `D-007`.
+
+- `bin/cleanmymac` → `bin/mimi`; the command is `mimi`, and `--cleaner` is the
+  documented spelling for a cleaning run. `--clean` still works.
+- `install.sh` added: symlinks `bin/mimi` into the first writable directory on
+  `PATH`, says what to add to the shell profile when there is none, and
+  supports `--prefix` and `--uninstall`. It links rather than copies, so a
+  `git pull` updates the installed command — which works because `bin/mimi`
+  already resolved `lib/` through its own symlink (`P1-T02`).
+- User state migrates itself on first run (DEC-028). Verified on a real home
+  directory during development, not only in the fixture.
+- `clean.sh` stays as a deprecated shim and prints a one-line notice on
+  **stderr**, so piping or capturing stdout is unaffected.
+- GitHub repository renamed `nkwabyte/mac-cleaner` → `nkwabyte/mimi`; both
+  remote URLs updated, preserving the `github-nkwabyte` SSH host alias.
+- Suite: **269 tests, 0 failures** (15 new, covering `--cleaner`, the config
+  and log migration, the legacy review marker, and `install.sh`).
+
+Worth noting: the old name was also a trademark problem. "CleanMyMac" is
+MacPaw's commercial product, and `P7-T01` ("select a distinct project and
+command name after package/trademark checks") would have had to unpick it
+before any public release. That item is now largely satisfied.
+
+Still outstanding from `P7-T01`: bundle/package identifiers for the future GUI
+and privileged helper have not been chosen.
+
 ## 22. Next-session handoff template
 
 Copy and fill this section at the end of an implementation session:
@@ -1217,29 +1309,26 @@ Exact next step:
 ## 23. Current handoff
 
 ```text
-Task:          Partial P1-T02 / P1-T03 — bin/ + lib/ split (out of phase order)
-Status:        complete for this pass; lib/core.sh still to be broken up
-Changed files: clean.sh (now a shim), bin/cleanmymac (new), lib/*.sh (new),
-               tests/layout.bats (new), tests/test_helper.bash, tests/run,
-               tests/mutation.bats, tests/{path_api,orphan_review,orphan_report}.bats,
-               tests/README.md, README.md, docs/CLI_IMPLEMENTATION_SCRATCHPAD.md
+Task:          Rename the product and command to `mimi` (resolves D-007)
+Status:        complete
+Changed files: bin/mimi (renamed from bin/cleanmymac), clean.sh, install.sh
+               (new), lib/globals.sh, lib/config.sh, lib/core.sh, lib/usage.sh,
+               README.md, docs/USAGE.md, .gitignore, tests/* , scratchpad
 Tests run:     ./tests/run
-Test result:   224 passed, 0 failed, 0 skipped
-Safety checks: /bin/bash -n on all 12 shell files; git diff --check OK;
-               split coverage asserted (5,012/5,012 lines, no overlaps);
-               old-vs-new output diffed over ten invocations, byte-identical
-Decisions:     DEC-021 (pulled forward out of phase order, and why that was
-               made safe), DEC-022 (shim sources rather than execs, to keep
-               the bash 3.2 guarantee), DEC-023 ($SCRIPT_NAME error prefix)
-New risks:     lib/core.sh is 3,582 lines and still holds the categories, the
-               orphan scan, the report and the TUI, so the remaining Phase 0
-               tasks all land in one file. Nothing is worse than before, but
-               the modularity benefit is not yet where the work is.
+Test result:   269 passed, 0 failed, 0 skipped
+Safety checks: /bin/bash -n on all 13 shell files; git diff --check OK;
+               migration verified on a real home directory and in fixtures;
+               remote connectivity confirmed after the GitHub rename
+Decisions:     DEC-027 (named mimi; --cleaner documented, --clean kept),
+               DEC-028 (old config and logs are moved, not abandoned)
+New risks:     anyone who cloned nkwabyte/mac-cleaner keeps working through
+               GitHub's redirect but should update their remote. The local
+               checkout directory is still named CleanMyMac; renaming it is a
+               manual step outside the repository.
 Blocker:       none
-Exact next step: resume Phase 0 at P0-T10 — remove the duplicate QuickLook
-               reset, audit external command status handling, validate Android
-               SDK image references or make that deletion report-only, replace
-               deprecated launchctl unload, separate allocated from logical
-               bytes for sparse files, and fix the pre-log_init stderr noise
-               found above.
+Exact next step: P0-T07 — typed confirmations and force policy (Batch E).
+               Define the confirmation classes, constrain --yes so it cannot
+               authorize risky or irreversible work, add a distinct
+               user-cancelled exit code, and make non-TTY runs fail clearly
+               when a required confirmation cannot be obtained.
 ```

@@ -14,7 +14,11 @@
 SCRIPT_NAME="$(basename -- "$0")"
 HOME_DIR="$HOME"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-LOG_DIR="$HOME_DIR/Library/Logs/cleanmymac"
+LOG_DIR="$HOME_DIR/Library/Logs/mimi"
+# Where those two lived before the tool was renamed to mimi. See
+# migrate_legacy_state() — a rename must not silently orphan someone's
+# settings and whitelist.
+LEGACY_LOG_DIR="$HOME_DIR/Library/Logs/cleanmymac"
 # /dev/null until log_init() opens the real transcript. Anything printed before
 # then — every usage error, for one — used to be appended to a path inside a
 # directory that did not exist yet, so each one came with a raw shell
@@ -50,7 +54,8 @@ KEEP_TOOLCHAINS=1
 SIM_STALE_DAYS=60
 ANDROID_STALE_DAYS=60
 
-CONFIG_DIR="$HOME_DIR/.config/cleanmymac"
+CONFIG_DIR="$HOME_DIR/.config/mimi"
+LEGACY_CONFIG_DIR="$HOME_DIR/.config/cleanmymac"
 CONFIG_FILE="$CONFIG_DIR/config.conf"
 CONFIG_SELECTED_CATEGORIES=""
 INTERACTIVE=0

@@ -140,8 +140,17 @@ make_avd() {
   make_avd "$FAKE_HOME/.android/avd" "Pixel" \
     "system-images/android-34/google_apis/arm64-v8a/" crlf
 
+  # Also assert the reference parsed *cleanly*. Without the \r stripping the
+  # image survives anyway — but only because the reference is then rejected as
+  # malformed, which disables the whole category. Surviving is not enough;
+  # the reference has to be understood.
+  make_image "android-29/default/x86"
+
   run_clean --clean --yes --only android --include-android
   [ -f "$(SDK)/android-34/google_apis/arm64-v8a/payload" ]
+  ! echo "$output" | grep -q 'did not match the expected'
+  # Proof the category was not merely disabled: the unreferenced image went.
+  [ ! -e "$(SDK)/android-29/default/x86" ]
 }
 
 @test "android: a malformed reference disables deletion entirely" {
@@ -227,8 +236,8 @@ PLIST
 }
 
 @test "launchagent: the deprecated unload interface is gone" {
-  ! grep -qr 'launchctl unload' "$CLEANMYMAC_LIB"
-  grep -qr 'launchctl bootout' "$CLEANMYMAC_LIB"
+  ! grep -qr 'launchctl unload' "$MIMI_LIB"
+  grep -qr 'launchctl bootout' "$MIMI_LIB"
 }
 
 # ---------------------------------------------------------------------------
@@ -237,7 +246,7 @@ PLIST
 
 @test "config: save_config writes atomically and round-trips" {
   source_lib
-  CONFIG_DIR="$FAKE_HOME/.config/cleanmymac"
+  CONFIG_DIR="$FAKE_HOME/.config/mimi"
   CONFIG_FILE="$CONFIG_DIR/config.conf"
   KEEP_LOGS=9
   TMP_STALE_DAYS=11
@@ -256,7 +265,7 @@ PLIST
 
 @test "config: the saved file is not world- or group-readable" {
   source_lib
-  CONFIG_DIR="$FAKE_HOME/.config/cleanmymac"
+  CONFIG_DIR="$FAKE_HOME/.config/mimi"
   CONFIG_FILE="$CONFIG_DIR/config.conf"
   CATEGORY_STATE_IDS=(caches); CATEGORY_STATE_ON=(1)
 
@@ -266,7 +275,7 @@ PLIST
 
 @test "config: a failed save leaves the previous file untouched" {
   source_lib
-  CONFIG_DIR="$FAKE_HOME/.config/cleanmymac"
+  CONFIG_DIR="$FAKE_HOME/.config/mimi"
   CONFIG_FILE="$CONFIG_DIR/config.conf"
   CATEGORY_STATE_IDS=(caches); CATEGORY_STATE_ON=(1)
 
@@ -288,7 +297,7 @@ PLIST
 
 @test "config: no temporary files are left behind by a successful save" {
   source_lib
-  CONFIG_DIR="$FAKE_HOME/.config/cleanmymac"
+  CONFIG_DIR="$FAKE_HOME/.config/mimi"
   CONFIG_FILE="$CONFIG_DIR/config.conf"
   CATEGORY_STATE_IDS=(caches); CATEGORY_STATE_ON=(1)
 
@@ -316,7 +325,7 @@ PLIST
 
 @test "logging: no log directory is created just by failing to parse arguments" {
   run_clean --only nosuchcategory
-  [ ! -d "$FAKE_HOME/Library/Logs/cleanmymac" ]
+  [ ! -d "$FAKE_HOME/Library/Logs/mimi" ]
 }
 
 # ---------------------------------------------------------------------------

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# bin/cleanmymac — macOS junk cleaner (Apple Silicon safe, Xcode/simulator aware)
-# Usage: see README.md or run ./clean.sh --help
+# bin/mimi — macOS junk cleaner (Apple Silicon safe, Xcode/simulator aware)
+# Usage: see README.md or run `mimi --help`
 #
 # Written for bash 3.2+ compatibility (no associative arrays) since macOS's
 # system /bin/bash is still 3.2 even when a newer bash is on PATH.
 #
 # This file is the entry point: it locates lib/, loads it, parses arguments and
 # dispatches. Everything else lives in lib/. The repository root still has a
-# clean.sh shim, so the documented ./clean.sh invocation is unchanged.
+# clean.sh shim, so the invocation documented before the rename still works.
 
 set -uo pipefail
 shopt -s nullglob
@@ -22,33 +22,34 @@ shopt -s nullglob
 # Symlinks to this file are followed so it can be linked onto PATH.
 # ---------------------------------------------------------------------------
 
-_cmm_self="${BASH_SOURCE[0]}"
-while [ -L "$_cmm_self" ]; do
-  _cmm_dir="$(cd -P "$(dirname "$_cmm_self")" > /dev/null 2>&1 && pwd)"
-  _cmm_self="$(readlink "$_cmm_self")"
-  case "$_cmm_self" in
+_mimi_self="${BASH_SOURCE[0]}"
+while [ -L "$_mimi_self" ]; do
+  _mimi_dir="$(cd -P "$(dirname "$_mimi_self")" > /dev/null 2>&1 && pwd)"
+  _mimi_self="$(readlink "$_mimi_self")"
+  case "$_mimi_self" in
     /*) ;;
-    *) _cmm_self="$_cmm_dir/$_cmm_self" ;;
+    *) _mimi_self="$_mimi_dir/$_mimi_self" ;;
   esac
 done
-_cmm_dir="$(cd -P "$(dirname "$_cmm_self")" > /dev/null 2>&1 && pwd)"
+_mimi_dir="$(cd -P "$(dirname "$_mimi_self")" > /dev/null 2>&1 && pwd)"
 
 # Not overridable from the environment on purpose: this path is sourced, so an
 # override would be arbitrary code execution wearing a configuration hat.
-CLEANMYMAC_LIB_DIR="$_cmm_dir/../lib"
-if [ ! -f "$CLEANMYMAC_LIB_DIR/load.sh" ]; then
-  printf '%s: error: cannot find lib/load.sh next to %s\n' "$(basename "$0")" "$_cmm_dir" >&2
+MIMI_LIB_DIR="$_mimi_dir/../lib"
+if [ ! -f "$MIMI_LIB_DIR/load.sh" ]; then
+  printf '%s: error: cannot find lib/load.sh next to %s\n' "$(basename "$0")" "$_mimi_dir" >&2
   exit 1
 fi
 
 # shellcheck source=lib/load.sh
-. "$CLEANMYMAC_LIB_DIR/load.sh"
-unset _cmm_self _cmm_dir
+. "$MIMI_LIB_DIR/load.sh"
+unset _mimi_self _mimi_dir
 
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
 
+migrate_legacy_state
 load_config
 
 # Bare invocation from an actual terminal drops into the interactive menu;
@@ -61,7 +62,9 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -i|--interactive) INTERACTIVE=1; shift ;;
     --scan) MODE="scan"; shift ;;
-    --clean) MODE="clean"; shift ;;
+    # --cleaner is the documented spelling; --clean is kept because it is what
+    # every existing script and every version of the README until now used.
+    --cleaner | --clean) MODE="clean"; shift ;;
     -y|--yes) ASSUME_YES=1; shift ;;
     -v|--verbose) VERBOSE=1; shift ;;
     --aggressive) AGGRESSIVE=1; shift ;;

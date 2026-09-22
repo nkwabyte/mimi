@@ -60,8 +60,10 @@
 /.cache/
 
 # The tool's own output, if anyone ever points HOME at a checkout while
-# testing by hand rather than through ./tests/run.
+# testing by hand rather than through ./tests/run. The cleanmymac paths are
+# the tool's previous name, kept so an older checkout stays clean.
 /Library/
+/.config/mimi/
 /.config/cleanmymac/
 /.Trash/
 

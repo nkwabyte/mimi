@@ -17,7 +17,7 @@
 # Invalid usage always exits 1 with the same `<name>: error:` prefix, and
 # always writes to stderr — this runs before any log file exists. <name> is
 # how the program was invoked: "clean.sh" through the compatibility shim,
-# "cleanmymac" when bin/cleanmymac is run directly.
+# "cleanmymac" when bin/mimi is run directly.
 # ---------------------------------------------------------------------------
 
 EXIT_OK=0
