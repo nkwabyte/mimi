@@ -191,7 +191,7 @@ mimi
 # 2. Actually clean it, confirming once
 mimi --cleaner
 
-# 3. Actually clean it without any prompts
+# 3. Actually clean it without the ordinary prompts
 mimi --cleaner --yes
 ```
 
@@ -416,10 +416,12 @@ compares every entry against every app actually installed on your Mac
 (found via Spotlight, so it doesn't matter where the app lives). Anything
 left over with no matching installed app is a candidate.
 
-> **This category never deletes anything.** Not with `--clean`, not with
-> `--yes`, not with `--aggressive`. It writes a report. The only way any of
-> it can be removed is to read that report, decide for yourself, and pass it
-> back with `--remove-orphans-from`.
+> **This category never deletes anything.** Not with `--cleaner`, not with
+> `--yes`, not with `--aggressive`, not with `--force-risky`. It writes a
+> report. The only way any of it can be removed is to read that report, decide
+> for yourself, and pass it back with `--remove-orphans-from` — which is
+> itself an irreversible-class action needing a terminal or
+> `--force-risky orphans`.
 
 The reason is what the scan actually knows. It works by **absence**: an entry
 is listed because no installed application claimed its name. That is not
@@ -613,12 +615,17 @@ mimi --list
 | `--include-ide-stale` | Remove superseded JetBrains / Android Studio version folders |
 | `--include-ml-caches` | Clear the Hugging Face + PyTorch model caches |
 | `--include-ios-backups` | Delete local iPhone/iPad backups (asks per backup) |
+| `--force-risky <names>` | Authorize risky/irreversible actions by name for this run — see below |
 
 
 ```
 --scan                    Report only, delete nothing (default)
---clean                   Actually remove junk
--y, --yes                 Skip the confirmation prompt
+--cleaner                 Actually remove junk (--clean also accepted)
+-y, --yes                 Answer the ordinary prompts. Cannot answer a risky
+                          or irreversible one — see "What --yes can answer"
+--force-risky NAMES       Authorize risky/irreversible actions by name, for
+                          this run only: docker, mail, trash, orphans,
+                          sim-stale, android, ios-backups
 -v, --verbose              Print every file/dir as it's inspected or removed
 --aggressive               Also prune Xcode archives and DeviceSupport down to 1 version
 --keep-device-support N    How many DeviceSupport versions to keep (default 3)
@@ -663,6 +670,62 @@ mimi --cleaner --only ios-backups --include-ios-backups  # irreversible
 #    on restart, which is when the Storage graph finally moves.
 ```
 
+## What `--yes` can answer
+
+`--yes` is the flag that ends up in a cron line and is never looked at again.
+So it answers the prompts you would always have said yes to, and nothing else.
+
+Every prompt belongs to one of four classes:
+
+| Class | What it means | What answers it |
+|---|---|---|
+| **read-only** | Nothing is removed | Nothing is asked: `--scan`, `--report`, the `orphans` report |
+| **recoverable** | It comes back by itself — a cache that refills, a model that re-downloads — plus the whole-run "proceed?" gate | `--yes` |
+| **risky** | Real loss, but bounded: `docker`, `mail`, `sim-stale`, `android` | A `y/N` at a terminal, **or** `--force-risky <name>` |
+| **irreversible** | No other copy exists: `trash`, `ios-backups`, `orphans` | Typing the action's own name at a terminal, **or** `--force-risky <name>` |
+
+So this does **not** empty your Trash:
+
+```bash
+mimi --cleaner --yes --include-trash        # exits 5, removes nothing
+```
+
+It tells you exactly what it needs instead:
+
+```
+This run has no terminal to ask for confirmation on, and these actions
+cannot be authorized by --yes:
+  trash  (irreversible) — authorize with: --force-risky trash
+Nothing was removed. Re-run from a terminal, or add the flags above.
+```
+
+And this does:
+
+```bash
+mimi --cleaner --yes --include-trash --force-risky trash
+```
+
+Three things about `--force-risky` are deliberate:
+
+- **It has no `all`.** You name each action, so the flag cannot outlive the
+  reason you added it.
+- **It authorizes; it does not select.** `--include-trash` is still required.
+  Neither flag is dangerous on its own.
+- **It is never saved.** It cannot be set in `~/.config/mimi/config.conf`, and
+  saving your settings never writes it there.
+
+At a terminal you are still asked, `--force-risky` or not — and for an
+irreversible action, "y" is not accepted:
+
+```
+Permanently empty ~/.Trash.
+This cannot be undone. Type trash to confirm, anything else to skip.
+>
+```
+
+The check runs **before any category does**, so a scripted run that is missing
+an authorization removes nothing at all rather than stopping half way.
+
 ## Safety notes
 
 - **Dry-run by default.** Nothing is deleted unless you pass `--clean`.
@@ -687,6 +750,10 @@ mimi --cleaner --only ios-backups --include-ios-backups  # irreversible
   fictional total.
 - **Ctrl-C does not kill it mid-delete.** The signal is recorded, the action
   in progress finishes, and nothing further starts.
+- **`--yes` cannot authorize irreversible work.** Emptying the Trash, deleting
+  device backups and removing reviewed remnants each need either a terminal
+  confirmation or `--force-risky <name>`; see
+  [What `--yes` can answer](#what---yes-can-answer).
 
 Every run ends with a breakdown, and the exit status matches it:
 
@@ -697,9 +764,10 @@ Actions: 412 succeeded, 7 skipped, 3 permission-denied, 0 failed
 | Exit | Meaning |
 |---|---|
 | `0` | Everything asked for was done |
-| `1` | Invalid usage, or you declined a confirmation |
+| `1` | Invalid usage |
 | `3` | Finished, but at least one action failed or was refused by the system |
 | `4` | A signal stopped the run before it finished |
+| `5` | A confirmation was declined, or could not be obtained at all |
 
 A `3` usually means Full Disk Access is not granted. It is reported rather
 than hidden, because "the tool did not do what you asked" is something a

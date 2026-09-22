@@ -84,7 +84,7 @@ detects running apps and warns you — it never kills anything.
 mimi                 # bare invocation from a terminal → interactive menu
 mimi --scan          # report what would be freed, delete nothing
 mimi --cleaner         # actually clean, asks once to confirm
-mimi --cleaner --yes   # no prompts at all
+mimi --cleaner --yes   # answer the ordinary prompts (not the risky ones)
 mimi --report        # where did my disk space go? deletes nothing
 mimi --list          # every category id, risk level, default state
 mimi --help          # full flag list
@@ -114,8 +114,10 @@ size of the directory, not how much that tool will decide to drop.
 ### `--cleaner`
 
 Does the work. Prompts once before starting unless `--yes` is given, and
-prompts again per item for the genuinely destructive categories
-(`docker`, `ios-backups`, `ml-caches`, `sim-stale`, `android`).
+prompts again for the genuinely destructive categories (`docker`, `mail`,
+`trash`, `orphans`, `sim-stale`, `android`, `ios-backups`, `ml-caches`).
+`--yes` answers only the first kind; see
+[Confirmation classes](#confirmation-classes).
 
 ```
   cleared: ~/Library/Application Support/Notion/Partitions/notion/Service Worker/CacheStorage  (freed 8.4G)
@@ -241,7 +243,7 @@ Whitelist  (2 entries)
 | Flag | Effect |
 |---|---|
 | `--scan` | Report only, delete nothing. **Default.** |
-| `--cleaner` | Actually delete. Confirms once unless `--yes`. |
+| `--cleaner` | Actually delete. Confirms once unless `--yes`. `--clean` is accepted too. |
 | `--report` | Print a full disk breakdown, then exit. Deletes nothing. |
 | `--list` | Print every category id, risk and default state, then exit. |
 | `-i`, `--interactive` | Force the menu even when other flags are present. |
@@ -251,7 +253,8 @@ Whitelist  (2 entries)
 
 | Flag | Effect |
 |---|---|
-| `-y`, `--yes` | Never prompt. Use with care on opt-in categories. |
+| `-y`, `--yes` | Answer the *recoverable* prompts: the whole-run gate and anything that comes back by itself. It cannot answer a risky or irreversible one. |
+| `--force-risky <names>` | Authorize risky/irreversible actions by name, for this invocation only: `docker`, `mail`, `trash`, `orphans`, `sim-stale`, `android`, `ios-backups`. No `all`. Never read from or written to the config file. Authorizes but does not select — the matching `--include-<name>` is still required. |
 | `-v`, `--verbose` | Print every path as it is inspected and removed. |
 | `--aggressive` | Prune harder where a category supports it: older Xcode device support, `.xcarchive` builds, extra browser cache dirs, `uv cache clean` instead of `prune`, and `--tmp-stale-days 0`. Still fully whitelist-respecting. |
 | `--only <ids>` | Comma-separated category ids to run — nothing else runs. |
@@ -312,9 +315,10 @@ enough to run that category — you do not also need `--only`.
 | Code | Meaning |
 |---|---|
 | `0` | Everything asked for was done, including `--help`, `--list` and `--report` |
-| `1` | Invalid usage, or you declined the confirmation prompt |
+| `1` | Invalid usage |
 | `3` | The run finished, but at least one selected action failed or was refused by the system |
 | `4` | A signal (Ctrl-C, `SIGTERM`) stopped the run before it finished |
+| `5` | A required confirmation was declined, or could not be obtained at all |
 
 `2` is deliberately unused — too many tools read it as "usage", and invalid
 usage here is already `1`.
@@ -519,7 +523,8 @@ mimi --cleaner --whitelist-preset browsers --whitelist-preset ml
 `orphans` looks for config, preferences, caches, containers and LaunchAgents
 whose names no installed application claims.
 
-**It never deletes anything** — not with `--cleaner`, `--yes` or `--aggressive`.
+**It never deletes anything** — not with `--cleaner`, `--yes`, `--aggressive`
+or `--force-risky`.
 It writes a report. Removing any of it is a separate, deliberate step
 (`--remove-orphans-from`).
 
@@ -703,8 +708,30 @@ mimi --cleaner --only caches,tmp,logs,diagnostics,xcode-derived --yes
 mimi --cleaner --yes --only caches,logs,tmp,dsstore >> ~/clean-cron.log 2>&1
 ```
 
-`--yes` suppresses all prompts, and non-terminal stdin disables the
+`--yes` answers the ordinary prompts, and non-terminal stdin disables the
 interactive menu and all colour, so output stays log-friendly.
+
+A cron line that selects a risky or irreversible category needs `--force-risky`
+as well, because there is no terminal to ask on:
+
+```bash
+mimi --cleaner --yes --only trash --include-trash --force-risky trash
+```
+
+Without it the run exits `5`, removes nothing at all, and names the flag it
+needed.
+
+### Confirmation classes
+
+| Class | What it covers | What answers it |
+|---|---|---|
+| read-only | `--scan`, `--report`, the `orphans` report | nothing is asked |
+| recoverable | caches, re-downloadable models, the whole-run gate | `--yes` |
+| risky | `docker`, `mail`, `sim-stale`, `android` | `y/N` at a terminal, or `--force-risky <name>` |
+| irreversible | `trash`, `ios-backups`, `orphans` | typing the action's own name at a terminal, or `--force-risky <name>` |
+
+The check happens **before any category runs**, so an unauthorized scripted
+run costs nothing rather than stopping part-way through.
 
 ---
 
@@ -756,4 +783,5 @@ kept; the rest are pruned at the start of each run. Raise the number, or use
 `--no-log` to keep none.
 
 **Undo** — there is none. `--scan` first, whitelist what matters, and note
-that `trash` and `ios-backups` in particular are genuinely irreversible.
+that `trash` and `ios-backups` in particular are genuinely irreversible —
+which is why `--yes` cannot authorize either of them.
