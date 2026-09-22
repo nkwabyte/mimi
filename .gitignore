@@ -1,3 +1,20 @@
+# ---------------------------------------------------------------------------
+# .gitignore
+#
+# One thing to know before editing this file: this project is a disk cleaner,
+# so its test fixtures are deliberately named like the junk it removes —
+# tmp/, .cache/, *.log, .Trash/. A normal, unanchored junk rule therefore makes
+# the test suite's own fixtures silently uncommittable.
+#
+# Two conventions keep that from happening:
+#   * directory rules are anchored to the repository root with a leading "/",
+#     because git cannot re-include a file whose parent directory is excluded;
+#   * file rules are left unanchored but exempted under tests/fixtures/ by the
+#     negation at the bottom, which does work for files.
+#
+# If you add a rule here, run:  git check-ignore -v <a representative path>
+# ---------------------------------------------------------------------------
+
 # macOS metadata
 .DS_Store
 .AppleDouble
@@ -15,6 +32,7 @@
 .idea/
 .vscode/
 .vs/
+.zed/
 *.swp
 *.swo
 *.swm
@@ -35,8 +53,27 @@
 *.bak
 *.orig
 *.rej
-tmp/
-temp/
+/tmp/
+/temp/
 
 # Local tool caches
-.cache/
+/.cache/
+
+# The tool's own output, if anyone ever points HOME at a checkout while
+# testing by hand rather than through ./tests/run.
+/Library/
+/.config/cleanmymac/
+/.Trash/
+
+# Scratch files from one-off tooling; never part of a change.
+/scratch_*
+
+# ---------------------------------------------------------------------------
+# Test fixtures are never ignored.
+#
+# tests/fixtures/ holds deliberately junk-shaped trees (a fake ~/.cache, stray
+# *.log files, a tmp/ directory) that the suite needs committed. This negation
+# re-includes them from the file rules above; the directory rules above are
+# root-anchored so they never match in here to begin with.
+# ---------------------------------------------------------------------------
+!tests/fixtures/**

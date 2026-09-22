@@ -25,7 +25,13 @@
 
 # Absolute path to the repository root (two levels up from this file).
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# The documented entry point: the root shim. run_clean drives this rather than
+# bin/cleanmymac directly, so the compatibility path is what the whole suite
+# exercises — including the program calling itself "clean.sh" in its messages.
 CLEAN_SH="$REPO_ROOT/clean.sh"
+# The canonical entry point and the library, for the tests that address them.
+CLEANMYMAC_BIN="$REPO_ROOT/bin/cleanmymac"
+CLEANMYMAC_LIB="$REPO_ROOT/lib"
 MOCKS_BIN="$REPO_ROOT/tests/mocks/bin"
 
 # ---------------------------------------------------------------------------
@@ -147,10 +153,25 @@ teardown() {
 # Helpers available to all test files
 # ---------------------------------------------------------------------------
 
-# Run clean.sh with the fake home already in the environment.
+# Run the tool through the documented ./clean.sh entry point, with the fake
+# home already in the environment. /bin/bash is explicit so a newer Homebrew
+# bash on PATH cannot mask a 3.2 incompatibility — which is also why the shim
+# sources bin/cleanmymac instead of exec'ing it.
 # Usage: run_clean [args...]
 run_clean() {
   run /bin/bash "$CLEAN_SH" "$@"
+}
+
+# Run the canonical entry point directly, bypassing the shim.
+run_cleanmymac() {
+  run /bin/bash "$CLEANMYMAC_BIN" "$@"
+}
+
+# Load the function library into the current shell so a helper can be called
+# directly. Replaces the CLEANMYMAC_LIB_ONLY hook the single-file layout needed.
+load_lib() {
+  # shellcheck source=/dev/null
+  . "$CLEANMYMAC_LIB/load.sh"
 }
 
 # Assert that a fixture path still exists (scan must not delete it).

@@ -176,6 +176,38 @@ chmod +x clean.sh
 `--scan` (the default) **never deletes anything**. You always have to
 pass `--clean` to remove files.
 
+## Project layout
+
+`./clean.sh` is the documented entry point and always will be — it is a small
+shim over `bin/cleanmymac`, which loads the library in `lib/`.
+
+```text
+clean.sh            # compatibility shim; sources bin/cleanmymac
+bin/cleanmymac      # entry point: finds lib/, loads it, parses args, dispatches
+lib/
+  load.sh           # sources the modules below, in order
+  globals.sh        # every variable the rest of the tool reads
+  log.sh            # the run transcript and the say/info/ok/warn/err family
+  util.sh           # size formatting and measurement
+  validate.sh       # argument and configuration validation
+  usage.sh          # the --help text
+  config.sh         # ~/.config/cleanmymac/config.conf
+  path.sh           # canonical path resolution and containment checks
+  action.sh         # the checked removal layer
+  core.sh           # categories, the orphan scan, the report, the TUI, main()
+tests/              # bats suite; ./tests/run
+docs/               # plans, usage reference
+```
+
+`clean.sh` *sources* `bin/cleanmymac` rather than exec'ing it, so `./clean.sh`
+keeps running under whichever bash you invoked it with and the tool keeps
+calling itself "clean.sh" in its messages. Running `bin/cleanmymac` directly
+works identically; it just calls itself "cleanmymac".
+
+`lib/core.sh` is the part that has not been broken up yet, and it is the
+largest file by far. Splitting it further is tracked in
+[docs/CLI_IMPLEMENTATION_SCRATCHPAD.md](docs/CLI_IMPLEMENTATION_SCRATCHPAD.md).
+
 ## Protecting directories (whitelisting)
 
 Use `--whitelist` to pass one or more entries that should never be touched,
@@ -352,41 +384,79 @@ compares every entry against every app actually installed on your Mac
 (found via Spotlight, so it doesn't matter where the app lives). Anything
 left over with no matching installed app is a candidate.
 
-This is inherently **heuristic** (name/bundle-id matching, not a real
-uninstall log), and a first real-world test run on a loaded dev machine
-turned up both genuine orphans (leftover data from long-uninstalled apps,
-some in the hundreds of MB) and real Apple/system files that must never be
-touched (`loginwindow.plist`, `MobileMeAccounts.plist`, `pbs.plist` — the
-macOS pasteboard server). Because of that, results are split into two
-tiers and handled very differently:
+> **This category never deletes anything.** Not with `--clean`, not with
+> `--yes`, not with `--aggressive`. It writes a report. The only way any of
+> it can be removed is to read that report, decide for yourself, and pass it
+> back with `--remove-orphans-from`.
 
-- **`[auto]`** — high-confidence matches: entries in `Containers`, `WebKit`,
-  `HTTPStorages`, `Cookies`, `Application Scripts`, `Saved Application
-  State` (macOS itself names these by bundle id, apps don't get to choose),
-  plus `Application Support` folders that are themselves named like a
-  bundle id (e.g. `com.vendor.app`). These are offered for **immediate
-  bulk removal** with one confirmation prompt (still skips anything under
-  `com.apple.*`, known bare macOS service names, well-known shared vendor
-  folders, and bare-UUID container names, which can't be reliably
-  attributed to any single app).
-- **`[review]`** — everything noisier: `Preferences`, `Preferences/ByHost`,
-  `LaunchAgents`, and plain-English-named `Application Support` folders
-  (an app can name this folder anything — "Vivaldi", "Qt", "dotnet" — so a
-  miss here is much easier). These are **never auto-removed**, anywhere,
-  under any flag. They only get written to a review file.
+The reason is what the scan actually knows. It works by **absence**: an entry
+is listed because no installed application claimed its name. That is not
+ownership, and there are ordinary situations where the inference is simply
+wrong — an app that renamed itself but kept its bundle id, a beta installed
+next to a stable release, helpers and updaters filed under a vendor's prefix,
+an app on a volume that is not mounted right now, or Spotlight not having
+finished indexing. A first real-world run on a loaded dev machine turned up
+both genuine leftovers (hundreds of MB from long-gone apps) and real
+Apple/system files that must never be touched — `loginwindow.plist`,
+`MobileMeAccounts.plist`, `pbs.plist`, the macOS pasteboard server.
+
+Results are reported at two confidence levels, and the difference is how much
+the *location* tells you, not whether anything gets deleted:
+
+- **`[strong]`** — entries in `Containers`, `WebKit`, `HTTPStorages`,
+  `Cookies`, `Saved Application State` (macOS itself names these by bundle
+  id; apps don't get to choose), plus `Application Support` folders that are
+  themselves named like a bundle id (e.g. `com.vendor.app`) — where no
+  installed app claims that id. The name is real evidence here.
+- **`[weak]`** — everything else: `Preferences`, `Preferences/ByHost`,
+  `LaunchAgents` and `Application Scripts` (full of bare macOS service
+  names), plain-English `Application Support` folders (an app can name that
+  folder anything — "Vivaldi", "Qt", "dotnet"), anonymous UUID containers,
+  and **every** candidate when the installed-app index turned out to be
+  incomplete. A `[weak]` entry is not evidence that anything was
+  uninstalled.
+
+Anything under `com.apple.*`, known bare macOS service names, well-known
+shared vendor folders (Adobe, Google, Microsoft, Dropbox, 1Password, …) and
+`Group Containers` is excluded from the scan entirely.
+
+If the installed-app index is incomplete — Spotlight unavailable, returning
+nothing, or returning fewer apps than a plain directory walk finds — the run
+says so prominently and marks every candidate `[weak]`, rather than reading
+the missing apps as evidence that they were uninstalled.
 
 Every run with `--include-orphans` writes a review file to
 `~/Library/Logs/cleanmymac/orphans-review-<timestamp>.txt` listing every
-candidate (both tiers) with its size. Open it, delete or comment out (`#`)
-any line for something you recognize as still in use, save, then run:
+candidate (both tiers) with its size. Open it, delete the line — or put a `#`
+in its **first column** — for anything you recognize as still in use, save,
+then run:
 
 ```bash
 ./clean.sh --clean --remove-orphans-from "~/Library/Logs/cleanmymac/orphans-review-<timestamp>.txt"
 ```
 
-Paths in that file are re-validated before deletion (must still exist, must
-be inside one of the scanned locations, still honors `--whitelist`) — it's
-not a blind "rm every line."
+A `#` anywhere other than the first column is part of the filename, so a
+folder genuinely named `Foo#1` survives the round trip intact.
+
+That file is treated as untrusted input, not as a list of paths to delete.
+Before anything is removed, and again immediately before each individual
+removal:
+
+- the file must still carry the `# cleanmymac-orphan-review v1` header this
+  tool wrote — keep that first line, or the file is refused outright;
+- every path is resolved to its real location, with symlinks followed and
+  `..` rejected outright, so no line can point somewhere other than where it
+  appears to;
+- the result must be a **direct child** of one of the locations
+  `--include-orphans` actually scans;
+- `--whitelist` is re-checked;
+- the target must still be the same object (device + inode) it was when the
+  list was built.
+
+Each refused line is reported with a stable reason code (`traversal`,
+`not-orphan-root`, `not-direct-child`, `whitelisted`, `missing`,
+`identity-changed`, …). Adding arbitrary paths to the file will not remove
+them: this is not a general "delete these paths" flag.
 
 **Recommended usage:**
 
@@ -394,11 +464,11 @@ not a blind "rm every line."
 # 1. Preview only — nothing is touched
 ./clean.sh --only orphans --include-orphans --scan
 
-# 2. Bulk-remove just the high-confidence [auto] matches
-./clean.sh --clean --only orphans --include-orphans
+# 2. Open the generated review file. Delete the line — or put a # in its
+#    first column — for everything you want to KEEP.
 
-# 3. Review the noisier [review] items in the generated file, then:
-./clean.sh --clean --remove-orphans-from "<path from step 1/2 output>"
+# 3. Remove exactly what is left:
+./clean.sh --clean --remove-orphans-from "<path from step 1 output>"
 ```
 
 A known limitation: matching is by the app's *technical* bundle id, not its
@@ -523,10 +593,11 @@ theoretically cost you a re-download or a few seconds of re-indexing.
 --include-trash            Opt into emptying ~/.Trash
 --include-mail             Opt into clearing Mail's download cache
 --include-docker            Opt into `docker system prune -af --volumes`
---include-orphans           Opt into scanning for uninstalled-app leftovers
+--include-orphans           Opt into REPORTING possible app leftovers (never
+                            deletes; see --remove-orphans-from)
 --remove-orphans-from FILE  Remove exactly the paths listed in a reviewed
-                            orphans report (see "Orphaned application
-                            leftovers" below)
+                            orphans report this tool wrote (see "Orphaned
+                            application leftovers" below)
 --include-whatsapp          Opt into WhatsApp's expired Status/Stories cache
 --include-sim-stale         Opt into removing long-unused Simulator devices
 --sim-stale-days N          Staleness threshold for --include-sim-stale (60)
@@ -573,6 +644,34 @@ theoretically cost you a re-download or a few seconds of re-indexing.
   including which files were removed and any errors encountered.
 - Cache/log directories have their *contents* removed, not the directory
   itself — apps that expect the folder to exist keep working.
+- **Paths are resolved before they are trusted.** Symlinks are followed and
+  `..` is rejected, so nothing can be reached by spelling a path a different
+  way, and a symlinked cache directory is never followed out of the places
+  the tool is allowed to touch.
+- **The numbers are measured, not assumed.** A removal counts as successful
+  only if the target is verifiably gone afterwards — `rm` returning 0 is not
+  taken as evidence. Only successful actions contribute to "Space freed this
+  run", so a permission-denied directory can never produce a cheerful,
+  fictional total.
+- **Ctrl-C does not kill it mid-delete.** The signal is recorded, the action
+  in progress finishes, and nothing further starts.
+
+Every run ends with a breakdown, and the exit status matches it:
+
+```
+Actions: 412 succeeded, 7 skipped, 3 permission-denied, 0 failed
+```
+
+| Exit | Meaning |
+|---|---|
+| `0` | Everything asked for was done |
+| `1` | Invalid usage, or you declined a confirmation |
+| `3` | Finished, but at least one action failed or was refused by the system |
+| `4` | A signal stopped the run before it finished |
+
+A `3` usually means Full Disk Access is not granted. It is reported rather
+than hidden, because "the tool did not do what you asked" is something a
+script needs to be able to detect.
 
 ## Recommended first run
 

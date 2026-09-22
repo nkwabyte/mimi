@@ -1,3 +1,14 @@
 #!/bin/sh
-# Mock: defaults — returns empty for bundle identifier queries
+# Mock: defaults — the fallback bundle-id lookup when Spotlight has no answer.
+#
+# Called as: defaults read <app>/Contents/Info CFBundleIdentifier
+if [ -n "${MOCK_APP_INDEX:-}" ] && [ -f "${MOCK_APP_INDEX}" ] && [ "$1" = "read" ]; then
+  plist="$2"
+  app="${plist%/Contents/Info}"
+  id="$(awk -F'|' -v a="$app" '$1 == a { print $2; exit }' "$MOCK_APP_INDEX")"
+  if [ -n "$id" ]; then
+    printf '%s\n' "$id"
+    exit 0
+  fi
+fi
 exit 1

@@ -28,32 +28,34 @@ Only one task should normally be `[~]` at a time. A task is not complete because
 
 Current phase: Phase 0 — Safety stabilization
 
-Current task: `P0-T01` — establish the test harness and isolated fake home directory
+Current task: none in progress — `P0-T05` completed 2026-09-22; a partial
+`P1-T02`/`P1-T03` was pulled forward out of phase order on 2026-09-22 at the
+maintainer's request (see DEC-021).
 
 Next tasks:
 
-1. `P0-T02` — capture current CLI behavior as characterization tests.
-2. `P0-T03` — canonical path and containment API.
-3. `P0-T04` — secure reviewed-orphan input handling.
-4. `P0-T05` — harden mutation primitives and result accounting.
-5. `P0-T06` — make heuristic orphan discovery report-only.
+1. `P0-T10` — fix contained correctness defects (finishes Batch D).
+2. `P0-T07` — typed confirmations and force policy (Batch E).
+3. `P0-T09` — reclassify defaults and profiles (Batch F).
+4. `P0-T12` — documentation and safety contract parity (Batch F).
+5. `P0-T11` — static checks and CI (Batch G).
 
 Do not start plan/apply, application uninstalling, privileged helpers, new cleanup categories, or GUI integration until the Phase 0 exit gate passes.
 
 ## 4. Baseline snapshot
 
-- Main implementation: `clean.sh`
-- Current size at planning time: 2,059 lines
+- Main implementation: `bin/cleanmymac` + `lib/*.sh`, with `clean.sh` as a compatibility shim (was a single `clean.sh` until 2026-09-22)
+- Current size at planning time: 2,059 lines; 5,012 lines as of 2026-09-22, now split across `bin/` and `lib/` (largest module: `lib/core.sh`, 3,582 lines)
 - Runtime target: macOS system Bash 3.2+
-- Current tests: 63 Bats tests in `tests/` (`./tests/run`) — as of 2026-09-21
+- Current tests: 224 Bats tests in `tests/` (`./tests/run`) — as of 2026-09-22
 - Current CI: none
 - Current static tools in review environment: ShellCheck and shfmt still not installed (documented in `tests/README.md`, not yet enforced)
 - Syntax check: `/bin/bash -n clean.sh` passes
 - Current persisted config: `~/.config/cleanmymac/config.conf`
 - Current logs: `~/Library/Logs/cleanmymac`
 - Current execution model: scan or immediate clean
-- Current recovery model: none
-- Current orphan model: heuristic `auto` and `review` tiers
+- Current recovery model: none (but every action is now verified and counted)
+- Current orphan model: report-only, with `strong`/`weak` confidence labels (was: heuristic `auto` tier that bulk-deleted)
 
 Known critical risks are tracked in the main plan. Phase 0 treats the current deletion behavior as frozen except for safety fixes.
 
@@ -171,82 +173,161 @@ Depends on: `P0-T01`.
 
 ### `P0-T03` — Canonical path and containment API
 
-- [ ] Define a small path API for existing, missing, file, directory, and symlink targets.
-- [ ] Canonicalize allowed roots once and targets before authorization.
-- [ ] Require component-boundary containment, not string-prefix similarity.
-- [ ] Reject `..` traversal and unexpected symlinks.
-- [ ] Capture device/inode identity when a target is discovered.
-- [ ] Recheck identity immediately before mutation.
-- [ ] Define behavior for different volumes and unavailable mounts.
+Status: `[x]` complete — 2026-09-22
 
-Required tests:
+- [x] Define a small path API for existing, missing, file, directory, and symlink targets.
+  *(`path_absolute`, `path_canonicalize`, `path_kind`, `path_identity`,
+  `path_contains`, `path_has_traversal`, `path_authorize`, `path_deny_message`,
+  `path_register_allowed_root`, `path_init_roots`.)*
+- [x] Canonicalize allowed roots once and targets before authorization.
+  *(`path_init_roots`, lazily via `path_roots_ready`.)*
+- [x] Require component-boundary containment, not string-prefix similarity. *(`path_contains`)*
+- [x] Reject `..` traversal and unexpected symlinks. *(see DEC-008, DEC-009)*
+- [x] Capture device/inode identity when a target is discovered. *(`path_identity`)*
+- [x] Recheck identity immediately before mutation.
+- [x] Define behavior for different volumes and unavailable mounts. *(see DEC-010)*
 
-- [ ] direct child under an allowed root;
-- [ ] sibling with the same textual prefix;
-- [ ] `..` escape;
-- [ ] symlink at the final component;
-- [ ] symlink in an intermediate component;
-- [ ] broken symlink;
-- [ ] root replaced between discovery and mutation;
-- [ ] whitespace, glob, leading dash, `#`, tab, newline, and Unicode filenames;
-- [ ] forbidden exact roots and home itself.
+Required tests — all in `tests/path_api.bats` (64 tests):
+
+- [x] direct child under an allowed root;
+- [x] sibling with the same textual prefix;
+- [x] `..` escape;
+- [x] symlink at the final component;
+- [x] symlink in an intermediate component;
+- [x] broken symlink;
+- [x] root replaced between discovery and mutation;
+- [x] whitespace, glob, leading dash, `#`, tab, newline, and Unicode filenames;
+- [x] forbidden exact roots and home itself.
 
 Acceptance:
 
-- Authorization answers are based on canonical identity and explicit allowed roots.
-- No caller implements its own path-prefix check.
+- Authorization answers are based on canonical identity and explicit allowed
+  roots. **Met** — `path_authorize` is the only gate, and it decides on the
+  canonical path plus `PATH_ALLOWED_ROOTS`/`PATH_FORBIDDEN_CANONICAL`.
+- No caller implements its own path-prefix check. **Met for the mutation
+  primitives and the whitelist**: `resolve_path` is deleted and both
+  `clear_dir_contents` and `remove_path` call `path_authorize`.
+  **One lexical check deliberately remains**: the allowed-root `case` in
+  `process_orphans_review_file`, which `P0-T04` owns and rewrites. It is
+  listed in the blocker-free carry-over below rather than patched here, to
+  keep this change set to one concern.
 
 Depends on: `P0-T01`, characterization coverage from `P0-T02`.
 
 ### `P0-T04` — Secure reviewed-orphan input
 
-- [ ] Disable `--remove-orphans-from` until the new validation path is active.
-- [ ] Replace lexical root matching with the `P0-T03` containment API.
-- [ ] Reject paths containing traversal or changed identities.
-- [ ] Stop interpreting `#` inside a valid filename as an inline comment.
-- [ ] Decide whether the temporary compatibility format remains line-based or becomes a versioned manifest immediately.
-- [ ] Revalidate whitelist and allowed root immediately before every action.
-- [ ] Report rejected entries with stable reason codes.
+Status: `[x]` complete — 2026-09-22
+
+- [x] Disable `--remove-orphans-from` until the new validation path is active.
+  *Not needed as a separate step: the validation path landed in the same
+  change set, so the flag was never live without it.*
+- [x] Replace lexical root matching with the `P0-T03` containment API.
+  *`validate_orphan_target` → `path_authorize` + `path_contains`, with the
+  allowed roots derived from `ORPHAN_ROOTS` so there is no second copy of the
+  list. The hardcoded `case "$path" in "$HOME_DIR/Library/..."` is gone.*
+- [x] Reject paths containing traversal or changed identities.
+  *`traversal` comes from `path_authorize`; identity is pinned with
+  `path_identity` when the list is built and compared again before each
+  removal (`identity-changed`).*
+- [x] Stop interpreting `#` inside a valid filename as an inline comment.
+  *A `#` comments a line out only in the first column after leading
+  whitespace.*
+- [x] Decide whether the temporary compatibility format remains line-based or
+  becomes a versioned manifest immediately. *(see DEC-012)*
+- [x] Revalidate whitelist and allowed root immediately before every action.
+  *The removal loop re-runs the whole of `validate_orphan_target`, not a
+  subset of it.*
+- [x] Report rejected entries with stable reason codes.
+  *`missing`, `empty`, `relative`, `traversal`, `unresolvable`, `forbidden`,
+  `outside-root`, `symlink`, `not-orphan-root`, `not-direct-child`,
+  `whitelisted`, `identity-changed`; each printed with its line number.*
 
 Acceptance:
 
-- The original traversal case is a permanent regression test.
-- A malformed review file cannot broaden deletion scope.
-- Valid paths containing special characters are preserved exactly.
+- The original traversal case is a permanent regression test. **Met** —
+  `traversal: '..' in a review line cannot reach outside the orphan roots`
+  in `tests/orphan_review.bats`, confirmed failing against the previous
+  script.
+- A malformed review file cannot broaden deletion scope. **Met** — an
+  unmarked file is refused outright, and a marked one only ever reaches
+  direct children of the locations the scanner itself walks.
+- Valid paths containing special characters are preserved exactly. **Met** —
+  spaces, `*`, `[`, leading `-`, `#`, quotes, `$`, `;`, Unicode and a trailing
+  space all round-trip. A name containing a newline cannot round-trip through
+  a line-based file at all, so it is reported instead of being written
+  (see DEC-013).
 
 Depends on: `P0-T03`.
 
 ### `P0-T05` — Harden mutation primitives
 
-- [ ] Route all filesystem removal through one checked operation layer.
-- [ ] Separate `clear directory contents` from `remove path` policy.
-- [ ] Never follow a directory symlink while clearing contents.
-- [ ] Check command status and verify the postcondition.
-- [ ] Count bytes only for successful actions.
-- [ ] Record success, skipped, failed, and permission-denied separately.
-- [ ] Return a partial-failure exit when any selected action fails.
-- [ ] Add signal traps that record interruption without starting another action.
+Status: `[x]` complete — 2026-09-22
+
+- [x] Route all filesystem removal through one checked operation layer.
+  *`fs_remove` is the only caller of `rm` outside the tool's own log
+  housekeeping, and a structural test enforces that.*
+- [x] Separate `clear directory contents` from `remove path` policy.
+  *Already begun in `P0-T03`; `clear_dir_contents` requires `no-symlink`
+  authorization and per-entry authorization, `remove_path` authorizes the
+  object itself.*
+- [x] Never follow a directory symlink while clearing contents. *(`P0-T03`,
+  regression-tested there and again here through `fs_remove`.)*
+- [x] Check command status and verify the postcondition. *(see DEC-018)*
+- [x] Count bytes only for successful actions.
+- [x] Record success, skipped, failed, and permission-denied separately.
+  *`ACTION_OK`/`ACTION_SKIPPED`/`ACTION_FAILED`/`ACTION_DENIED`, printed in
+  the summary.*
+- [x] Return a partial-failure exit when any selected action fails.
+  *(see DEC-019 for the code chosen and why denied counts as failed.)*
+- [x] Add signal traps that record interruption without starting another
+  action. *(see DEC-020)*
 
 Acceptance:
 
-- Failure injection cannot produce a false success message or inflated reclaimed total.
-- Every direct `rm` in category code is removed or explicitly justified and tested.
+- Failure injection cannot produce a false success message or inflated
+  reclaimed total. **Met** — `tests/mutation.bats` injects a `chmod 500`
+  parent directory and asserts the reclaimed total stays at zero, no
+  `removed:` line is printed, and the run exits `3`. It also injects an `rm`
+  that returns 0 without deleting anything, to prove the postcondition rather
+  than the exit status is what decides.
+- Every direct `rm` in category code is removed or explicitly justified and
+  tested. **Met** — three raw removals remain, all on this tool's own log
+  files, each carrying a written justification, and two structural tests fail
+  if a new one appears or a justification is deleted.
 
 Depends on: `P0-T03`.
 
 ### `P0-T06` — Make heuristic orphan discovery report-only
 
-- [ ] Remove automatic mutation of all name/bundle-ID heuristic candidates.
-- [ ] Replace `auto` wording with evidence/confidence wording.
-- [ ] Keep weak, ambiguous, UUID, shared-vendor, and group-container candidates unselected.
-- [ ] Report when Spotlight is unavailable/incomplete rather than interpreting absence as uninstall evidence.
-- [ ] Add fixtures for renamed apps, beta/stable siblings, nested helpers, unavailable volumes, and shared vendor data.
-- [ ] Update `--include-orphans` help and README semantics.
+Status: `[x]` complete — 2026-09-22
+
+- [x] Remove automatic mutation of all name/bundle-ID heuristic candidates.
+  *`cat_orphans` no longer calls `remove_path` or `confirm` at all. The
+  `auto_idx` array and its removal loop are gone.*
+- [x] Replace `auto` wording with evidence/confidence wording.
+  *Tiers are `strong`/`weak`; `ORPHAN_ROOTS` policies are
+  `bundle-id-named` / `bundle-id-if-dotted` / `name-guess`. The section
+  heading no longer asserts that anything was uninstalled.*
+- [x] Keep weak, ambiguous, UUID, shared-vendor, and group-container
+  candidates unselected. *Nothing is selected at all now; each of these has a
+  fixture proving it is either excluded outright or labelled `weak`.*
+- [x] Report when Spotlight is unavailable/incomplete rather than interpreting
+  absence as uninstall evidence. *(see DEC-015)*
+- [x] Add fixtures for renamed apps, beta/stable siblings, nested helpers,
+  unavailable volumes, and shared vendor data. *In `tests/orphan_report.bats`.
+  "Unavailable volume" is covered through its observable consequence — an
+  incomplete application index — since a test cannot unmount a volume.*
+- [x] Update `--include-orphans` help and README semantics.
 
 Acceptance:
 
-- No orphan scan result can be deleted without a separately reviewed input path/manifest.
+- No orphan scan result can be deleted without a separately reviewed input
+  path/manifest. **Met** — `report-only: --clean --include-orphans removes
+  nothing`, confirmed failing against the previous script.
 - A weak match is never described as owned by an uninstalled application.
+  **Met** — the report states outright that `[weak]` is not evidence of
+  uninstallation, and a test asserts the phrase "uninstalled apps" no longer
+  appears in the output.
 
 Depends on: `P0-T02`; secure report consumption depends on `P0-T04`.
 
@@ -371,16 +452,40 @@ Phase objective: separate concerns without changing safety behavior, then expose
 
 ### `P1-T02` — Thin entry point
 
-- [ ] Add `bin/cleanmymac` as the canonical entry point.
-- [ ] Keep `clean.sh` as a compatibility shim during migration.
-- [ ] Resolve library paths relative to the executable safely.
-- [ ] Add install-tree and source-tree invocation tests.
+Status: `[~]` mostly complete — 2026-09-22, pulled forward out of phase order
+(see DEC-021).
+
+- [x] Add `bin/cleanmymac` as the canonical entry point.
+- [x] Keep `clean.sh` as a compatibility shim during migration. *(see DEC-022
+  for why it sources rather than execs.)*
+- [x] Resolve library paths relative to the executable safely. *Resolved from
+  `BASH_SOURCE`, following symlinks, never from `$0` or `$PWD`; the lib path
+  is deliberately not overridable from the environment, since it is sourced.*
+- [~] Add install-tree and source-tree invocation tests. *Source-tree, symlink
+  and arbitrary-cwd invocation are covered in `tests/layout.bats`. There is no
+  installed layout yet, so install-tree invocation is still outstanding and
+  belongs with `P7-T02`.*
 
 ### `P1-T03` — Extract core utilities
 
-- [ ] Extract logging, sizing, path, validation, confirmation, and config modules one at a time.
-- [ ] Keep each extraction behavior-neutral with characterization tests.
-- [ ] Remove hidden dependence on source order where practical.
+Status: `[~]` partially complete — 2026-09-22, pulled forward out of phase
+order (see DEC-021).
+
+- [~] Extract logging, sizing, path, validation, confirmation, and config
+  modules one at a time. *Extracted: `globals`, `log`, `util` (sizing),
+  `validate`, `usage`, `config`, `path`, `action`. Not extracted: the
+  confirmation helpers, categories, the orphan scan, the report and the TUI —
+  all still in `lib/core.sh` (3,582 lines), which is the next pass.*
+- [x] Keep each extraction behavior-neutral with characterization tests.
+  *Verified two ways: the 224-test suite passes unchanged, and the old
+  single-file script and the new tree were run side by side over ten
+  invocations (help, list, scan, clean, orphans, and four invalid-usage
+  paths) with byte-identical output and identical exit codes.*
+- [x] Remove hidden dependence on source order where practical. *Every module
+  is definitions only; argument parsing and dispatch moved to
+  `bin/cleanmymac`. This also fixed the old wart where functions defined below
+  the argument-parsing block were unavailable to the library-only test hook —
+  that hook is gone, and `lib/load.sh` is the single load order.*
 
 ### `P1-T04` — Category registry and interface
 
@@ -792,6 +897,22 @@ Resolve decisions only when their owning phase needs them. Do not let later-phas
 | 2026-09-21 | DEC-004 | All invalid usage exits `1`, not a new dedicated code. | `1` is already the documented exit for an unknown option and is asserted by an existing test. Introducing `2` would break a published contract for no safety gain. The stability the task asked for is delivered by a single `clean.sh: error: <msg>` prefix on stderr via `die_usage`. | `P0-T08` |
 | 2026-09-21 | DEC-005 | Comma lists reject empty and unknown ids, but silently de-duplicate. | `--only caches,caches` is unambiguous and harmless, so erroring would be hostile. `--only ""` is almost always a shell-expansion accident, and running the full default set would be the worst possible reading of it. | `P0-T08` |
 | 2026-09-21 | DEC-006 | An invalid config file fails the run even when the CLI overrides that same key. | Validating only the final effective value would let a broken config sit unnoticed until the day the flag is omitted. `--help` and `--list` still work, so the user can always reach the documentation that explains the fix. | `P0-T08` |
+| 2026-09-22 | DEC-008 | A literal `..` component is rejected outright rather than resolved and then re-checked. | Resolving it and testing containment afterwards would also be safe, but "no target may contain `..`" is a rule a reviewer can verify by reading one function, and no internal caller ever produces one. A file genuinely named `..config` is unaffected — only a whole `..` component matches. | `P0-T03`, `P0-T04` |
+| 2026-09-22 | DEC-009 | The final path component is *not* followed when authorizing; intermediate components always are. | `rm` unlinks a symlink rather than following it, so the link is the object being authorized and its own location is what must be inside an allowed root. Intermediate links are a different matter: they change which directory the path actually names, so they are resolved and the result re-checked. `clear_dir_contents` passes `no-symlink` because globbing through a directory symlink *would* follow it. | `P0-T03`, `P0-T05` |
+| 2026-09-22 | DEC-010 | Volume identity is carried by `path_identity` (`stat -f '%d:%i'`) rather than by a separate mount check. | The device number *is* the volume. A target that moved to another volume, or whose mount disappeared and was replaced, gets a different device number and fails the pre-mutation recheck, so one comparison covers both cases without a second mount-table code path. | `P0-T03` |
+| 2026-09-22 | DEC-011 | The allowed-root envelope stays as wide as current behavior (`$HOME`, the per-user temp folder, plus explicitly registered roots) instead of being narrowed per category now. | Phase 0 freezes deletion behavior except for safety fixes, and narrowing the envelope per category is `P0-T09`'s job. The value delivered here is that authorization is *decided by canonical identity against an explicit list* at all; tightening that list is a separate, separately testable change. | `P0-T03`, `P0-T09` |
+| 2026-09-22 | DEC-012 | The review file stays line-based and gains a version marker rather than becoming a manifest now. | A human edits this file by hand — that is its entire purpose — and a manifest would make that worse for no safety gain, because the safety comes from validating each path against the scanner's own roots, not from the container format. The real manifest is `P2-T01`'s plan schema, and building a throwaway one here would mean designing it twice. The marker (`# cleanmymac-orphan-review v1`) delivers the part that mattered: a file this tool did not write is refused. | `P0-T04`, `P2-T01` |
+| 2026-09-22 | DEC-013 | A candidate whose name contains a newline is reported and left out of the review file instead of being written. | A line-based file cannot represent it: writing it emits two lines that each resolve to something else, and at least one of them could name a real, different directory. Silently mangling a path in a file whose only job is deciding what gets deleted is the worst option available. The user is told to remove those by hand, and `P2-T01`'s manifest fixes it properly. | `P0-T04`, `P2-T01` |
+| 2026-09-22 | DEC-014 | Reviewed paths must be *direct children* of an orphan root, not merely underneath one. | Every candidate the scanner writes is a direct child, so anything deeper did not come from a scan, and accepting it would turn a reviewed list into a general "delete this subtree" facility. Rejecting it costs nothing real and removes a whole class of hand-edited mistakes. | `P0-T04` |
+| 2026-09-22 | DEC-015 | An incomplete installed-app index downgrades *every* candidate to `weak` and is reported loudly, rather than being ignored or made fatal. | The scan's only inference is "nothing claimed this name". If the index is partial, that inference is worthless, so presenting any result as high-confidence would be a lie. Refusing to run instead would be worse: the report is still useful as a list of things to look at by hand, and it is the incompleteness itself the user most needs to be told about. Incompleteness is detected three ways: no `mdfind`, `mdfind` returning zero applications, or `mdfind` returning fewer than a plain directory walk finds. | `P0-T06` |
+| 2026-09-22 | DEC-016 | Orphan candidate sizes are no longer added to the reclaimable-space estimate. | `TOTAL_BEFORE_KB` backs the line "Estimated reclaimable space … run again with --clean to actually remove these files". `--clean` now frees none of this, so counting it made the headline figure state something false. The total is reported separately, next to the review file that is the actual route to reclaiming it. | `P0-T06`, `P0-T05` |
+| 2026-09-22 | DEC-017 | The direct application walk reads real system directories during CLI-level tests, and this is accepted rather than worked around with an environment override. | A `$PATH` mock cannot intercept a directory walk, and the only override that would help is one that *narrows* the set of known-installed apps — which is the dangerous direction, because fewer known apps means more things look unclaimed. Unit tests confine `ORPHAN_APP_WALK_ROOTS` directly after sourcing the library; CLI tests instead use fixture names no real application can match. | `P0-T06`, `P0-T11` |
+| 2026-09-22 | DEC-018 | Success is decided by the postcondition (is the target gone?), not by `rm`'s exit status. | `rm -rf` can delete most of a tree and leave the root, and it can fail for reasons it does not print. Trusting its status is what produced "removed X (freed 400M)" for directories that were still entirely there. Checking the postcondition costs one stat and is the only claim the tool can actually stand behind. The exit status is still captured, for the log. | `P0-T05`, `P0-T10` |
+| 2026-09-22 | DEC-019 | Partial failure exits `3`, interruption exits `4`, and `2` is left unused. Permission-denied counts as a failure. | `2` is read as "usage" by too many tools, and DEC-004 already put usage on `1`. Counting denied as a failure is the honest reading: the tool did not do what was asked, and on macOS the cause is almost always Full Disk Access, which the user can fix — so it has to be detectable from a script, not buried in the transcript. It is still reported as its own category so the cause is obvious. | `P0-T05`, `P1-T05` |
+| 2026-09-22 | DEC-020 | `SIGINT`/`SIGTERM` raise a flag instead of exiting; the action in progress completes and nothing further starts. | Dying inside an `rm -rf` is precisely how a half-removed tree and a total that describes neither state happen. Letting the current action finish bounds the damage to one target, and the flag is checked before every subsequent action, at both the category and the entry level. The run then exits `4`, so an interrupted run is never mistaken for a completed one. | `P0-T05`, `P1-T07` |
+| 2026-09-22 | DEC-021 | `P1-T02`/`P1-T03` were pulled forward and partially done while Phase 0 is still open, at the maintainer's explicit request after the concern was raised. | This contradicts DEC-003 and the "do not combine Phase 0 safety changes with large modularization diffs" rule, and the conflict was stated before the work began. The risk was mitigated by doing it as a *pure move* in its own change set: no behaviour was altered, coverage of the split was verified line-by-line (5,012/5,012 lines assigned, no overlaps), and old-vs-new output was diffed across ten invocations. The remaining Phase 0 tasks are unaffected — they touch `lib/core.sh`, which is a contiguous copy of what they would have touched before. | `P1-T02`, `P1-T03`, Phase 0 remainder |
+| 2026-09-22 | DEC-022 | `clean.sh` *sources* `bin/cleanmymac` instead of `exec`-ing it. | An exec re-enters through the `#!/usr/bin/env bash` line, which on a developer machine finds Homebrew's bash 5 — silently destroying the test suite's macOS bash 3.2 guarantee, which is the single most load-bearing property of the harness. Sourcing also keeps `$0` pointing at the shim, so the tool still calls itself "clean.sh" in usage errors, preserving DEC-004's contract without any special-casing. | `P1-T02` |
+| 2026-09-22 | DEC-023 | The usage-error prefix became `$SCRIPT_NAME: error:` instead of a hardcoded `clean.sh: error:`. | With two entry points a hardcoded name is wrong for one of them. Deriving it from `$0` is the standard Unix convention and means the tool is always truthful about how it was invoked: `clean.sh` through the shim (unchanged for every existing user and every existing test), `cleanmymac` when `bin/` is run directly. It also sidesteps `D-007` (the final command name) entirely. | `P1-T02`, `P0-T08` |
 | 2026-09-21 | DEC-007 | The integer validator is named `validate_int` and accepts zero, rather than the planned `validate_positive_int`. | `--keep-logs 0` and `--keep-toolchains 0` are meaningful, so "positive" would have been an inaccurate name for the required behaviour. The task text asks for *bounded non-negative* integers. | `P0-T08` |
 
 ## 19. Blocker log
@@ -815,6 +936,12 @@ Add newly discovered work here before assigning it to a phase. Do not silently e
 - [ ] `save_config` round-trip is untested — only `load_config` and precedence are covered.
 - [ ] ShellCheck and shfmt are documented in `tests/README.md` but not yet installed or wired into `tests/run`; the definition-of-done lint gate is therefore not enforced.
 - [ ] Interactive TUI screens (category picker, settings, whitelist) have no automated coverage; they were verified manually through a pseudo-terminal.
+- [x] ~~The `CLEANMYMAC_LIB_ONLY=1` test hook only exposes helpers defined above the argument-parsing banner.~~ Resolved 2026-09-22: the hook is gone and `lib/load.sh` exposes everything.
+- [ ] Any `err`/`warn` before `log_init` writes to a log path whose directory does not exist yet, so every usage error is accompanied by a raw shell redirection error on stderr. Pre-existing; belongs to `P0-T10`.
+- [ ] `lib/core.sh` is still 3,582 lines. The next extraction pass should take the confirmation helpers, the category registry, the report and the TUI out of it.
+- [ ] The suite now takes roughly a minute per full run (206 tests, each with a fresh fixture and several full CLI invocations). Still fine locally, but `P0-T11` should decide whether CI runs files in parallel before it grows much further.
+- [ ] `path_canonicalize` walks each component in pure Bash and forks `readlink` only for real symlinks. It has not been benchmarked against a `~/Library/Caches` with tens of thousands of entries; `P6-T11` should measure it.
+- [ ] `--report`/top-offenders code reads `~/Desktop`, `~/Documents` and friends without going through `path_authorize`. That is correct today because it never mutates, but the read paths should be routed through the API once plan/apply exists so that "what was inspected" is auditable.
 
 ## 21. Progress log
 
@@ -863,6 +990,213 @@ Defects found and fixed while doing the above:
   listed only three of the five presets.
 - `--remove-orphans-from` accepted an unreadable path without complaint.
 
+### 2026-09-22 — Phase 0 Batch B
+
+- `P0-T03` **complete**. `resolve_path` is gone; a canonical path and
+  containment API replaces it, and `clear_dir_contents`/`remove_path`/
+  `is_whitelisted` are the first callers. `tests/path_api.bats` adds 64 tests.
+  Suite: **127 tests, 0 failures, 0 skipped.** `/bin/bash -n clean.sh` passes,
+  `git diff --check` passes.
+- Added the `CLEANMYMAC_LIB_ONLY=1` source hook so helpers can be unit-tested
+  directly instead of only through a full CLI run.
+
+Defects found and fixed while doing the above:
+
+- **A symlink under `~/Library/Caches` was followed and its target's contents
+  deleted.** `clear_dir_contents` tested `[ -d "$dir" ]`, which is true for a
+  symlink to a directory, then globbed `"$dir"/*` straight through it. A link
+  named `~/Library/Caches/anything` pointing at, say, `~/Documents` meant a
+  default `--clean` emptied `~/Documents`. The regression test
+  (`cli: --clean does not follow a symlinked cache directory out of the
+  allowed roots`) was confirmed to fail against the pre-change script and pass
+  after.
+- `resolve_path` used `(cd "$p" && pwd -P)`, which **cannot succeed on a
+  file** — `cd` only works on directories. Every file path therefore fell
+  through to the raw unresolved string, as did every path that did not exist.
+  The whitelist then prefix-matched those strings, so whether a file was
+  protected depended on how the caller happened to spell its path.
+- `..` was never resolved at all, only ever carried along inside a string that
+  was then prefix-matched. `$HOME/Library/Caches/../../../etc` textually
+  "starts with" `$HOME/Library/Caches`.
+- Forbidden roots were compared literally, so `/var` protected only the string
+  `/var` — a target that resolved to `/private/var` matched nothing. Both
+  canonical forms of every forbidden entry are now stored.
+- Broken symlinks inside a cleared directory were skipped forever: the loop
+  guard was `[ -e "$entry" ]`, which is false for a dangling link. It is now
+  `[ -e "$entry" ] || [ -L "$entry" ]`.
+
+Deliberately *not* changed here, to keep the change set to one concern:
+
+- Byte accounting still credits `rm` with the full size whether or not it
+  succeeded — `P0-T05` owns that.
+- `process_orphans_review_file` still uses a lexical allowed-root `case` —
+  `P0-T04` owns that, and now has `path_authorize` to build on.
+
+### 2026-09-22 — Phase 0 Batch C (part 1)
+
+- `P0-T04` **complete**. `tests/orphan_review.bats` adds 29 tests.
+  Suite: **156 tests, 0 failures, 0 skipped.** `/bin/bash -n clean.sh` passes,
+  `git diff --check` passes. 19 of the 29 fail against the previous script.
+- `path_authorize` now also publishes `PATH_CANONICAL`, so an internal caller
+  can read both the canonical path and the refusal reason without a command
+  substitution swallowing the reason in a subshell.
+
+Defects found and fixed while doing the above:
+
+- **The traversal hole itself.** `process_orphans_review_file` matched the
+  raw, unresolved line against `case "$path" in "$HOME_DIR/Library/Application
+  Support/"*` and friends. `~/Library/Application Support/../../..` satisfies
+  that pattern, so a review file could name any path on the machine and it
+  would be handed to `remove_path`. Now every line is canonicalized and must
+  land on a direct child of a root the scanner itself walks.
+- **`#` was stripped from the middle of filenames.** `line="${raw%%#*}"`
+  turned a folder genuinely named `com.example.app#1` into
+  `com.example.app` — which either did not exist (so the real folder was
+  never removed, and the user was told nothing) or *did* exist as a different
+  app's data, which would then have been deleted instead. Both halves of that
+  are now impossible.
+- Trailing whitespace was unconditionally stripped by `sed`, so a directory
+  whose name genuinely ends in a space could not be named. It is now stripped
+  only when doing so is what makes the path resolve.
+- The allowed-location list was a second, hand-maintained copy of
+  `ORPHAN_ROOTS` that had already drifted (it lacked `Preferences/ByHost`,
+  covered only by accident through the `Preferences/` prefix). It is now
+  derived from `ORPHAN_ROOTS`.
+- Nothing was revalidated after the confirmation prompt, which is an
+  unbounded pause. The whitelist, the allowed roots and the object identity
+  are all re-checked immediately before each removal.
+
+Deliberately *not* changed here:
+
+- `launchctl unload` is still used for LaunchAgents — `P0-T10` owns replacing
+  it with a correctly scoped modern equivalent.
+- The `auto` tier still bulk-removes heuristic matches. That is `P0-T06`,
+  the other half of Batch C, and is the next task.
+
+### 2026-09-22 — Phase 0 Batch C (part 2)
+
+- `P0-T06` **complete**, which closes **Batch C**. `tests/orphan_report.bats`
+  adds 25 tests. Suite: **181 tests, 0 failures, 0 skipped.**
+  `/bin/bash -n clean.sh` passes, `git diff --check` passes. 23 of the 25 new
+  tests fail against the previous script.
+- The `mdfind`, `mdls` and `defaults` mocks are now table-driven from an
+  optional `$MOCK_APP_INDEX` file, so a test can state exactly which
+  applications Spotlight knows about. Default behaviour is unchanged.
+- `ORPHAN_APP_WALK_ROOTS` was extracted from `build_installed_identifiers`.
+
+The headline change: `--clean --include-orphans` used to bulk-delete every
+`auto`-tier match behind a single confirmation. It now deletes nothing, ever.
+The scan writes a report; `--remove-orphans-from` (hardened in `P0-T04`) is
+the only path to deletion.
+
+Defects and misstatements found and fixed:
+
+- **Absence was read as proof.** When Spotlight was unavailable or had not
+  finished indexing, `build_installed_identifiers` silently fell back to a
+  directory walk and `is_installed_identifier` then returned false for
+  everything it had not seen — so *every* entry became a candidate, and the
+  high-confidence ones were offered for bulk deletion. On a machine where
+  Spotlight was off, a single confirmation could have removed live
+  application data. Incompleteness is now detected and every candidate is
+  downgraded.
+- The reclaimable-space estimate counted orphan candidates, so the summary
+  claimed `--clean` would free space that `--clean` never touched. Fixed by
+  DEC-016.
+- `_index_app` returned whatever the last bundle-id lookup returned, so its
+  exit status depended on whether an app happened to have a readable
+  `CFBundleIdentifier`. Harmless under the script's own `set -uo pipefail`,
+  but it made the function unsafe to call from anywhere with `errexit` on.
+  Now explicit.
+- README, `docs/USAGE.md` and `--help` all described the `[auto]` tier as
+  "offered for immediate bulk removal". All three now describe a report.
+
+Deliberately *not* changed here:
+
+- `is_installed_identifier`'s substring matching in both directions is
+  crude — a 4-character installed-app name can suppress an unrelated
+  candidate. It errs towards *not* listing things, which is the safe
+  direction, so it is left for `P3-T05`'s confidence model.
+- `launchctl unload` for LaunchAgents remains — `P0-T10`.
+
+### 2026-09-22 — Phase 0 Batch D (part 1)
+
+- `P0-T05` **complete**. `tests/mutation.bats` adds 25 tests.
+  Suite: **206 tests, 0 failures, 0 skipped.** `/bin/bash -n clean.sh` passes,
+  `git diff --check` passes. 18 of the 25 new tests fail against the previous
+  script.
+- New: `fs_remove`, `report_action`, `record_action`, `any_action_failed`,
+  `interrupted`, `_on_interrupt`, and the `ACTION_*` counters.
+- New exit codes `3` (partial failure) and `4` (interrupted), documented in
+  `README.md` and `docs/USAGE.md`.
+
+The defect this closes, in the previous code's own words:
+
+```bash
+rm -rf -- "$p" 2>>"$LOG_FILE"
+TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + size))
+ok "removed: $p  (freed $(human_kb "$size"))"
+```
+
+Nothing looked at the result. A cache directory the user could not write
+printed "removed … (freed 400M)", added 400M to the run total, and exited 0.
+Verified by injection: a `chmod 500` parent now yields `permission denied, not
+removed`, a reclaimed total of zero for that target, and exit `3`.
+
+Also fixed here:
+
+- `cat_dsstore` counted every `.DS_Store` it *found* as removed. `.DS_Store`
+  files routinely sit in directories the user cannot write, so both the count
+  and the freed total were wrong on most real machines. It now reports
+  "removed N of M" and returns non-zero when they differ.
+- `clear_dir_contents` printed `cleared: … (freed 0.0K)` — a success message —
+  when every single entry had failed. It now says `partly cleared` and
+  returns non-zero.
+- `log_init` trapped `INT`/`TERM` on `_cleanup_on_exit`, which returns 0, so
+  Ctrl-C during a clean did nothing visible and the run carried on. Signals
+  are now recorded and wind the run down.
+
+Deliberately *not* changed here:
+
+- The tool-delegated categories (`brew cleanup`, `npm cache clean`, `docker
+  prune`) still credit a measured before/after difference around an external
+  command. That is honest — it measures real change — but the external
+  command's own exit status is still ignored. `P0-T10` owns auditing those.
+- `launchctl unload`, the duplicate QuickLook reset, Android SDK image
+  validation and sparse-file size reporting all remain — `P0-T10`.
+
+### 2026-09-22 — Out-of-phase restructure (partial `P1-T02` / `P1-T03`)
+
+Requested by the maintainer mid-Phase-0. The conflict with DEC-003 was raised
+first and the request was reaffirmed, so it was done as a **pure move** in its
+own change set.
+
+- `clean.sh` (5,012 lines) became `bin/cleanmymac` (218) + `lib/*.sh` + a
+  24-line `clean.sh` shim. Extracted modules: `globals` (147), `log` (85),
+  `util` (29), `validate` (135), `usage` (201), `config` (67), `path` (356),
+  `action` (283). The remainder is `lib/core.sh` (3,582), to be split next.
+- `tests/layout.bats` adds 18 tests. Suite: **224 tests, 0 failures.**
+- The split was computed programmatically with a coverage assertion — all
+  5,012 original lines assigned exactly once, no overlaps — rather than by
+  hand-counting line ranges.
+- Behaviour neutrality was verified by running the old single file and the new
+  tree side by side over ten invocations. **Byte-identical output and
+  identical exit codes in every case**, with one exception: the line number
+  inside a pre-existing error message (`clean.sh:216` → `lib/log.sh:73`).
+- The `CLEANMYMAC_LIB_ONLY` test hook is gone. It existed only because
+  everything was one file; tests now source `lib/load.sh`. This also removes
+  the wart noted in the parking lot, where functions defined below the
+  argument-parsing block were invisible to that hook.
+
+Found while doing this, **not** fixed here (kept to one concern):
+
+- **Pre-existing**: any `err`/`warn` emitted before `log_init` runs — every
+  usage error, for instance — writes to `$LOG_FILE` in a directory that does
+  not exist yet, producing a raw shell redirection error on stderr. Confirmed
+  identical in the pre-split script. Belongs to `P0-T10`.
+- `basename "$0"` was hardened to `basename -- "$0"`; a `$0` beginning with a
+  dash was read as an option. One character, done here because it is part of
+  the entry-point change.
+
 ## 22. Next-session handoff template
 
 Copy and fill this section at the end of an implementation session:
@@ -878,4 +1212,34 @@ Decisions made:
 New risks/discoveries:
 Blocker, if any:
 Exact next step:
+```
+
+## 23. Current handoff
+
+```text
+Task:          Partial P1-T02 / P1-T03 — bin/ + lib/ split (out of phase order)
+Status:        complete for this pass; lib/core.sh still to be broken up
+Changed files: clean.sh (now a shim), bin/cleanmymac (new), lib/*.sh (new),
+               tests/layout.bats (new), tests/test_helper.bash, tests/run,
+               tests/mutation.bats, tests/{path_api,orphan_review,orphan_report}.bats,
+               tests/README.md, README.md, docs/CLI_IMPLEMENTATION_SCRATCHPAD.md
+Tests run:     ./tests/run
+Test result:   224 passed, 0 failed, 0 skipped
+Safety checks: /bin/bash -n on all 12 shell files; git diff --check OK;
+               split coverage asserted (5,012/5,012 lines, no overlaps);
+               old-vs-new output diffed over ten invocations, byte-identical
+Decisions:     DEC-021 (pulled forward out of phase order, and why that was
+               made safe), DEC-022 (shim sources rather than execs, to keep
+               the bash 3.2 guarantee), DEC-023 ($SCRIPT_NAME error prefix)
+New risks:     lib/core.sh is 3,582 lines and still holds the categories, the
+               orphan scan, the report and the TUI, so the remaining Phase 0
+               tasks all land in one file. Nothing is worse than before, but
+               the modularity benefit is not yet where the work is.
+Blocker:       none
+Exact next step: resume Phase 0 at P0-T10 — remove the duplicate QuickLook
+               reset, audit external command status handling, validate Android
+               SDK image references or make that deletion report-only, replace
+               deprecated launchctl unload, separate allocated from logical
+               bytes for sparse files, and fix the pre-log_init stderr noise
+               found above.
 ```
