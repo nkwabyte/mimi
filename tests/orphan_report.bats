@@ -337,7 +337,7 @@ assert_not_a_candidate() {
   [ -n "$generated" ]
   [ -f "$target/data" ]
 
-  run_clean --clean --yes --only orphans --remove-orphans-from "$generated"
+  run_clean --clean --yes --force-risky orphans --only orphans --remove-orphans-from "$generated"
   [ "$status" -eq 0 ]
   [ ! -e "$target" ]
 }
@@ -358,7 +358,7 @@ assert_not_a_candidate() {
   # Comment out the keeper, exactly as the file instructs.
   /usr/bin/sed -i '' "s|^${keep}$|#${keep}|" "$generated"
 
-  run_clean --clean --yes --only orphans --remove-orphans-from "$generated"
+  run_clean --clean --yes --force-risky orphans --only orphans --remove-orphans-from "$generated"
   [ -f "$keep/data" ]
   [ ! -e "$drop" ]
 }

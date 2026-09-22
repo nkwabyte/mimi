@@ -26,6 +26,12 @@ EXIT_USAGE=1
 # already settled that invalid usage here exits 1.
 EXIT_PARTIAL=3       # the run finished, but at least one selected action failed
 EXIT_INTERRUPTED=4   # a signal stopped the run before it finished
+# 5 is authorization, not usage: the command line was well-formed and the
+# answer was simply "no" — either because a human said so at a prompt, or
+# because a required confirmation could not be obtained at all. A script needs
+# to tell that apart from a malformed invocation (1) and from work that ran
+# and failed (3). See DEC-029.
+EXIT_CANCELLED=5     # a required confirmation was declined or unobtainable
 
 # Upper bound for every count/day setting. Generous enough that no real
 # retention policy hits it, small enough that a typo or an overflow attempt

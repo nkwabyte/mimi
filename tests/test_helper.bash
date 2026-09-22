@@ -157,14 +157,18 @@ teardown() {
 # home already in the environment. /bin/bash is explicit so a newer Homebrew
 # bash on PATH cannot mask a 3.2 incompatibility — which is also why the shim
 # sources bin/mimi instead of exec'ing it.
+#
+# stdin is pinned to /dev/null so that confirmation behaviour is decided by
+# the flags under test and never by whether the suite happens to have been
+# started from a terminal. A run that reaches a prompt must fail, not block.
 # Usage: run_clean [args...]
 run_clean() {
-  run /bin/bash "$CLEAN_SH" "$@"
+  run /bin/bash "$CLEAN_SH" "$@" < /dev/null
 }
 
 # Run the canonical entry point directly, bypassing the shim.
 run_mimi() {
-  run /bin/bash "$MIMI_BIN" "$@"
+  run /bin/bash "$MIMI_BIN" "$@" < /dev/null
 }
 
 # Load the function library into the current shell so a helper can be called

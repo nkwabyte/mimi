@@ -15,7 +15,9 @@ USAGE:
 
 MODES:
   --scan                 Report reclaimable space only. Deletes nothing. (default)
-  --clean                Actually remove junk. Prompts for confirmation unless --yes.
+  --cleaner               Actually remove junk. Prompts for confirmation; see
+                          CONFIRMATIONS below for what --yes can and cannot
+                          answer. --clean is still accepted as a synonym.
   -i, --interactive       Menu-driven mode: toggle categories, edit the
                           whitelist, tune thresholds, run scan/clean, save
                           your selection as the new default. Also entered
@@ -26,7 +28,19 @@ MODES:
                           ~/.config/mimi/config.conf.
 
 COMMON OPTIONS:
-  -y, --yes              Do not prompt for confirmation before deleting.
+  -y, --yes               Answer the ordinary prompts: the whole-run "proceed?"
+                          gate and anything that comes back on its own (a cache
+                          that refills, a model that re-downloads). It cannot
+                          answer a risky or irreversible prompt — see
+                          CONFIRMATIONS below.
+  --force-risky <list>    Explicitly authorize risky/irreversible actions by
+                          name, for this invocation only, so they need no
+                          terminal. Comma-separated, no "all", never read from
+                          or saved to the config file. Valid names:
+                            docker, mail, trash, orphans, sim-stale, android,
+                            ios-backups
+                          It authorizes; it does not select. The matching
+                          --include-<name> is still required.
   -v, --verbose           Print extra detail (paths being inspected/removed).
   --only <list>           Comma-separated category ids to run (see --list).
   --skip <list>           Comma-separated category ids to exclude.
@@ -42,8 +56,11 @@ COMMON OPTIONS:
   --keep-device-support N Number of Xcode iOS DeviceSupport versions to keep (default 3).
 
 OPT-IN (destructive / can remove wanted data — off unless requested):
-  --include-trash         Empty ~/.Trash (irreversible).
-  --include-mail          Clear Mail app's local "Mail Downloads" cache.
+  --include-trash         Empty ~/.Trash (irreversible; also needs a terminal
+                          confirmation or --force-risky trash).
+  --include-mail          Clear Mail app's local "Mail Downloads" cache (risky;
+                          also needs a terminal confirmation or
+                          --force-risky mail).
   --include-docker-cache   Run `docker builder prune -f` + `docker image
                           prune -f` — only dangling build cache and untagged
                           images. Never touches running containers, named
@@ -86,8 +103,9 @@ OPT-IN (destructive / can remove wanted data — off unless requested):
                           produced by --include-orphans. Edit it first: delete
                           a line, or put a # in its FIRST column, for anything
                           you want to keep. A # anywhere else on the line is
-                          part of the filename. Still asks to confirm unless
-                          --yes.
+                          part of the filename. Removing reviewed items is
+                          irreversible, so it always asks — --yes does not
+                          answer it; --force-risky orphans does.
                           The file must be one this tool wrote (it is refused
                           without its header line), and only direct children
                           of the locations --include-orphans scans are
@@ -136,8 +154,10 @@ OPT-IN (destructive / can remove wanted data — off unless requested):
                           Ollama and LM Studio models are never deleted, only
                           reported — remove those from inside each app.
   --include-ios-backups     Delete local iPhone/iPad backups from MobileSync.
-                          Asks per backup, showing size and date. Irreversible
-                          unless you also have an iCloud backup.
+                          Irreversible unless you also have an iCloud backup,
+                          so it asks you to type "ios-backups" once, then
+                          confirms each backup by size and date. Scriptable
+                          only via --force-risky ios-backups.
   --include-android         Remove Android system images no AVD references,
                           and AVDs not used in --android-stale-days (default
                           60). Lists every candidate and asks to confirm
@@ -164,15 +184,36 @@ WHITELIST (protect paths from being touched):
 
   -h, --help              Show this help.
 
+CONFIRMATIONS:
+  Every prompt belongs to a class, and the class decides what can answer it.
+
+    read-only     Nothing is removed, so nothing is asked: --scan, --report,
+                  and the --include-orphans report.
+    recoverable   It comes back by itself (caches, re-downloadable models) and
+                  the whole-run "proceed?" gate. --yes answers these.
+    risky         Bounded but real loss: docker, mail, sim-stale, android.
+                  A y/N at a terminal, or --force-risky <name>.
+    irreversible  No other copy exists: trash, ios-backups, orphans. At a
+                  terminal you type the action's own name, not "y"; otherwise
+                  --force-risky <name>.
+
+  --yes never authorizes a risky or irreversible action. If a run has no
+  terminal to ask on and no --force-risky for what it selected, it says so and
+  removes nothing, exiting 5.
+
+EXIT CODES:
+  0 success   1 usage error   3 partial failure   4 interrupted
+  5 a required confirmation was declined or could not be obtained
+
 EXAMPLES:
   mimi                                   # scan only, see what would be freed
-  mimi --clean                            # clean safe categories, ask to confirm
-  mimi --clean --yes                      # clean safe categories, no prompts
-  mimi --clean --whitelist-preset xcode-simulator
-  mimi --clean --only caches,logs,dsstore --yes
-  mimi --clean --include-trash --include-mail --yes
+  mimi --cleaner                          # clean safe categories, ask to confirm
+  mimi --cleaner --yes                    # clean safe categories, ordinary prompts answered
+  mimi --cleaner --whitelist-preset xcode-simulator
+  mimi --cleaner --only caches,logs,dsstore --yes
+  mimi --cleaner --yes --include-trash --force-risky trash    # both are needed
   mimi --report                           # where did my disk space go?
-  mimi --clean --only browsers,electron --yes   # the big browser/Electron win
+  mimi --cleaner --only browsers,electron --yes # the big browser/Electron win
 
 FULL DISK ACCESS:
   macOS protects ~/Library/Application Support/{Google/Chrome,Firefox,

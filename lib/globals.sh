@@ -26,7 +26,13 @@ LEGACY_LOG_DIR="$HOME_DIR/Library/Logs/cleanmymac"
 LOG_FILE="/dev/null"
 
 MODE="scan"        # scan (dry-run, default) | clean
+# --yes. Answers recoverable prompts only; see lib/confirm.sh for why it is
+# not allowed anywhere near the risky and irreversible ones.
 ASSUME_YES=0
+# --force-risky. Comma-separated action ids explicitly authorized for this one
+# invocation. Deliberately never read from, or written to, the config file: a
+# saved blanket authorization is exactly the thing the class split removes.
+FORCE_RISKY_LIST=""
 VERBOSE=0
 AGGRESSIVE=0
 KEEP_DEVICE_SUPPORT=3

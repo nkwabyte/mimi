@@ -127,7 +127,7 @@ make_avd() {
   make_image "android-34/google_apis/arm64-v8a"
   rm -rf "$FAKE_HOME/.android/avd"
 
-  run_clean --clean --yes --only android --include-android
+  run_clean --clean --yes --force-risky android --only android --include-android
   [ -f "$(SDK)/android-34/google_apis/arm64-v8a/payload" ]
   echo "$output" | grep -q 'cannot tell which system images are in use'
   echo "$output" | grep -q 'NOT removed'
@@ -146,7 +146,7 @@ make_avd() {
   # the reference has to be understood.
   make_image "android-29/default/x86"
 
-  run_clean --clean --yes --only android --include-android
+  run_clean --clean --yes --force-risky android --only android --include-android
   [ -f "$(SDK)/android-34/google_apis/arm64-v8a/payload" ]
   ! echo "$output" | grep -q 'did not match the expected'
   # Proof the category was not merely disabled: the unreferenced image went.
@@ -157,7 +157,7 @@ make_avd() {
   make_image "android-34/google_apis/arm64-v8a"
   make_avd "$FAKE_HOME/.android/avd" "Pixel" "/absolute/elsewhere/img"
 
-  run_clean --clean --yes --only android --include-android
+  run_clean --clean --yes --force-risky android --only android --include-android
   [ -f "$(SDK)/android-34/google_apis/arm64-v8a/payload" ]
   echo "$output" | grep -q 'did not match the expected'
 }
@@ -166,7 +166,7 @@ make_avd() {
   make_image "android-34/google_apis/arm64-v8a"
   make_avd "$FAKE_HOME/.android/avd" "Pixel" "system-images/../../../etc/x"
 
-  run_clean --clean --yes --only android --include-android
+  run_clean --clean --yes --force-risky android --only android --include-android
   [ -f "$(SDK)/android-34/google_apis/arm64-v8a/payload" ]
   echo "$output" | grep -q 'did not match the expected'
 }
@@ -177,7 +177,7 @@ make_avd() {
   make_avd "$alt" "Pixel" "system-images/android-34/google_apis/arm64-v8a/"
   rm -rf "$FAKE_HOME/.android/avd"
 
-  ANDROID_AVD_HOME="$alt" run_clean --clean --yes --only android --include-android
+  ANDROID_AVD_HOME="$alt" run_clean --clean --yes --force-risky android --only android --include-android
   [ -f "$(SDK)/android-34/google_apis/arm64-v8a/payload" ]
 }
 
@@ -188,7 +188,7 @@ make_avd() {
   make_avd "$FAKE_HOME/.android/avd" "Pixel" \
     "system-images/android-34/google_apis/arm64-v8a/"
 
-  run_clean --clean --yes --only android --include-android
+  run_clean --clean --yes --force-risky android --only android --include-android
   [ -f "$(SDK)/android-34/google_apis/arm64-v8a/payload" ]
   [ ! -e "$(SDK)/android-29/default/x86" ]
 }
@@ -199,7 +199,7 @@ make_avd() {
     "system-images/android-34/google_apis/arm64-v8a/"
   chmod 000 "$FAKE_HOME/.android/avd/Pixel.avd/config.ini"
 
-  run_clean --clean --yes --only android --include-android
+  run_clean --clean --yes --force-risky android --only android --include-android
   chmod 644 "$FAKE_HOME/.android/avd/Pixel.avd/config.ini"
   [ -d "$(SDK)/android-29/default/x86" ]
 }
