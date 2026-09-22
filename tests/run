@@ -35,11 +35,15 @@ echo "==> bats-core ${BATS_VERSION}"
 # 2. Static syntax check on clean.sh before running tests
 # ---------------------------------------------------------------------------
 
-echo "==> Syntax check: /bin/bash -n clean.sh"
-/bin/bash -n "$REPO_ROOT/clean.sh" || {
-  echo "ERROR: clean.sh failed /bin/bash -n syntax check." >&2
-  exit 1
-}
+echo "==> Syntax check: /bin/bash -n on every shell file"
+_syntax_failed=0
+for _f in "$REPO_ROOT/clean.sh" "$REPO_ROOT/bin/cleanmymac" "$REPO_ROOT"/lib/*.sh; do
+  if ! /bin/bash -n "$_f"; then
+    echo "ERROR: ${_f#"$REPO_ROOT"/} failed /bin/bash -n syntax check." >&2
+    _syntax_failed=1
+  fi
+done
+[ "$_syntax_failed" = 0 ] || exit 1
 echo "    OK"
 
 # ---------------------------------------------------------------------------

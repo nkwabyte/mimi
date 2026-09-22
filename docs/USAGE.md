@@ -23,7 +23,7 @@ actually touches.
 7. [Category reference](#category-reference)
 8. [Choosing what runs](#choosing-what-runs)
 9. [Protecting paths: whitelist and presets](#protecting-paths-whitelist-and-presets)
-10. [Orphaned app leftovers](#orphaned-app-leftovers)
+10. [Possible app leftovers](#possible-app-leftovers)
 11. [The disk report](#the-disk-report)
 12. [Config file](#config-file)
 13. [Logs](#logs)
@@ -284,7 +284,7 @@ enough to run that category — you do not also need `--only`.
 | `--include-docker` | `docker system prune -af --volumes` — **all** unused images, containers and volumes. Much more aggressive than the above. |
 | `--include-trash` | Empty `~/.Trash`. Irreversible. |
 | `--include-mail` | Clear Mail.app's local "Mail Downloads" cache. |
-| `--include-orphans` | Scan for leftovers from uninstalled apps. See [Orphaned app leftovers](#orphaned-app-leftovers). |
+| `--include-orphans` | **Report only.** Scan for leftovers no installed app claims; never deletes. See [Possible app leftovers](#possible-app-leftovers). |
 | `--include-whatsapp` | Remove WhatsApp's expired Status/Stories media only. |
 | `--include-sim-stale` | Delete Simulator devices unused for `--sim-stale-days`. |
 | `--include-claude-cache` | Clear the Claude desktop app's Electron cache dirs. |
@@ -305,14 +305,44 @@ enough to run that category — you do not also need `--only`.
 
 | Flag | Effect |
 |---|---|
-| `--remove-orphans-from <file>` | Remove exactly the paths listed in a review file produced by `--include-orphans`. |
+| `--remove-orphans-from <file>` | Remove exactly the paths listed in a review file produced by `--include-orphans`. The file must still carry its `# cleanmymac-orphan-review v1` header, `#` comments a line out only in the first column, and each path must resolve to a direct child of a scanned orphan location. Refused lines are reported with a reason code. |
 
 ### Exit codes
 
 | Code | Meaning |
 |---|---|
-| `0` | Success, including `--help`, `--list` and `--report` |
+| `0` | Everything asked for was done, including `--help`, `--list` and `--report` |
 | `1` | Invalid usage, or you declined the confirmation prompt |
+| `3` | The run finished, but at least one selected action failed or was refused by the system |
+| `4` | A signal (Ctrl-C, `SIGTERM`) stopped the run before it finished |
+
+`2` is deliberately unused — too many tools read it as "usage", and invalid
+usage here is already `1`.
+
+**`3` is not an error in the script; it is the truth about the run.** A
+permission-denied cache directory means the tool did not do what you asked,
+so it says so in the exit status rather than reporting success. The summary
+line breaks the run down:
+
+```
+Actions: 412 succeeded, 7 skipped, 3 permission-denied, 0 failed
+```
+
+- *succeeded* — verified gone afterwards, not merely "`rm` returned 0"
+- *skipped* — never attempted: whitelisted, already missing, refused by the
+  path checks, or not started because the run was interrupted
+- *permission-denied* — attempted and refused by the system; Full Disk Access
+  is the usual cause
+- *failed* — attempted, and the target is still there
+
+Only bytes from *succeeded* actions are counted towards "Space freed this
+run", and directory clears credit a measured before/after difference rather
+than the size taken before the attempt.
+
+On Ctrl-C the tool does **not** die mid-delete. The signal handler records the
+interruption, the action in progress is allowed to finish, and nothing further
+is started — so a tree is never left half-removed with a total that claims
+otherwise.
 
 Every invalid-usage message is written to **stderr** with the same prefix, so
 it is easy to grep for in a wrapper script:
@@ -387,7 +417,7 @@ explains the fix.
 | `docker` | risky | **All** unused images, containers and volumes. | `--include-docker` |
 | `mail` | risky | Mail.app's local download cache. | `--include-mail` |
 | `trash` | risky | Empties `~/.Trash`. Irreversible. | `--include-trash` |
-| `orphans` | risky | Leftovers from uninstalled apps. Heuristic — see [its section](#orphaned-app-leftovers). | `--include-orphans` |
+| `orphans` | risky | Reports leftovers no installed app claims. Heuristic, never deletes — see [its section](#possible-app-leftovers). | `--include-orphans` |
 | `whatsapp` | moderate | WhatsApp's expired Status/Stories media only. Chat media and every database are untouched. | `--include-whatsapp` |
 | `sim-stale` | moderate | Simulator devices unused for `--sim-stale-days`. Booted and never-booted devices are always kept. | `--include-sim-stale` |
 | `claude-cache` | safe | The Claude desktop app's Electron cache dirs. Reports but never removes `vm_bundles`. | `--include-claude-cache` |
@@ -484,33 +514,50 @@ protection working.
 
 ---
 
-## Orphaned app leftovers
+## Possible app leftovers
 
 `orphans` looks for config, preferences, caches, containers and LaunchAgents
-belonging to apps that are no longer installed. It is **heuristic** — it
-matches on names and bundle ids — so it is split into two tiers:
+whose names no installed application claims.
 
-- **`[auto]`** — high-confidence matches (Containers, WebKit, HTTPStorages,
-  Cookies, or an Application Support folder itself named like a bundle id).
-  Offered for bulk removal behind one confirmation.
-- **`[review]`** — everything noisier (Preferences, ByHost, LaunchAgents,
-  plainly-named Application Support folders). **Never** auto-removed. Written
-  to a review file you edit by hand.
+**It never deletes anything** — not with `--clean`, `--yes` or `--aggressive`.
+It writes a report. Removing any of it is a separate, deliberate step
+(`--remove-orphans-from`).
 
-Anything under `com.apple.*`, known bare macOS service names, or well-known
-shared vendor folders (Adobe, Google, Microsoft, Dropbox, iCloud…) is never
-flagged.
+That is because the scan reasons from **absence**: an entry is listed because
+no installed app claimed its name, which is a guess rather than ownership. It
+guesses wrong for apps that renamed themselves but kept their bundle id, beta
+builds installed beside stable ones, helpers and updaters under a vendor
+prefix, apps on an unmounted volume, and anything Spotlight has not indexed.
+
+Results carry a confidence level:
+
+- **`[strong]`** — Containers, WebKit, HTTPStorages, Cookies, Saved
+  Application State, or an Application Support folder itself named like a
+  bundle id, with no installed app claiming that id. macOS names these by
+  bundle id, so the name is real evidence.
+- **`[weak]`** — Preferences, ByHost, LaunchAgents, Application Scripts,
+  plainly-named Application Support folders, anonymous UUID containers, and
+  **everything** when the installed-app index is incomplete. Not evidence
+  that anything was uninstalled.
+
+Anything under `com.apple.*`, known bare macOS service names, well-known
+shared vendor folders (Adobe, Google, Microsoft, Dropbox, iCloud…) and
+`Group Containers` is excluded from the scan entirely.
+
+If Spotlight is unavailable, returns nothing, or returns fewer apps than a
+plain directory walk finds, the run says so and marks every candidate
+`[weak]`.
 
 ```bash
-# 1. Preview only — nothing is touched
+# 1. Report only — nothing is touched, under any flag
 ./clean.sh --only orphans --include-orphans --scan
 
-# 2. Bulk-remove just the high-confidence [auto] matches
-./clean.sh --only orphans --include-orphans --clean
+# 2. Edit the generated review file — delete a line, or put a # in its FIRST
+#    column, for anything to keep. Keep the header line: the file is refused
+#    without it.
 
-# 3. Edit the generated review file, commenting out (#) anything to keep,
-#    then remove exactly what remains
-./clean.sh --remove-orphans-from ~/Library/Logs/cleanmymac/orphans-review-<timestamp>.txt
+# 3. Remove exactly what remains
+./clean.sh --clean --remove-orphans-from ~/Library/Logs/cleanmymac/orphans-review-<timestamp>.txt
 ```
 
 ---

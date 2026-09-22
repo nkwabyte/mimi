@@ -1,4 +1,17 @@
 #!/bin/sh
-# Mock: mdls — returns null for all metadata queries
+# Mock: mdls — Spotlight metadata.
+#
+# Returns "(null)" unless MOCK_APP_INDEX maps the queried app bundle to a
+# bundle identifier. The real mdls is called as:
+#   mdls -name kMDItemCFBundleIdentifier -raw <app>
+if [ -n "${MOCK_APP_INDEX:-}" ] && [ -f "${MOCK_APP_INDEX}" ]; then
+  app=""
+  for arg in "$@"; do app="$arg"; done
+  id="$(awk -F'|' -v a="$app" '$1 == a { print $2; exit }' "$MOCK_APP_INDEX")"
+  if [ -n "$id" ]; then
+    printf '%s\n' "$id"
+    exit 0
+  fi
+fi
 printf '(null)\n'
 exit 0
