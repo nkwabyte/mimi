@@ -52,7 +52,21 @@ save_config() {
   for i in "${!CATEGORY_STATE_IDS[@]}"; do
     [ "${CATEGORY_STATE_ON[$i]}" = "1" ] && sel_joined="${sel_joined:+$sel_joined,}${CATEGORY_STATE_IDS[$i]}"
   done
-  {
+  # Written to a temporary file in the same directory and then renamed over
+  # the target. A partial write here is not cosmetic: validate_config_values()
+  # refuses to run at all on a malformed config (DEC-006), so a config
+  # truncated by a full disk or an interrupted save would lock the user out of
+  # every run until they hand-edited it.
+  local tmp
+  tmp="$(mktemp "$CONFIG_DIR/.config.conf.XXXXXX" 2>/dev/null)" || {
+    err "could not create a temporary file in $CONFIG_DIR; settings not saved"
+    return 1
+  }
+  # mktemp already creates 0600; being explicit because this file records
+  # whitelist paths, which describe the layout of the user's filesystem.
+  chmod 600 "$tmp" 2>/dev/null || true
+
+  if ! {
     printf '# clean.sh saved settings — edit by hand or via the interactive menu (-i)\n'
     printf 'SIM_STALE_DAYS=%s\n' "$SIM_STALE_DAYS"
     printf 'ANDROID_STALE_DAYS=%s\n' "$ANDROID_STALE_DAYS"
@@ -62,6 +76,21 @@ save_config() {
     printf 'KEEP_LOGS=%s\n' "$KEEP_LOGS"
     printf 'WHITELIST=%s\n' "$wl_joined"
     printf 'SELECTED_CATEGORIES=%s\n' "$sel_joined"
-  } > "$CONFIG_FILE"
+  } > "$tmp"; then
+    # Justified raw rm: our own half-written temporary file, which no user
+    # action selected and which must not be counted as one.
+    rm -f "$tmp"
+    err "could not write settings to $CONFIG_DIR; nothing was changed"
+    return 1
+  fi
+
+  if ! mv -f "$tmp" "$CONFIG_FILE"; then
+    # Justified raw rm: as above.
+    rm -f "$tmp"
+    err "could not replace $CONFIG_FILE; the previous settings are still in place"
+    return 1
+  fi
+
   ok "settings saved to $CONFIG_FILE"
+  return 0
 }

@@ -15,7 +15,11 @@ SCRIPT_NAME="$(basename -- "$0")"
 HOME_DIR="$HOME"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 LOG_DIR="$HOME_DIR/Library/Logs/cleanmymac"
-LOG_FILE="$LOG_DIR/clean-$TIMESTAMP.log"
+# /dev/null until log_init() opens the real transcript. Anything printed before
+# then — every usage error, for one — used to be appended to a path inside a
+# directory that did not exist yet, so each one came with a raw shell
+# redirection error on stderr underneath it.
+LOG_FILE="/dev/null"
 
 MODE="scan"        # scan (dry-run, default) | clean
 ASSUME_YES=0
