@@ -60,8 +60,69 @@ fi
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    scan) MODE="scan"; shift ;;
+    clean) MODE="clean"; shift ;;
+    plan) MODE="plan"; shift ;;
+    apply)
+      require_arg "apply" "$#" "${2-}"
+      MODE="apply"
+      PLAN_FILE="$2"
+      shift 2 ;;
+    restore)
+      require_arg "restore" "$#" "${2-}"
+      MODE="restore"
+      RUN_ID="$2"
+      shift 2 ;;
+    purge)
+      require_arg "purge" "$#" "${2-}"
+      MODE="purge"
+      RUN_ID="$2"
+      shift 2 ;;
+    --plan) MODE="plan"; shift ;;
+    --plan-out)
+      require_arg "--plan-out" "$#" "${2-}"
+      PLAN_OUT_FILE="$2"; shift 2 ;;
+    --plan-out=*)
+      PLAN_OUT_FILE="${1#*=}"; shift ;;
+    --apply)
+      require_arg "--apply" "$#" "${2-}"
+      MODE="apply"
+      PLAN_FILE="$2"
+      shift 2 ;;
+    --apply=*)
+      MODE="apply"
+      PLAN_FILE="${1#*=}"; shift ;;
+    --restore)
+      require_arg "--restore" "$#" "${2-}"
+      MODE="restore"
+      RUN_ID="$2"
+      shift 2 ;;
+    --restore=*)
+      MODE="restore"
+      RUN_ID="${1#*=}"; shift ;;
+    --purge)
+      require_arg "--purge" "$#" "${2-}"
+      MODE="purge"
+      RUN_ID="$2"
+      shift 2 ;;
+    --purge=*)
+      MODE="purge"
+      RUN_ID="${1#*=}"; shift ;;
     -i|--interactive) INTERACTIVE=1; shift ;;
     --scan) MODE="scan"; shift ;;
+    --jsonl | --json) JSONL_ENABLED=1; shift ;;
+    --request-id)
+      require_arg "--request-id" "$#" "${2-}"
+      JSON_REQ_ID="$2"; shift 2 ;;
+    --request-id=*)
+      JSON_REQ_ID="${1#*=}"; shift ;;
+    --no-color)
+      NO_COLOR=1
+      C_RESET=""; C_BOLD=""; C_DIM=""; C_RED=""; C_GREEN=""; C_YELLOW=""; C_BLUE=""; C_CYAN=""
+      shift ;;
+    --no-prompt)
+      INTERACTIVE=0
+      shift ;;
     # --cleaner is the documented spelling; --clean is kept because it is what
     # every existing script and every version of the README until now used.
     --cleaner | --clean) MODE="clean"; shift ;;
@@ -125,6 +186,27 @@ while [ $# -gt 0 ]; do
     --include-ml-caches) INCLUDE_ML_CACHES=1; shift ;;
     --include-ios-backups) INCLUDE_IOS_BACKUPS=1; shift ;;
     --include-toolchains) INCLUDE_TOOLCHAINS=1; shift ;;
+    --include-timemachine) INCLUDE_TIMEMACHINE=1; shift ;;
+    --include-device-support) INCLUDE_DEVICE_SUPPORT=1; shift ;;
+    --include-homebrew-old) INCLUDE_HOMEBREW_OLD=1; shift ;;
+    --include-caches) INCLUDE_CACHES=1; shift ;;
+    --include-logs) INCLUDE_LOGS=1; shift ;;
+    --profile)
+      require_arg "--profile" "$#" "${2-}"
+      if [ "$2" = "list" ]; then
+        print_profile_list
+        exit 0
+      fi
+      validate_profile "--profile" "$2"
+      PROFILE="$2"; shift 2 ;;
+    --profile=*)
+      _p="${1#*=}"
+      if [ "$_p" = "list" ]; then
+        print_profile_list
+        exit 0
+      fi
+      validate_profile "--profile" "$_p"
+      PROFILE="$_p"; shift ;;
     --tmp-stale-days)
       require_arg "--tmp-stale-days" "$#" "${2-}"
       validate_int "--tmp-stale-days" "$2"
@@ -179,32 +261,36 @@ validate_config_values
 
 # Apply default-on/off filtering only when --only wasn't explicitly given.
 #
-# A category selection saved from the interactive menu takes precedence over
-# the built-in defaults, for scripted runs as much as interactive ones — that
-# is the whole point of saving it. An explicit --only still beats both.
+# Precedence:
+# 1. --only (CLI flag)
+# 2. --profile (CLI flag)
+# 3. CONFIG_SELECTED_CATEGORIES (from saved config file)
+# 4. CONFIG_PROFILE (from saved config file)
+# 5. Default profile ("safe")
+#
+# Any --include-X flag adds X to ONLY_LIST and opens its gate.
+# --skip always wins over any of the above.
 if [ -z "$ONLY_LIST" ]; then
-  if [ -n "$CONFIG_SELECTED_CATEGORIES" ]; then
+  if [ -n "$PROFILE" ]; then
+    ONLY_LIST="$(profile_category_list "$PROFILE")"
+  elif [ -n "$CONFIG_SELECTED_CATEGORIES" ]; then
     ONLY_LIST="$CONFIG_SELECTED_CATEGORIES"
-    # An opt-in category named in the saved selection also needs its
-    # --include-* gate opened, or it would appear in the run list and then
-    # refuse to do anything ("skipped (opt-in only)").
-    for _id in $ALL_CATEGORY_IDS; do
-      case ",$ONLY_LIST," in
-        *",$_id,"*)
-          _var="$(category_include_var "$_id")"
-          [ -n "$_var" ] && printf -v "$_var" '1'
-          ;;
-      esac
-    done
+  elif [ -n "$CONFIG_PROFILE" ]; then
+    ONLY_LIST="$(profile_category_list "$CONFIG_PROFILE")"
   else
-    default_ids=""
-    for _id in $ALL_CATEGORY_IDS; do
-      _info_line="$(category_info "$_id")"
-      _default="$(echo "$_info_line" | cut -d'|' -f2)"
-      [ "$_default" = "1" ] && default_ids="$default_ids,$_id"
-    done
-    ONLY_LIST="${default_ids#,}"
+    ONLY_LIST="$(profile_category_list "safe")"
   fi
+  # An opt-in category named in the profile or saved selection also needs its
+  # --include-* gate opened, or it would appear in the run list and then
+  # refuse to do anything ("skipped (opt-in only)").
+  for _id in $ALL_CATEGORY_IDS; do
+    case ",$ONLY_LIST," in
+      *",$_id,"*)
+        _var="$(category_include_var "$_id")"
+        [ -n "$_var" ] && printf -v "$_var" '1'
+        ;;
+    esac
+  done
 fi
 
 # Any --include-X flag is itself an explicit request to run that category,

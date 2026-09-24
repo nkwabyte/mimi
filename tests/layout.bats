@@ -15,14 +15,32 @@ load 'test_helper'
   [ -x "$MIMI_BIN" ]
   [ -f "$MIMI_LIB/load.sh" ]
   local m
-  for m in globals log util validate usage config path action core; do
-    [ -f "$MIMI_LIB/$m.sh" ]
+  for m in \
+    core/globals.sh \
+    ui/log.sh \
+    core/util.sh \
+    ui/json.sh \
+    transaction/plan.sh \
+    transaction/quarantine.sh \
+    core/validate.sh \
+    safety/confirm.sh \
+    ui/usage.sh \
+    core/config.sh \
+    safety/path.sh \
+    safety/action.sh \
+    cleaners/registry.sh \
+    cleaners/categories.sh \
+    cleaners/orphans.sh \
+    ui/report.sh \
+    ui/tui.sh \
+    core/core.sh; do
+    [ -f "$MIMI_LIB/$m" ]
   done
 }
 
 @test "layout: every shell file passes bash 3.2 syntax check" {
   local f
-  for f in "$CLEAN_SH" "$MIMI_BIN" "$MIMI_LIB"/*.sh; do
+  for f in "$CLEAN_SH" "$MIMI_BIN" "$MIMI_LIB"/*.sh "$MIMI_LIB"/*/*.sh; do
     /bin/bash -n "$f"
   done
 }
@@ -170,14 +188,14 @@ normalise_entrypoint_output() {
 @test "library: no module runs the tool at load time" {
   # A module that dispatches on load would make the library unusable for tests
   # and would run a clean as a side effect of sourcing.
-  ! grep -qE '^(main|interactive_main|run_selected_categories)$' "$MIMI_LIB"/*.sh
+  ! grep -qE '^(main|interactive_main|run_selected_categories)$' "$MIMI_LIB"/*/*.sh
 }
 
 @test "library: each module is individually syntax-clean and self-describing" {
   local f
-  for f in "$MIMI_LIB"/*.sh; do
+  for f in "$MIMI_LIB"/*/*.sh; do
     /bin/bash -n "$f"
-    head -5 "$f" | grep -q "lib/$(basename "$f")"
+    head -5 "$f" | grep -q "lib/${f#"$MIMI_LIB"/}"
   done
 }
 

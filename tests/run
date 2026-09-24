@@ -37,7 +37,8 @@ echo "==> bats-core ${BATS_VERSION}"
 
 echo "==> Syntax check: /bin/bash -n on every shell file"
 _syntax_failed=0
-for _f in "$REPO_ROOT/clean.sh" "$REPO_ROOT/bin/mimi" "$REPO_ROOT"/lib/*.sh; do
+for _f in "$REPO_ROOT/clean.sh" "$REPO_ROOT/bin/mimi" "$REPO_ROOT"/lib/*.sh "$REPO_ROOT"/lib/*/*.sh; do
+  [ -f "$_f" ] || continue
   if ! /bin/bash -n "$_f"; then
     echo "ERROR: ${_f#"$REPO_ROOT"/} failed /bin/bash -n syntax check." >&2
     _syntax_failed=1
@@ -45,6 +46,12 @@ for _f in "$REPO_ROOT/clean.sh" "$REPO_ROOT/bin/mimi" "$REPO_ROOT"/lib/*.sh; do
 done
 [ "$_syntax_failed" = 0 ] || exit 1
 echo "    OK"
+
+if command -v shellcheck >/dev/null 2>&1; then
+  echo "==> Static check: shellcheck -x"
+  shellcheck -x "$REPO_ROOT/clean.sh" "$REPO_ROOT/bin/mimi"
+  echo "    OK"
+fi
 
 # ---------------------------------------------------------------------------
 # 3. Run the test suite
