@@ -352,11 +352,12 @@ unload_launch_agent() {
   uid="$(id -u)"
 
   if command -v plutil > /dev/null 2>&1; then
-    label="$(plutil -extract Label raw -o - "$plist" 2>/dev/null || true)"
+    label="$(plutil -extract Label raw -o - "$plist" 2>/dev/null)" || label=""
   fi
   if [ -z "$label" ] && command -v defaults > /dev/null 2>&1; then
-    label="$(defaults read "${plist%.plist}" Label 2>/dev/null || true)"
+    label="$(defaults read "${plist%.plist}" Label 2>/dev/null)" || label=""
   fi
+  label="$(printf '%s' "$label" | tr -d '[:space:]')"
 
   command -v launchctl > /dev/null 2>&1 || {
     warn "launchctl not available; $(basename "$plist") is removed but may still be running"
