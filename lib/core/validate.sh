@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# lib/validate.sh — Argument and configuration validation (P0-T08).
+# lib/core/validate.sh lib/validate.sh — Argument and configuration validation (P0-T08).
 #
 # Sourced by lib/load.sh; never executed on its own. Defines functions and
 # global state only, so load order matters solely for the few assignments that
@@ -139,5 +139,41 @@ EOF
     CONFIG_SELECTED_CATEGORIES="$(normalize_category_list "$CONFIG_FILE (SELECTED_CATEGORIES)" "$CONFIG_SELECTED_CATEGORIES")" \
       || exit "$EXIT_USAGE"
   fi
+
+  if [ -n "$CONFIG_PROFILE" ]; then
+    validate_profile "$CONFIG_FILE (PROFILE)" "$CONFIG_PROFILE"
+  fi
   return 0
+}
+
+is_known_profile() {
+  case "$1" in
+    safe|developer|dev|aggressive|all) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+validate_profile() {
+  local src="$1" val="${2-}"
+  if ! is_known_profile "$val"; then
+    die_usage "$src: unknown profile '$val' (valid: safe, developer, aggressive)"
+  fi
+  return 0
+}
+
+profile_category_list() {
+  case "$1" in
+    safe)
+      printf '%s' "browsers,electron,dev-caches,tmp,diagnostics,dsstore,quicklook,xcode-derived,sim-caches,sim-unavailable,homebrew,npm,yarn,pnpm,cocoapods,gradle,pip"
+      ;;
+    developer|dev)
+      printf '%s' "browsers,electron,dev-caches,tmp,diagnostics,dsstore,quicklook,xcode-derived,sim-caches,sim-unavailable,homebrew,npm,yarn,pnpm,cocoapods,gradle,pip,claude-cache,docker-cache,xcode-archives,device-support,ide-stale,toolchains"
+      ;;
+    aggressive|all)
+      printf '%s' "browsers,electron,dev-caches,tmp,diagnostics,dsstore,quicklook,xcode-derived,sim-caches,sim-unavailable,homebrew,homebrew-old,npm,yarn,pnpm,cocoapods,gradle,pip,claude-cache,docker-cache,xcode-archives,device-support,ide-stale,toolchains,caches,logs,timemachine,whatsapp,ml-caches"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }

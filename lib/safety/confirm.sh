@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# lib/confirm.sh — Typed confirmations and the force policy (P0-T07).
+# lib/safety/confirm.sh lib/confirm.sh — Typed confirmations and the force policy (P0-T07).
 #
 # Sourced by lib/load.sh; never executed on its own. Defines functions and
 # global state only, so load order matters solely for the few assignments that
