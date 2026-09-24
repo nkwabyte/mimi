@@ -13,7 +13,7 @@
 # 2. Plants sentinel files *above* and *beside* the fixture root. Teardown
 #    fails the test if any sentinel is missing or modified.
 # 3. Prepends tests/mocks/bin to PATH so macOS tools (mdfind, xcrun,
-#    qlmanage, brew, npm, docker, mdls, defaults) are intercepted by stubs.
+#    qlmanage, brew, npm, docker, mdls, defaults, launchctl) are intercepted by stubs.
 # 4. Provides helper functions used across test files.
 #
 # Bash 3.2 compatibility: no associative arrays, no process substitution
