@@ -1,0 +1,84 @@
+name: Update Homebrew Tap
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish to tap (e.g. v0.1.0)'
+        required: true
+        type: string
+
+jobs:
+  update-tap:
+    name: Update Homebrew Tap Formula
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine release tag
+        id: vars
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            echo "ERROR: No tag specified or available in event." >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Compute SHA-256 Checksum
+        id: checksum
+        run: |
+          TAG="${{ steps.vars.outputs.tag }}"
+          URL="https://github.com/nkwabyte/mimi/archive/refs/tags/${TAG}.tar.gz"
+          echo "Downloading archive from $URL"
+          SHA256="$(curl -sSL "$URL" | sha256sum | awk '{print $1}')"
+          if [ -z "$SHA256" ] || [ "${#SHA256}" -ne 64 ]; then
+            echo "ERROR: Failed to compute valid SHA256 (got '$SHA256')" >&2
+            exit 1
+          fi
+          echo "Computed SHA256: $SHA256"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: nkwabyte/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update Formula
+        run: |
+          mkdir -p homebrew-tap/Formula
+          cat <<EOF > homebrew-tap/Formula/mimi.rb
+          class Mimi < Formula
+            desc "macOS junk and developer cache cleaner (Xcode/simulator aware)"
+            homepage "https://github.com/nkwabyte/mimi"
+            url "${{ steps.checksum.outputs.url }}"
+            sha256 "${{ steps.checksum.outputs.sha256 }}"
+            license "MIT"
+
+            def install
+              prefix.install "bin", "lib", "schemas"
+            end
+
+            test do
+              assert_match "mimi", shell_output("#{bin}/mimi --help")
+            end
+          end
+          EOF
+
+      - name: Commit and push changes
+        working-directory: homebrew-tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/mimi.rb
+          if git diff --staged --quiet; then
+            echo "Formula already up-to-date with this version and checksum."
+          else
+            git commit -m "Update mimi formula to ${{ steps.vars.outputs.tag }}"
+            git push origin main
+          fi
