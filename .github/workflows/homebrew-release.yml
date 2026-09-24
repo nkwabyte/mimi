@@ -33,7 +33,7 @@ jobs:
           TAG="${{ steps.vars.outputs.tag }}"
           URL="https://github.com/nkwabyte/mimi/archive/refs/tags/${TAG}.tar.gz"
           echo "Downloading archive from $URL"
-          SHA256="$(curl -sSL "$URL" | sha256sum | awk '{print $1}')"
+          SHA256="$(curl -sSfL "$URL" | sha256sum | awk '{print $1}')"
           if [ -z "$SHA256" ] || [ "${#SHA256}" -ne 64 ]; then
             echo "ERROR: Failed to compute valid SHA256 (got '$SHA256')" >&2
             exit 1
