@@ -345,7 +345,7 @@ unlock() {
   # the guard. Non-comment lines that delete something, sorted so the answer
   # does not depend on which module they ended up in.
   found="$(grep -hE '(^|[^_[:alnum:]])rm[[:space:]]+-|find .*-delete' \
-      "$CLEAN_SH" "$CLEANMYMAC_BIN" "$CLEANMYMAC_LIB"/*.sh \
+      "$CLEAN_SH" "$MIMI_BIN" "$MIMI_LIB"/*.sh "$MIMI_LIB"/*/*.sh \
     | grep -vE '^[[:space:]]*#' \
     | grep -vE 'FS_REMOVE_ERROR=' \
     | grep -vE 'info "Delete one with' \
@@ -373,8 +373,8 @@ unlock() {
 }
 
 @test "structure: every justified raw removal carries its justification" {
-  grep -qr "Justified raw rm: this is the tool's own transcript housekeeping" "$CLEANMYMAC_LIB"
-  grep -qr 'Justified raw rm: the scratch log this process created' "$CLEANMYMAC_LIB"
-  grep -qr 'raw delete for the same reason as the rm above' "$CLEANMYMAC_LIB"
-  grep -qr 'Justified raw rm: our own half-written temporary file' "$CLEANMYMAC_LIB"
+  grep -qr "Justified raw rm: this is the tool's own transcript housekeeping" "$MIMI_LIB"
+  grep -qr 'Justified raw rm: the scratch log this process created' "$MIMI_LIB"
+  grep -qr 'raw delete for the same reason as the rm above' "$MIMI_LIB"
+  grep -qr 'Justified raw rm: our own half-written temporary file' "$MIMI_LIB"
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# lib/validate.sh — Argument and configuration validation (P0-T08).
+# lib/core/validate.sh lib/validate.sh — Argument and configuration validation (P0-T08).
 #
 # Sourced by lib/load.sh; never executed on its own. Defines functions and
 # global state only, so load order matters solely for the few assignments that
@@ -17,7 +17,7 @@
 # Invalid usage always exits 1 with the same `<name>: error:` prefix, and
 # always writes to stderr — this runs before any log file exists. <name> is
 # how the program was invoked: "clean.sh" through the compatibility shim,
-# "cleanmymac" when bin/cleanmymac is run directly.
+# "cleanmymac" when bin/mimi is run directly.
 # ---------------------------------------------------------------------------
 
 EXIT_OK=0
@@ -26,6 +26,12 @@ EXIT_USAGE=1
 # already settled that invalid usage here exits 1.
 EXIT_PARTIAL=3       # the run finished, but at least one selected action failed
 EXIT_INTERRUPTED=4   # a signal stopped the run before it finished
+# 5 is authorization, not usage: the command line was well-formed and the
+# answer was simply "no" — either because a human said so at a prompt, or
+# because a required confirmation could not be obtained at all. A script needs
+# to tell that apart from a malformed invocation (1) and from work that ran
+# and failed (3). See DEC-029.
+EXIT_CANCELLED=5     # a required confirmation was declined or unobtainable
 
 # Upper bound for every count/day setting. Generous enough that no real
 # retention policy hits it, small enough that a typo or an overflow attempt
@@ -133,5 +139,41 @@ EOF
     CONFIG_SELECTED_CATEGORIES="$(normalize_category_list "$CONFIG_FILE (SELECTED_CATEGORIES)" "$CONFIG_SELECTED_CATEGORIES")" \
       || exit "$EXIT_USAGE"
   fi
+
+  if [ -n "$CONFIG_PROFILE" ]; then
+    validate_profile "$CONFIG_FILE (PROFILE)" "$CONFIG_PROFILE"
+  fi
   return 0
+}
+
+is_known_profile() {
+  case "$1" in
+    safe|developer|dev|aggressive|all) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+validate_profile() {
+  local src="$1" val="${2-}"
+  if ! is_known_profile "$val"; then
+    die_usage "$src: unknown profile '$val' (valid: safe, developer, aggressive)"
+  fi
+  return 0
+}
+
+profile_category_list() {
+  case "$1" in
+    safe)
+      printf '%s' "browsers,electron,dev-caches,tmp,diagnostics,dsstore,quicklook,xcode-derived,sim-caches,sim-unavailable,homebrew,npm,yarn,pnpm,cocoapods,gradle,pip"
+      ;;
+    developer|dev)
+      printf '%s' "browsers,electron,dev-caches,tmp,diagnostics,dsstore,quicklook,xcode-derived,sim-caches,sim-unavailable,homebrew,npm,yarn,pnpm,cocoapods,gradle,pip,claude-cache,docker-cache,xcode-archives,device-support,ide-stale,toolchains"
+      ;;
+    aggressive|all)
+      printf '%s' "browsers,electron,dev-caches,tmp,diagnostics,dsstore,quicklook,xcode-derived,sim-caches,sim-unavailable,homebrew,homebrew-old,npm,yarn,pnpm,cocoapods,gradle,pip,claude-cache,docker-cache,xcode-archives,device-support,ide-stale,toolchains,caches,logs,timemachine,whatsapp,ml-caches"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }

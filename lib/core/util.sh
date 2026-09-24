@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# lib/util.sh — Size formatting and measurement.
+# lib/core/util.sh lib/util.sh — Size formatting and measurement.
 #
 # Sourced by lib/load.sh; never executed on its own. Defines functions and
 # global state only, so load order matters solely for the few assignments that
@@ -59,4 +59,26 @@ is_sparse_file() {
   [ "${logical:-0}" -gt 0 ] || return 1
   [ "${allocated:-0}" -gt 0 ] || return 1
   [ "$((logical - allocated))" -gt "$((logical / 4))" ]
+}
+
+# macOS ships no timeout(1), so this is the bash-3.2-safe equivalent. Used to
+# stop an unresponsive Docker daemon from stalling the whole run: `docker info`
+# happily blocks for minutes when Docker Desktop is starting up or wedged.
+run_with_timeout() {
+  local secs="$1"; shift
+  "$@" &
+  local cmd_pid=$!
+  ( sleep "$secs"; kill -TERM "$cmd_pid" 2>/dev/null ) >/dev/null 2>&1 &
+  local watch_pid=$!
+  local rc=0
+  wait "$cmd_pid" 2>/dev/null || rc=$?
+  kill -TERM "$watch_pid" 2>/dev/null
+  wait "$watch_pid" 2>/dev/null
+  return "$rc"
+}
+
+# True only if the Docker daemon answers within a few seconds.
+docker_daemon_ready() {
+  command -v docker >/dev/null 2>&1 || return 1
+  run_with_timeout 8 docker info >/dev/null 2>&1
 }

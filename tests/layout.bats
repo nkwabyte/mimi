@@ -12,32 +12,61 @@ load 'test_helper'
 
 @test "layout: the expected files exist and are executable" {
   [ -x "$CLEAN_SH" ]
-  [ -x "$CLEANMYMAC_BIN" ]
-  [ -f "$CLEANMYMAC_LIB/load.sh" ]
+  [ -x "$MIMI_BIN" ]
+  [ -f "$MIMI_LIB/load.sh" ]
   local m
-  for m in globals log util validate usage config path action core; do
-    [ -f "$CLEANMYMAC_LIB/$m.sh" ]
+  for m in \
+    core/globals.sh \
+    ui/log.sh \
+    core/util.sh \
+    ui/json.sh \
+    transaction/plan.sh \
+    transaction/quarantine.sh \
+    core/validate.sh \
+    safety/confirm.sh \
+    ui/usage.sh \
+    core/config.sh \
+    safety/path.sh \
+    safety/action.sh \
+    cleaners/registry.sh \
+    cleaners/categories.sh \
+    cleaners/orphans.sh \
+    ui/report.sh \
+    ui/tui.sh \
+    core/core.sh; do
+    [ -f "$MIMI_LIB/$m" ]
   done
 }
 
 @test "layout: every shell file passes bash 3.2 syntax check" {
   local f
-  for f in "$CLEAN_SH" "$CLEANMYMAC_BIN" "$CLEANMYMAC_LIB"/*.sh; do
+  for f in "$CLEAN_SH" "$MIMI_BIN" "$MIMI_LIB"/*.sh "$MIMI_LIB"/*/*.sh; do
     /bin/bash -n "$f"
   done
 }
 
 @test "layout: the canonical entry point runs on its own" {
-  run_cleanmymac --help
+  run_mimi --help
   [ "$status" -eq 0 ]
   echo "$output" | grep -q 'USAGE:'
 }
 
+# The two entry points differ in exactly two ways by design: the shim prints a
+# deprecation notice, and each calls itself by the name it was invoked with.
+# Everything else must match.
+normalise_entrypoint_output() {
+  echo "$1" \
+    | grep -v '^clean.sh: note:' \
+    | grep -v '^Log: ' \
+    | sed -e 's/^clean\.sh — /NAME — /' -e 's/^mimi — /NAME — /'
+}
+
 @test "layout: the shim and the entry point produce identical --list output" {
   run_clean --list
-  local via_shim="$output"
-  run_cleanmymac --list
-  [ "$via_shim" = "$output" ]
+  local via_shim
+  via_shim="$(normalise_entrypoint_output "$output")"
+  run_mimi --list
+  [ "$via_shim" = "$(normalise_entrypoint_output "$output")" ]
 }
 
 @test "layout: the shim and the entry point produce identical scan output" {
@@ -48,9 +77,9 @@ load 'test_helper'
   # so that one line is filtered out before comparing.
   run_clean --scan --only caches --no-log
   local via_shim
-  via_shim="$(echo "$output" | grep -v '^Log: ')"
-  run_cleanmymac --scan --only caches --no-log
-  [ "$via_shim" = "$(echo "$output" | grep -v '^Log: ')" ]
+  via_shim="$(normalise_entrypoint_output "$output")"
+  run_mimi --scan --only caches --no-log
+  [ "$via_shim" = "$(normalise_entrypoint_output "$output")" ]
 }
 
 @test "layout: the shim keeps the program calling itself clean.sh" {
@@ -61,10 +90,16 @@ load 'test_helper'
   [[ "$output" == *"clean.sh: error:"* ]]
 }
 
-@test "layout: the entry point calls itself cleanmymac" {
-  run_cleanmymac --only nosuchcategory
+@test "layout: the entry point calls itself mimi" {
+  run_mimi --only nosuchcategory
   [ "$status" -eq 1 ]
-  [[ "$output" == *"cleanmymac: error:"* ]]
+  [[ "$output" == *"mimi: error:"* ]]
+}
+
+@test "layout: the shim announces the new name once, on stderr" {
+  run_clean --list
+  echo "$output" | grep -q 'this tool is now "mimi"'
+  [ "$(echo "$output" | grep -c 'this tool is now')" -eq 1 ]
 }
 
 @test "layout: running under /bin/bash really means bash 3.2" {
@@ -83,28 +118,28 @@ load 'test_helper'
   cp "$CLEAN_SH" "$fake"
   run /bin/bash "$fake"
   [ "$status" -ne 0 ]
-  echo "$output" | grep -q 'bin/cleanmymac is missing'
+  echo "$output" | grep -q 'bin/mimi is missing'
 }
 
 @test "layout: the entry point fails clearly when lib/ is missing" {
-  local fake="$TEST_TMPDIR/bin/cleanmymac"
+  local fake="$TEST_TMPDIR/bin/mimi"
   mkdir -p "$TEST_TMPDIR/bin"
-  cp "$CLEANMYMAC_BIN" "$fake"
+  cp "$MIMI_BIN" "$fake"
   run /bin/bash "$fake"
   [ "$status" -ne 0 ]
   echo "$output" | grep -q 'cannot find lib/load.sh'
 }
 
 @test "layout: the entry point resolves lib/ through a symlink to itself" {
-  local link="$TEST_TMPDIR/linked-cleanmymac"
-  ln -s "$CLEANMYMAC_BIN" "$link"
+  local link="$TEST_TMPDIR/linked-mimi"
+  ln -s "$MIMI_BIN" "$link"
   run /bin/bash "$link" --list
   [ "$status" -eq 0 ]
   echo "$output" | grep -q 'caches'
 }
 
 @test "layout: the entry point works from any working directory" {
-  run /bin/bash -c "cd / && exec /bin/bash '$CLEANMYMAC_BIN' --list"
+  run /bin/bash -c "cd / && exec /bin/bash '$MIMI_BIN' --list"
   [ "$status" -eq 0 ]
   echo "$output" | grep -q 'caches'
 }
@@ -137,15 +172,15 @@ load 'test_helper'
   before="$(find "$FAKE_HOME" | sort)"
   load_lib
   [ "$before" = "$(find "$FAKE_HOME" | sort)" ]
-  [ ! -f "$FAKE_HOME/.config/cleanmymac/config.conf" ]
+  [ ! -f "$FAKE_HOME/.config/mimi/config.conf" ]
   assert_fixture_sentinel_intact
 }
 
 @test "library: loading it does not parse arguments" {
-  # Argument parsing lives in bin/cleanmymac, not in the library. Sourcing the
+  # Argument parsing lives in bin/mimi, not in the library. Sourcing the
   # library with stray positional parameters must not act on them.
-  run /bin/bash -c '. "'"$CLEANMYMAC_LIB"'/load.sh"; printf "%s" "$MODE"' \
-    cleanmymac-probe --clean --yes
+  run /bin/bash -c '. "'"$MIMI_LIB"'/load.sh"; printf "%s" "$MODE"' \
+    mimi-probe --clean --yes
   [ "$status" -eq 0 ]
   [ "$output" = "scan" ]
 }
@@ -153,13 +188,157 @@ load 'test_helper'
 @test "library: no module runs the tool at load time" {
   # A module that dispatches on load would make the library unusable for tests
   # and would run a clean as a side effect of sourcing.
-  ! grep -qE '^(main|interactive_main|run_selected_categories)$' "$CLEANMYMAC_LIB"/*.sh
+  ! grep -qE '^(main|interactive_main|run_selected_categories)$' "$MIMI_LIB"/*/*.sh
 }
 
 @test "library: each module is individually syntax-clean and self-describing" {
   local f
-  for f in "$CLEANMYMAC_LIB"/*.sh; do
+  for f in "$MIMI_LIB"/*/*.sh; do
     /bin/bash -n "$f"
-    head -5 "$f" | grep -q "lib/$(basename "$f")"
+    head -5 "$f" | grep -q "lib/${f#"$MIMI_LIB"/}"
   done
+}
+
+# ---------------------------------------------------------------------------
+# The rename to mimi
+# ---------------------------------------------------------------------------
+
+@test "rename: --cleaner cleans" {
+  mkdir -p "$FAKE_HOME/Library/Caches/app"
+  printf 'x\n' > "$FAKE_HOME/Library/Caches/app/data"
+
+  run_mimi --cleaner --yes --only caches
+  [ "$status" -eq 0 ]
+  [ ! -e "$FAKE_HOME/Library/Caches/app/data" ]
+}
+
+@test "rename: --clean is still accepted" {
+  # Every script written before the rename used this spelling.
+  mkdir -p "$FAKE_HOME/Library/Caches/app"
+  printf 'x\n' > "$FAKE_HOME/Library/Caches/app/data"
+
+  run_mimi --clean --yes --only caches
+  [ "$status" -eq 0 ]
+  [ ! -e "$FAKE_HOME/Library/Caches/app/data" ]
+}
+
+@test "rename: --cleaner and --clean produce the same mode" {
+  run_mimi --cleaner --yes --only caches
+  local via_cleaner
+  via_cleaner="$(echo "$output" | grep -o 'mode: .*' | head -1)"
+  run_mimi --clean --yes --only caches
+  [ "$via_cleaner" = "$(echo "$output" | grep -o 'mode: .*' | head -1)" ]
+}
+
+@test "rename: --help documents mimi, not the old name" {
+  run_mimi --help
+  echo "$output" | grep -q 'mimi — macOS junk cleaner'
+  echo "$output" | grep -q -- '--cleaner'
+  echo "$output" | grep -q '~/.config/mimi/config.conf'
+}
+
+@test "rename: settings are moved from the old config location" {
+  # A rename must not cost anyone their saved settings, and above all not
+  # their whitelist — one that silently stops being read protects nothing.
+  rm -rf "$FAKE_HOME/.config/mimi"
+  mkdir -p "$FAKE_HOME/.config/cleanmymac"
+  printf 'KEEP_LOGS=7\n' > "$FAKE_HOME/.config/cleanmymac/config.conf"
+
+  run_mimi --list
+  [ "$status" -eq 0 ]
+  [ -f "$FAKE_HOME/.config/mimi/config.conf" ]
+  [ ! -d "$FAKE_HOME/.config/cleanmymac" ]
+  grep -q 'KEEP_LOGS=7' "$FAKE_HOME/.config/mimi/config.conf"
+}
+
+@test "rename: a migrated setting is actually in effect" {
+  rm -rf "$FAKE_HOME/.config/mimi"
+  mkdir -p "$FAKE_HOME/.config/cleanmymac"
+  printf 'TMP_STALE_DAYS=13\n' > "$FAKE_HOME/.config/cleanmymac/config.conf"
+
+  run_mimi --scan --only caches
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q 'moved your settings'
+}
+
+@test "rename: migration never clobbers an existing mimi config" {
+  mkdir -p "$FAKE_HOME/.config/mimi" "$FAKE_HOME/.config/cleanmymac"
+  printf 'KEEP_LOGS=2\n' > "$FAKE_HOME/.config/mimi/config.conf"
+  printf 'KEEP_LOGS=9\n' > "$FAKE_HOME/.config/cleanmymac/config.conf"
+
+  run_mimi --list
+  grep -q 'KEEP_LOGS=2' "$FAKE_HOME/.config/mimi/config.conf"
+  [ -d "$FAKE_HOME/.config/cleanmymac" ]
+}
+
+@test "rename: logs move to the new location" {
+  rm -rf "$FAKE_HOME/Library/Logs/mimi"
+  mkdir -p "$FAKE_HOME/Library/Logs/cleanmymac"
+  printf 'old transcript\n' > "$FAKE_HOME/Library/Logs/cleanmymac/clean-20200101-000000.log"
+
+  run_mimi --scan --only caches
+  [ -f "$FAKE_HOME/Library/Logs/mimi/clean-20200101-000000.log" ]
+}
+
+@test "rename: new review files carry the mimi marker" {
+  mkdir -p "$FAKE_HOME/Library/Containers/com.zzqqxx9.vvbbnn7"
+  run_mimi --scan --only orphans --include-orphans
+  local generated
+  generated="$(grep -rl 'mimi-orphan-review v1' "$FAKE_HOME/Library/Logs/mimi" 2>/dev/null | head -1)"
+  [ -n "$generated" ]
+}
+
+@test "rename: a review file written under the old name is still accepted" {
+  # Someone may be halfway through editing one when they update.
+  local target f
+  target="$FAKE_HOME/Library/Application Support/com.zzqqxx9.legacy"
+  mkdir -p "$target"
+  f="$TEST_TMPDIR/legacy-review.txt"
+  {
+    printf '# cleanmymac-orphan-review v1\n'
+    printf '%s\n' "$target"
+  } > "$f"
+
+  run_mimi --cleaner --yes --force-risky orphans --only orphans --remove-orphans-from "$f"
+  [ "$status" -eq 0 ]
+  [ ! -e "$target" ]
+}
+
+# ---------------------------------------------------------------------------
+# install.sh
+# ---------------------------------------------------------------------------
+
+@test "install: links mimi into a prefix and the link runs" {
+  local prefix="$TEST_TMPDIR/bin"
+  run /bin/bash "$REPO_ROOT/install.sh" --prefix "$prefix"
+  [ "$status" -eq 0 ]
+  [ -L "$prefix/mimi" ]
+
+  run /bin/bash "$prefix/mimi" --list
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q 'caches'
+}
+
+@test "install: --uninstall removes only its own symlink" {
+  local prefix="$TEST_TMPDIR/bin"
+  /bin/bash "$REPO_ROOT/install.sh" --prefix "$prefix" > /dev/null
+  run /bin/bash "$REPO_ROOT/install.sh" --prefix "$prefix" --uninstall
+  [ "$status" -eq 0 ]
+  [ ! -e "$prefix/mimi" ]
+}
+
+@test "install: refuses to overwrite a real file" {
+  local prefix="$TEST_TMPDIR/bin"
+  mkdir -p "$prefix"
+  printf 'not ours\n' > "$prefix/mimi"
+  run /bin/bash "$REPO_ROOT/install.sh" --prefix "$prefix"
+  [ "$status" -ne 0 ]
+  [ "$(cat "$prefix/mimi")" = "not ours" ]
+}
+
+@test "install: says how to fix a prefix that is not on PATH" {
+  local prefix="$TEST_TMPDIR/nowhere"
+  run /bin/bash "$REPO_ROOT/install.sh" --prefix "$prefix"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q 'NOT on your PATH'
 }

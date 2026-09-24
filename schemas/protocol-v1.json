@@ -1,0 +1,149 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MimiProtocolEventV1",
+  "description": "Event schema for Mimi JSON Lines Protocol v1",
+  "type": "object",
+  "required": ["type", "seq", "request_id", "timestamp"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "hello",
+        "phase_started",
+        "phase_finished",
+        "candidate",
+        "action_result",
+        "warning",
+        "permission_required",
+        "error",
+        "run_finished"
+      ]
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "request_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "hello" } } },
+      "then": {
+        "required": ["protocol_version", "engine_version", "plan_schema_version", "capabilities"],
+        "properties": {
+          "protocol_version": { "type": "integer" },
+          "engine_version": { "type": "string" },
+          "plan_schema_version": { "type": "integer" },
+          "capabilities": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "phase_started" } } },
+      "then": {
+        "required": ["phase"],
+        "properties": {
+          "phase": { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "phase_finished" } } },
+      "then": {
+        "required": ["phase", "status"],
+        "properties": {
+          "phase": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "candidate" } } },
+      "then": {
+        "required": ["category", "path", "size_kb", "risk"],
+        "properties": {
+          "candidate_id": { "type": "string" },
+          "category": { "type": "string" },
+          "path": { "type": "string" },
+          "size_kb": { "type": "integer" },
+          "risk": { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "action_result" } } },
+      "then": {
+        "required": ["status", "path", "bytes_reclaimed"],
+        "properties": {
+          "status": { "type": "string" },
+          "path": { "type": "string" },
+          "bytes_reclaimed": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "warning" } } },
+      "then": {
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "permission_required" } } },
+      "then": {
+        "required": ["permission", "message"],
+        "properties": {
+          "permission": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "error" } } },
+      "then": {
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "run_finished" } } },
+      "then": {
+        "required": [
+          "status",
+          "exit_code",
+          "reclaimed_kb",
+          "scanned_kb",
+          "actions_ok",
+          "actions_skipped",
+          "actions_denied",
+          "actions_failed"
+        ],
+        "properties": {
+          "status": { "type": "string" },
+          "exit_code": { "type": "integer" },
+          "reclaimed_kb": { "type": "integer" },
+          "scanned_kb": { "type": "integer" },
+          "actions_ok": { "type": "integer" },
+          "actions_skipped": { "type": "integer" },
+          "actions_denied": { "type": "integer" },
+          "actions_failed": { "type": "integer" }
+        }
+      }
+    }
+  ]
+}

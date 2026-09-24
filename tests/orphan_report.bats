@@ -105,7 +105,7 @@ assert_not_a_candidate() {
   echo "$output" | grep -q -- '--remove-orphans-from'
 
   local generated
-  generated="$(grep -rl 'cleanmymac-orphan-review v1' "$FAKE_HOME/Library/Logs/cleanmymac" 2>/dev/null | head -1)"
+  generated="$(grep -rl 'mimi-orphan-review v1' "$FAKE_HOME/Library/Logs/mimi" 2>/dev/null | head -1)"
   [ -n "$generated" ]
   grep -qx "$(CONTAINERS)/com.zzqqxx9.vvbbnn7" "$generated"
 }
@@ -333,11 +333,11 @@ assert_not_a_candidate() {
 
   run_clean --scan --only orphans --include-orphans
   local generated
-  generated="$(grep -rl 'cleanmymac-orphan-review v1' "$FAKE_HOME/Library/Logs/cleanmymac" 2>/dev/null | head -1)"
+  generated="$(grep -rl 'mimi-orphan-review v1' "$FAKE_HOME/Library/Logs/mimi" 2>/dev/null | head -1)"
   [ -n "$generated" ]
   [ -f "$target/data" ]
 
-  run_clean --clean --yes --only orphans --remove-orphans-from "$generated"
+  run_clean --clean --yes --force-risky orphans --only orphans --remove-orphans-from "$generated"
   [ "$status" -eq 0 ]
   [ ! -e "$target" ]
 }
@@ -352,13 +352,13 @@ assert_not_a_candidate() {
 
   run_clean --scan --only orphans --include-orphans
   local generated
-  generated="$(grep -rl 'cleanmymac-orphan-review v1' "$FAKE_HOME/Library/Logs/cleanmymac" 2>/dev/null | head -1)"
+  generated="$(grep -rl 'mimi-orphan-review v1' "$FAKE_HOME/Library/Logs/mimi" 2>/dev/null | head -1)"
   [ -n "$generated" ]
 
   # Comment out the keeper, exactly as the file instructs.
   /usr/bin/sed -i '' "s|^${keep}$|#${keep}|" "$generated"
 
-  run_clean --clean --yes --only orphans --remove-orphans-from "$generated"
+  run_clean --clean --yes --force-risky orphans --only orphans --remove-orphans-from "$generated"
   [ -f "$keep/data" ]
   [ ! -e "$drop" ]
 }

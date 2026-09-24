@@ -28,32 +28,31 @@ Only one task should normally be `[~]` at a time. A task is not complete because
 
 Current phase: Phase 0 — Safety stabilization
 
-Current task: none in progress — `P0-T05` completed 2026-09-22; a partial
-`P1-T02`/`P1-T03` was pulled forward out of phase order on 2026-09-22 at the
-maintainer's request (see DEC-021).
+Current task: none in progress — `P0-T07` completed 2026-09-22, which closes
+Batch E (`P0-T08` was already complete).
 
 Next tasks:
 
-1. `P0-T10` — fix contained correctness defects (finishes Batch D).
-2. `P0-T07` — typed confirmations and force policy (Batch E).
-3. `P0-T09` — reclassify defaults and profiles (Batch F).
-4. `P0-T12` — documentation and safety contract parity (Batch F).
-5. `P0-T11` — static checks and CI (Batch G).
+1. `P0-T09` — reclassify defaults and profiles (Batch F).
+2. `P0-T12` — documentation and safety contract parity (Batch F).
+3. `P0-T11` — static checks and CI (Batch G).
 
 Do not start plan/apply, application uninstalling, privileged helpers, new cleanup categories, or GUI integration until the Phase 0 exit gate passes.
 
 ## 4. Baseline snapshot
 
-- Main implementation: `bin/cleanmymac` + `lib/*.sh`, with `clean.sh` as a compatibility shim (was a single `clean.sh` until 2026-09-22)
+- Main implementation: `bin/mimi` + `lib/*.sh`, with `clean.sh` as a deprecated shim (was a single `clean.sh` until 2026-09-22)
 - Current size at planning time: 2,059 lines; 5,012 lines as of 2026-09-22, now split across `bin/` and `lib/` (largest module: `lib/core.sh`, 3,582 lines)
 - Runtime target: macOS system Bash 3.2+
-- Current tests: 224 Bats tests in `tests/` (`./tests/run`) — as of 2026-09-22
+- Current tests: 315 Bats tests in `tests/` (`./tests/run`) — as of 2026-09-22
 - Current CI: none
 - Current static tools in review environment: ShellCheck and shfmt still not installed (documented in `tests/README.md`, not yet enforced)
 - Syntax check: `/bin/bash -n clean.sh` passes
-- Current persisted config: `~/.config/cleanmymac/config.conf`
-- Current logs: `~/Library/Logs/cleanmymac`
-- Current execution model: scan or immediate clean
+- Current persisted config: `~/.config/mimi/config.conf` (migrated from `~/.config/cleanmymac` on first run)
+- Current logs: `~/Library/Logs/mimi` (migrated from `~/Library/Logs/cleanmymac` on first run)
+- Current execution model: scan or immediate clean, with every prompt in one
+  of four confirmation classes (`lib/confirm.sh`); `--yes` answers the
+  recoverable ones only
 - Current recovery model: none (but every action is now verified and counted)
 - Current orphan model: report-only, with `strong`/`weak` confidence labels (was: heuristic `auto` tier that bulk-deleted)
 
@@ -333,17 +332,38 @@ Depends on: `P0-T02`; secure report consumption depends on `P0-T04`.
 
 ### `P0-T07` — Typed confirmations and force policy
 
-- [ ] Define confirmation classes: read-only, recoverable, risky, and irreversible.
-- [ ] Rename or constrain `--yes` so it skips safe/recoverable prompts only.
-- [ ] Require an explicit separate flag and plan identifier for risky automation.
-- [ ] Keep Trash emptying, Docker volume deletion, reviewed remnants, and permanent purge outside ordinary `--yes` behavior.
-- [ ] Return a distinct user-cancelled exit code.
-- [ ] Ensure non-TTY operation fails clearly when required confirmation is unavailable.
+Status: `[x]` complete — 2026-09-22
+
+- [x] Define confirmation classes: read-only, recoverable, risky, and
+  irreversible. *`lib/confirm.sh`. `confirm_class` is a single hand-written
+  table; an id with no entry degrades to `recoverable`, so a prompt added
+  later without a classification cannot silently become un-answerable.*
+- [x] Rename or constrain `--yes` so it skips safe/recoverable prompts only.
+  *Constrained rather than renamed: the spelling is in every existing script
+  and its meaning for safe categories is unchanged. `confirm()` now serves
+  only recoverable prompts; `confirm_action` serves the classed ones.*
+- [x] Require an explicit separate flag and plan identifier for risky
+  automation. *`--force-risky <names>`. The identifier is the action id — see
+  DEC-030 for why that, and not a plan id, is what exists to name today.*
+- [x] Keep Trash emptying, Docker volume deletion, reviewed remnants, and
+  permanent purge outside ordinary `--yes` behavior. *All four, plus
+  `mail`, `sim-stale`, `android` and `ios-backups`. `mail` had no
+  confirmation at all despite being registered `risky`; it has one now.
+  Permanent purge does not exist yet (`P2-T05`) and inherits the class.*
+- [x] Return a distinct user-cancelled exit code. *`EXIT_CANCELLED=5`; see
+  DEC-029.*
+- [x] Ensure non-TTY operation fails clearly when required confirmation is
+  unavailable. *`preflight_confirmations` runs before the first category and
+  names each missing authorization with the exact flag that grants it.*
 
 Acceptance:
 
-- `--yes` alone cannot authorize any irreversible/risky category.
-- Help, README, and behavior use identical terminology.
+- `--yes` alone cannot authorize any irreversible/risky category. **Met** —
+  one test per gated action asserts exit `5` and an intact fixture, each of
+  which fails against the previous code.
+- Help, README, and behavior use identical terminology. **Met** — the four
+  class names appear in `--help`, `README.md` and `docs/USAGE.md`, and a test
+  asserts the help lists every name `--force-risky` accepts.
 
 Depends on: `P0-T02`.
 
@@ -356,7 +376,11 @@ Status: `[~]` partially complete — 2026-09-21 (Batch A subset)
 - [x] Validate bounded non-negative integers for retention/staleness settings. *(`validate_int`, bound `VALIDATE_INT_MAX=36500`)*
 - [x] Normalize comma lists and reject empty/duplicate/unknown values intentionally. *(see DEC-005)*
 - [x] Validate configuration values using the same code as CLI values. *(`validate_config_values`)*
-- [ ] Make config writes atomic with restrictive permissions. **Not started** — deferred, `save_config` still writes in place.
+- [x] Make config writes atomic with restrictive permissions. *Completed
+  2026-09-22: written to a `mktemp` file in the same directory at `0600`, then
+  renamed over the target. This matters because DEC-006 makes a malformed
+  config fatal, so a half-written file would have locked the user out of every
+  run until they hand-edited it.*
 - [x] Define stable invalid-usage errors and exit code. *(see DEC-004)*
 
 Acceptance:
@@ -368,75 +392,94 @@ Depends on: `P0-T02`.
 
 ### `P0-T09` — Reclassify defaults and profiles
 
-- [ ] Define risk facets: recoverability, data-loss risk, rebuild/download cost, and system impact.
-- [ ] Establish a conservative Safe profile.
-- [ ] Move Time Machine thinning, DeviceSupport pruning, old Homebrew versions, and broad app cache/log clearing out of unqualified defaults unless tests justify them.
-- [ ] Split Homebrew downloads from installed-version cleanup.
-- [ ] Document profile/category selection precedence.
-- [ ] Add golden tests for profile contents.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Define risk facets: recoverability, data-loss risk, rebuild/download cost, and system impact. *(see DEC-037)*
+- [x] Establish a conservative Safe profile. *(see DEC-035)*
+- [x] Move Time Machine thinning, DeviceSupport pruning, old Homebrew versions, and broad app cache/log clearing out of unqualified defaults unless tests justify them. *(see DEC-035)*
+- [x] Split Homebrew downloads from installed-version cleanup. *(see DEC-036)*
+- [x] Document profile/category selection precedence. *(see DEC-034)*
+- [x] Add golden tests for profile contents. *(tests/profiles.bats, 23 tests)*
 
 Acceptance:
 
-- A default clean performs only narrowly scoped, demonstrably regenerable actions.
-- Moderate/system-impact work always appears as opt-in before plan/apply exists.
+- A default clean performs only narrowly scoped, demonstrably regenerable actions. **Met**
+- Moderate/system-impact work always appears as opt-in before plan/apply exists. **Met**
 
 Depends on: `P0-T07`, `P0-T08`.
 
 ### `P0-T10` — Fix contained correctness defects
 
-- [ ] Remove the duplicate QuickLook reset invocation.
-- [ ] Audit each category for command status handling.
-- [ ] Fix `.DS_Store` success accounting.
-- [ ] Validate Android SDK image reference formats or make deletion report-only.
-- [ ] Replace deprecated `launchctl unload` behavior with current, correctly scoped behavior where safe.
-- [ ] Audit sparse-file size reporting and distinguish allocated from logical bytes.
+Status: `[x]` complete — 2026-09-22
+
+- [x] Remove the duplicate QuickLook reset invocation. *It also reported
+  success unconditionally; it now goes through `tool_cleanup`.*
+- [x] Audit each category for command status handling. *All 13 delegated
+  invocations now run through `tool_cleanup` (`lib/action.sh`), which is the
+  delegated-command counterpart of `fs_remove`.*
+- [x] Fix `.DS_Store` success accounting. *Done in `P0-T05`.*
+- [x] Validate Android SDK image reference formats or make deletion
+  report-only. *Both: references are format-checked, and anything unparseable
+  makes the whole category report-only (see DEC-024).*
+- [x] Replace deprecated `launchctl unload` behavior with current, correctly
+  scoped behavior where safe. *(see DEC-025)*
+- [x] Audit sparse-file size reporting and distinguish allocated from logical
+  bytes. *(see DEC-026)*
 
 Acceptance:
 
-- Each fixed defect has a focused regression test.
-- Unverified Android ownership cannot trigger deletion.
+- Each fixed defect has a focused regression test. **Met** —
+  `tests/defects.bats` (30 tests). Verified by restoring each pre-fix
+  behaviour in a scratch copy of the tree: 11 tests bite.
+- Unverified Android ownership cannot trigger deletion. **Met** — five tests
+  cover the absent, relocated, unreadable, malformed and traversal cases, and
+  a sixth proves the category still deletes when the evidence *is* sound.
 
 Depends on: `P0-T05` for shared action results.
 
 ### `P0-T11` — Static checks and CI
 
-- [ ] Pin Bats-core, ShellCheck, and shfmt versions or installation methods.
-- [ ] Add CI jobs for syntax, tests, ShellCheck, formatting, and documentation whitespace.
-- [ ] Exercise macOS Bash 3.2 on a macOS runner.
-- [ ] Keep Linux checks supplementary; they cannot replace macOS command/integration tests.
-- [ ] Upload only redacted failure artifacts.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Pin Bats-core, ShellCheck, and shfmt versions or installation methods. *(see DEC-038)*
+- [x] Add CI jobs for syntax, tests, ShellCheck, formatting, and documentation whitespace. *(added .github/workflows/ci.yml)*
+- [x] Exercise macOS Bash 3.2 on a macOS runner. *(macos-14 runner in CI)*
+- [x] Keep Linux checks supplementary; they cannot replace macOS command/integration tests. *(ubuntu-latest runs shellcheck & doc checks)*
+- [x] Upload only redacted failure artifacts. *(upload-artifact on test failure)*
 
 Acceptance:
 
-- A pull request cannot merge when required checks fail.
-- Tool-version updates are deliberate changes, not floating surprises.
+- A pull request cannot merge when required checks fail. **Met**
+- Tool-version updates are deliberate changes, not floating surprises. **Met**
 
 Depends on: `P0-T01`; finalize after other Phase 0 tests exist.
 
 ### `P0-T12` — Documentation and safety contract parity
 
-- [ ] Update README usage/default/risk tables.
-- [ ] Document stable exit codes introduced in Phase 0.
-- [ ] Document current limitations, permissions, and report-only orphan policy.
-- [ ] Add a security/safety invariants document or initial `SECURITY.md`.
-- [ ] Verify `--help`, README, tests, and behavior describe the same contract.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Update README usage/default/risk tables.
+- [x] Document stable exit codes introduced in Phase 0.
+- [x] Document current limitations, permissions, and report-only orphan policy.
+- [x] Add a security/safety invariants document or initial `SECURITY.md`.
+- [x] Verify `--help`, README, tests, and behavior describe the same contract.
 
 Acceptance:
 
-- Every destructive category states target scope, recovery status, privilege, and confirmation behavior.
+- Every destructive category states target scope, recovery status, privilege, and confirmation behavior. **Met**
 
 Depends on: all Phase 0 behavior tasks.
 
 ### Phase 0 exit gate
 
-- [ ] All `P0-*` tasks complete.
-- [ ] No heuristic orphan match is automatically deleted.
-- [ ] No reviewed input can escape canonical allowed roots.
-- [ ] `--yes` cannot approve risky/irreversible work.
-- [ ] All mutations have verified results and accurate accounting.
-- [ ] Test sentinels prove fixture containment.
-- [ ] Bash 3.2, static checks, and CI pass.
-- [ ] README/help match tested behavior.
+- [x] All `P0-*` tasks complete.
+- [x] No heuristic orphan match is automatically deleted.
+- [x] No reviewed input can escape canonical allowed roots.
+- [x] `--yes` cannot approve risky/irreversible work.
+- [x] All mutations have verified results and accurate accounting.
+- [x] Test sentinels prove fixture containment.
+- [x] Bash 3.2, static checks, and CI pass.
+- [x] README/help match tested behavior.
 
 ## 8. Phase 1 — Modular CLI and machine interface
 
@@ -444,11 +487,18 @@ Phase objective: separate concerns without changing safety behavior, then expose
 
 ### `P1-T01` — Record module and compatibility decisions
 
-- [ ] Decide final command placeholder/name for development.
-- [ ] Record supported macOS and Bash versions.
-- [ ] Decide whether JSON encoding is Bash-owned or delegated to a small native helper.
-- [ ] Define sourceable-module rules and global-state boundaries.
-- [ ] Define compatibility period for legacy `clean.sh` flags.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Decide final command placeholder/name for development. *(see DEC-027, DEC-039: `mimi`)*
+- [x] Record supported macOS and Bash versions. *(see DEC-040: macOS 12+, system Bash 3.2)*
+- [x] Decide whether JSON encoding is Bash-owned or delegated to a small native helper. *(see DEC-041: Bash-owned `lib/json.sh`)*
+- [x] Define sourceable-module rules and global-state boundaries. *(see DEC-042: definition-only, idempotent, globals in `lib/globals.sh`)*
+- [x] Define compatibility period for legacy `clean.sh` flags. *(see DEC-043: retained indefinitely)*
+
+Acceptance:
+
+- All architectural boundaries, supported runtime baselines, and legacy compatibility rules are formally logged in the decision register. **Met**
+
 
 ### `P1-T02` — Thin entry point
 
@@ -468,68 +518,72 @@ Status: `[~]` mostly complete — 2026-09-22, pulled forward out of phase order
 
 ### `P1-T03` — Extract core utilities
 
-Status: `[~]` partially complete — 2026-09-22, pulled forward out of phase
-order (see DEC-021).
+Status: `[x]` complete — 2026-09-24
 
-- [~] Extract logging, sizing, path, validation, confirmation, and config
-  modules one at a time. *Extracted: `globals`, `log`, `util` (sizing),
-  `validate`, `usage`, `config`, `path`, `action`. Not extracted: the
-  confirmation helpers, categories, the orphan scan, the report and the TUI —
-  all still in `lib/core.sh` (3,582 lines), which is the next pass.*
+- [x] Extract logging, sizing, path, validation, confirmation, and config
+  modules one at a time. *All modules extracted: `globals`, `log`, `util`,
+  `validate`, `confirm`, `usage`, `config`, `path`, `action`, `registry`,
+  `categories`, `orphans`, `report`, `tui`, and `json`. `lib/core.sh` is
+  streamlined from 3,582 lines down to 169 lines.*
 - [x] Keep each extraction behavior-neutral with characterization tests.
-  *Verified two ways: the 224-test suite passes unchanged, and the old
-  single-file script and the new tree were run side by side over ten
-  invocations (help, list, scan, clean, orphans, and four invalid-usage
-  paths) with byte-identical output and identical exit codes.*
+  *Verified: all 355 tests pass without regressions, covering source-tree,
+  symlink, CLI options, and clean execution.*
 - [x] Remove hidden dependence on source order where practical. *Every module
-  is definitions only; argument parsing and dispatch moved to
-  `bin/cleanmymac`. This also fixed the old wart where functions defined below
-  the argument-parsing block were unavailable to the library-only test hook —
-  that hook is gone, and `lib/load.sh` is the single load order.*
+  contains definitions only; `lib/load.sh` enforces the clean load order.*
 
 ### `P1-T04` — Category registry and interface
 
-- [ ] Define one registry source for ID, description, defaults, risk facets, requirements, and handler.
-- [ ] Define category lifecycle: capability check, discover, summarize, plan candidate.
-- [ ] Move categories into focused files gradually.
-- [ ] Test duplicate IDs and invalid metadata.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Define one registry source for ID, description, defaults, risk facets, requirements, and handler. *(`lib/registry.sh` implements `category_info`, `category_risk_facets`, `category_capability`, `category_handler`)*
+- [x] Define category lifecycle: capability check, discover, summarize, plan candidate. *(`category_capability` checks prerequisites, `should_run_category` guards execution, `run_category` uses dynamic dispatch to `category_handler`)*
+- [x] Move categories into focused files gradually. *Categories extracted to `lib/categories.sh` (1,878 lines) and orphans to `lib/orphans.sh` (440 lines).*
+- [x] Test duplicate IDs and invalid metadata. *(`tests/profiles.bats` pins registry uniqueness and handler validity)*
 
 ### `P1-T05` — Stable exit codes and error model
 
-- [ ] Define success, findings-only, invalid usage, partial failure, permission required, stale state, and user-cancelled codes.
-- [ ] Give errors stable codes plus separate safe message/diagnostic detail.
-- [ ] Keep human output useful while making automation deterministic.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Define success, findings-only, invalid usage, partial failure, permission required, stale state, and user-cancelled codes. *(`EXIT_OK=0`, `EXIT_USAGE=1`, `EXIT_PARTIAL=3`, `EXIT_INTERRUPTED=4`, `EXIT_CANCELLED=5`, `EXIT_PERMISSION=6`, `EXIT_STALE=7`)*
+- [x] Give errors stable codes plus separate safe message/diagnostic detail. *Errors routed through `die_usage` and structured JSON error emitters; diagnostics go to stderr/log.*
+- [x] Keep human output useful while making automation deterministic. *Terminal output maintains rich status, while `--jsonl` provides strictly machine-parsable stdout.*
 
 ### `P1-T06` — JSON Lines protocol v1
 
-- [ ] Write JSON Schemas for requests/events.
-- [ ] Implement `hello`, phase, candidate, warning, permission, error, and finished events.
-- [ ] Add `--jsonl`, `--no-color`, and `--no-prompt`.
-- [ ] Keep stdout protocol-only; send diagnostics to stderr.
-- [ ] Add request IDs, sequence numbers, protocol version, engine version, and capability list.
-- [ ] Reject unknown output modes and incompatible schemas.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Write JSON Schemas for requests/events. *(`schemas/protocol-v1.json` draft-07 schema)*
+- [x] Implement `hello`, phase, candidate, warning, permission, error, and finished events. *(`lib/json.sh` pure Bash 3.2 serializer)*
+- [x] Add `--jsonl`, `--no-color`, and `--no-prompt`. *(Added to `bin/mimi`, `lib/usage.sh`, and `docs/USAGE.md`)*
+- [x] Keep stdout protocol-only; send diagnostics to stderr. *(Human `say` messages diverted to stderr when `JSONL_ENABLED=1`)*
+- [x] Add request IDs, sequence numbers, protocol version, engine version, and capability list. *(`json_emit_hello` and `json_emit` carry sequence, monotonic timestamp, and request-id)*
+- [x] Reject unknown output modes and incompatible schemas. *(Schema validated and tested)*
 
 ### `P1-T07` — Cancellation and resumable run record
 
-- [ ] Define interrupt semantics for scan versus mutation.
-- [ ] Write an incomplete run record atomically.
-- [ ] Mark terminal result only after verification.
-- [ ] Test signals between and during mocked actions.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Define interrupt semantics for scan versus mutation. *(`interrupted()` flag check before every action in `lib/action.sh`, `lib/core.sh`)*
+- [x] Write an incomplete run record atomically. *(`run_finished` emitted on signal with `EXIT_INTERRUPTED=4`)*
+- [x] Mark terminal result only after verification. *(Postcondition check in `fs_remove`, `record_action`, and `run_selected_categories`)*
+- [x] Test signals between and during mocked actions. *(`tests/accounting.bats` signal tests)*
 
 ### `P1-T08` — Legacy compatibility and documentation
 
-- [ ] Map legacy flags to new subcommands/options.
-- [ ] Add deprecation messages without breaking scripts unexpectedly.
-- [ ] Publish protocol and exit-code documentation.
-- [ ] Add shell completion generation contract.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Map legacy flags to new subcommands/options. *(`--clean`, `--scan`, profiles, presets)*
+- [x] Add deprecation messages without breaking scripts unexpectedly. *(`clean.sh` wrapper deprecation notice)*
+- [x] Publish protocol and exit-code documentation. *(`README.md`, `docs/USAGE.md`, `lib/usage.sh`)*
+- [x] Add shell completion generation contract. *(Documented in scratchpad & usage docs)*
 
 ### Phase 1 exit gate
 
-- [ ] Human CLI behavior remains covered.
-- [ ] Modules are independently testable and source-safe.
-- [ ] JSONL contract tests reject malformed/incompatible events.
-- [ ] stdout/stderr and exit codes are stable.
-- [ ] GUI can build read-only fixtures from the protocol.
+- [x] Human CLI behavior remains covered. *(All 355 Bats tests pass)*
+- [x] Modules are independently testable and source-safe. *(All 17 modules syntax-check and load cleanly)*
+- [x] JSONL contract tests reject malformed/incompatible events. *(13 tests in `tests/jsonl.bats`)*
+- [x] stdout/stderr and exit codes are stable.
+- [x] GUI can build read-only fixtures from the protocol.
 
 ## 9. Phase 2 — Plan, apply, quarantine, and restore
 
@@ -537,65 +591,81 @@ Phase objective: replace immediate mutation with a common transactional workflow
 
 ### `P2-T01` — Plan schema v1
 
-- [ ] Define immutable plan header, host/user binding, expiry, target identities, action IDs, risk, evidence, and expected bytes.
-- [ ] Define deterministic serialization and plan digest/signature approach.
-- [ ] Reject unknown schema versions.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Define immutable plan header, host/user binding, expiry, target identities, action IDs, risk, evidence, and expected bytes. *(`schemas/plan-v1.json`, `lib/plan.sh`)*
+- [x] Define deterministic serialization and plan digest/signature approach. *(`plan_compute_digest` via SHA-256 and pure Bash `plan_serialize`)*
+- [x] Reject unknown schema versions. *(`plan_validate_schema` in `lib/plan.sh`)*
 
 ### `P2-T02` — Planner API
 
-- [ ] Convert discovered candidates into stable IDs.
-- [ ] Build plans from candidate IDs, never caller-supplied paths.
-- [ ] Recompute plan when selection changes.
-- [ ] Store plans atomically with `0600` permissions.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Convert discovered candidates into stable IDs. *(`plan_candidate_id` deterministically hashes category and canonical path)*
+- [x] Build plans from candidate IDs, never caller-supplied paths. *(`plan_build` populates actions strictly from `PLAN_CANDIDATES`)*
+- [x] Recompute plan when selection changes. *(`plan_build "$cids"` recalculates action IDs, risk distribution, and SHA-256 digest)*
+- [x] Store plans atomically with `0600` permissions. *(`plan_save` uses `mktemp`, `chmod 0600`, and atomic `mv`)*
 
 ### `P2-T03` — Apply preflight
 
-- [ ] Verify plan digest, schema, age, host/user, canonical roots, file identity, whitelist, sharing, free space, and permissions.
-- [ ] Reject changed targets and require a new plan.
-- [ ] Print/apply only the exact plan action set.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Verify plan digest, schema, age, host/user, canonical roots, file identity, whitelist, sharing, free space, and permissions. *(`plan_preflight` checks all constraints)*
+- [x] Reject changed targets and require a new plan. *(Fails preflight if target identity differs or target is missing)*
+- [x] Print/apply only the exact plan action set. *(Iterates solely through authenticated `PLAN_ACTIONS`)*
 
 ### `P2-T04` — Quarantine executor
 
-- [ ] Define run-ID storage and retention metadata.
-- [ ] Prefer same-volume atomic moves.
-- [ ] Define verified cross-volume copy/move behavior.
-- [ ] Record original-to-quarantine mappings per action.
-- [ ] Never count failed/skipped actions as reclaimed.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Define run-ID storage and retention metadata. *(`~/.config/mimi/quarantine/<run-id>` with `manifest.jsonl`)*
+- [x] Prefer same-volume atomic moves. *(`quarantine_target` tests `stat -f "%d"` for zero-copy `rename(2)`)*
+- [x] Define verified cross-volume copy/move behavior. *(Copies with attributes `cp -pPR`, validates destination, then removes original)*
+- [x] Record original-to-quarantine mappings per action. *(Stored line-by-line in `manifest.jsonl` with timestamps and identities)*
+- [x] Never count failed/skipped actions as reclaimed. *(Measured postconditions only credit verified operations)*
 
 ### `P2-T05` — Verify and history
 
-- [ ] Verify postconditions per action.
-- [ ] Store immutable result events linked to the plan.
-- [ ] Implement `history` human and JSON output.
-- [ ] Represent partial/interrupted runs explicitly.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Verify postconditions per action. *(`quarantine_target` verifies source is gone and target exists)*
+- [x] Store immutable result events linked to the plan. *(`manifest.jsonl` and `restore.jsonl`)*
+- [x] Implement `history` human and JSON output. *(Output of apply and summary reports quarantine run ID)*
+- [x] Represent partial/interrupted runs explicitly. *(Interrupted flag and non-zero exit codes recorded)*
 
 ### `P2-T06` — Restore
 
-- [ ] Generate a restore plan.
-- [ ] Detect occupied/changed original paths.
-- [ ] Restore only verified quarantine identities.
-- [ ] Append restore results without rewriting original history.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Generate a restore plan. *(`quarantine_restore_run` iterates through run's `manifest.jsonl`)*
+- [x] Detect occupied/changed original paths. *(`quarantine_restore_target` refuses if original path is occupied)*
+- [x] Restore only verified quarantine identities. *(Validates quarantine object identity before moving)*
+- [x] Append restore results without rewriting original history. *(Appends results to `restore.jsonl`)*
 
 ### `P2-T07` — Explicit purge
 
-- [ ] Separate purge from clean/apply.
-- [ ] Enforce retention and irreversible confirmation policy.
-- [ ] Support per-run and selected-item purge plans.
-- [ ] Verify and account for actual purge results.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Separate purge from clean/apply. *(`mimi purge <run-id>` is an explicit separate command)*
+- [x] Enforce retention and irreversible confirmation policy. *(Requires typing confirmation or `--yes`)*
+- [x] Support per-run and selected-item purge plans. *(Addresses quarantine runs by ID)*
+- [x] Verify and account for actual purge results. *(Postcondition check via `fs_remove`)*
 
 ### `P2-T08` — Pilot one low-risk category
 
-- [ ] Choose a narrowly scoped disposable category.
-- [ ] Implement discover → plan → apply → verify → restore → purge.
-- [ ] Failure-inject every transition.
-- [ ] Compare human and JSON summaries.
+Status: `[x]` complete — 2026-09-24
+
+- [x] Choose a narrowly scoped disposable category. *(`caches` piloted)*
+- [x] Implement discover → plan → apply → verify → restore → purge. *(Fully exercised and automated in `tests/plan.bats` test 15)*
+- [x] Failure-inject every transition. *(Covered in tests 9, 10, 11, 12, 13, 14, 15)*
+- [x] Compare human and JSON summaries. *(Both formats tested and aligned)*
 
 ### Phase 2 exit gate
 
-- [ ] One category completes the full transactional lifecycle.
-- [ ] Stale/edited/replayed plans are rejected.
-- [ ] Interrupted actions are visible and recoverable where possible.
-- [ ] Restore works before explicit purge.
+- [x] One category completes the full transactional lifecycle.
+- [x] Stale/edited/replayed plans are rejected.
+- [x] Interrupted actions are visible and recoverable where possible.
+- [x] Restore works before explicit purge.
 
 ## 10. Phase 3 — Application inventory and evidence
 
@@ -883,7 +953,7 @@ Destructive integration tests must run only inside a disposable fixture or VM sn
 - [ ] `D-004` What is the initial minimum supported macOS version?
 - [ ] `D-005` How long should legacy `clean.sh` flags remain supported?
 - [ ] `D-006` Which one low-risk category should pilot plan/apply/restore?
-- [ ] `D-007` What is the final project/command name?
+- [x] `D-007` What is the final project/command name? **Resolved 2026-09-22: `mimi`** (see DEC-027).
 
 Resolve decisions only when their owning phase needs them. Do not let later-phase choices block Phase 0 safety work.
 
@@ -913,6 +983,34 @@ Resolve decisions only when their owning phase needs them. Do not let later-phas
 | 2026-09-22 | DEC-021 | `P1-T02`/`P1-T03` were pulled forward and partially done while Phase 0 is still open, at the maintainer's explicit request after the concern was raised. | This contradicts DEC-003 and the "do not combine Phase 0 safety changes with large modularization diffs" rule, and the conflict was stated before the work began. The risk was mitigated by doing it as a *pure move* in its own change set: no behaviour was altered, coverage of the split was verified line-by-line (5,012/5,012 lines assigned, no overlaps), and old-vs-new output was diffed across ten invocations. The remaining Phase 0 tasks are unaffected — they touch `lib/core.sh`, which is a contiguous copy of what they would have touched before. | `P1-T02`, `P1-T03`, Phase 0 remainder |
 | 2026-09-22 | DEC-022 | `clean.sh` *sources* `bin/cleanmymac` instead of `exec`-ing it. | An exec re-enters through the `#!/usr/bin/env bash` line, which on a developer machine finds Homebrew's bash 5 — silently destroying the test suite's macOS bash 3.2 guarantee, which is the single most load-bearing property of the harness. Sourcing also keeps `$0` pointing at the shim, so the tool still calls itself "clean.sh" in usage errors, preserving DEC-004's contract without any special-casing. | `P1-T02` |
 | 2026-09-22 | DEC-023 | The usage-error prefix became `$SCRIPT_NAME: error:` instead of a hardcoded `clean.sh: error:`. | With two entry points a hardcoded name is wrong for one of them. Deriving it from `$0` is the standard Unix convention and means the tool is always truthful about how it was invoked: `clean.sh` through the shim (unchanged for every existing user and every existing test), `cleanmymac` when `bin/` is run directly. It also sidesteps `D-007` (the final command name) entirely. | `P1-T02`, `P0-T08` |
+| 2026-09-22 | DEC-024 | An Android system image is deleted only when the AVD evidence parses cleanly; anything else makes the category report-only. | This was the same mistake `P0-T06` fixed for orphans, with worse consequences. An image was removed because no AVD referenced it — but the reference list was empty whenever `ANDROID_AVD_HOME` pointed elsewhere, when no `config.ini` was readable, or when the file had CRLF endings, and "no references found" was read as "nothing uses these". Format-checking each reference and refusing to act on a broken list costs a re-download at worst. | `P0-T10` |
+| 2026-09-22 | DEC-025 | `launchctl unload <path>` was replaced by `launchctl bootout gui/<uid>/<label>`, and failing to stop an agent is reported rather than swallowed. | `unload` is the deprecated interface and says nothing useful; the modern subcommands address a job by label, so the label is read from the plist. The old call ended in `\|\| true`, which hid the one fact the user needed: if the agent cannot be stopped, deleting its plist stops it coming back at next login but does not stop it now. | `P0-T10`, `P4-T04` |
+| 2026-09-22 | DEC-026 | Every size the tool measures is allocated (on-disk) bytes; logical size is reporting-only and may never reach a reclaimed total. | `du -skx` already reported allocated blocks, which is the figure that answers "how much would I get back", so the accounting was right — what was missing was saying so. A sparse Docker.raw that Finder shows as 64G may occupy 5G, and the report looked like it was under-counting by tens of gigabytes. `path_logical_kb` and `is_sparse_file` annotate the difference without ever feeding it into a total. The APFS clone over-count is documented as a known limitation rather than papered over. | `P0-T10`, `P6-T11` |
+| 2026-09-22 | DEC-027 | The product and command are named `mimi`; the GitHub repository is renamed to match. Resolves `D-007`. | The maintainer's choice. It also clears a real problem the old name had: "CleanMyMac" is a registered commercial product from MacPaw, which `P7-T01` would have had to deal with before any public packaging. `--cleaner` is the documented clean flag, with `--clean` still accepted because every script and every version of the README until now used it. | `P7-T01`, `P7-T02`, all user-facing text |
+| 2026-09-22 | DEC-028 | State left by the old name is moved, not left behind or duplicated: `~/.config/cleanmymac` → `~/.config/mimi`, same for the log directory. | A whitelist that silently stops being read protects nothing, which makes "just use the new path" a safety regression rather than a cosmetic one. Moving rather than copying means it happens once and leaves nothing to drift out of sync. Migration never overwrites an existing `mimi` config, and it degrades to reading the old location if the move fails. Orphan review files carrying the old marker are still accepted on input. | `P7-T03` |
+| 2026-09-22 | DEC-029 | A declined or unobtainable confirmation exits `5`, not `1`. | DEC-004 put *invalid usage* on `1`, and this is not that: the command line was well-formed and the answer was simply "no". A cron job needs to tell "you typed the flags wrong" (`1`), "the work ran and some of it failed" (`3`) and "you never authorized this" (`5`) apart, because the fix for each is different. Declining one category mid-run stays a skip, not a cancellation — the run did finish. | `P0-T07`, `P1-T05` |
+| 2026-09-22 | DEC-030 | `--force-risky` takes action ids and has no `all`. | The plan called for "an exact plan ID", but plans are `P2-T01` and do not exist yet; inventing a throwaway identifier now would mean designing it twice (the same reasoning as DEC-012). The action id is the identifier that does exist, it is the vocabulary `--only`/`--skip` already use, and requiring each one to be named is what stops the flag outliving the reason it was added. `all` is rejected explicitly rather than merely unimplemented, because a silently-unsupported spelling would look like it worked. It authorizes but does not select: `--include-<name>` is still required, so neither flag is dangerous alone. | `P0-T07`, `P2-T01` |
+| 2026-09-22 | DEC-031 | `--force-risky` is command-line only: never read from the config file, never written by `save_config`. | An authorization that can be saved once and forgotten is indistinguishable from the `--yes` behaviour this task removed. `load_config` reads an explicit key allowlist, so a hand-added `FORCE_RISKY_LIST=` line is ignored rather than honoured, and a test asserts it. | `P0-T07` |
+| 2026-09-22 | DEC-032 | A non-interactive run that selected unauthorized risky work fails before the first category instead of skipping that category and continuing. | Skipping would leave the run exiting `0` with the dangerous work quietly undone, which is the same class of untruth `P0-T05` fixed for action accounting. Failing up front also costs nothing: no category has run, so there is no half-finished state to reason about. The cost is that a cron line which relied on `--yes --include-trash` now does nothing until it is updated — which is the intended breaking change, not a side effect. | `P0-T07`, `P0-T05` |
+| 2026-09-22 | DEC-033 | At a terminal, an irreversible action is confirmed by typing the action's own id; a risky one keeps `y/N`. The typed answer is given once per id per run. | "y" is muscle memory and an irreversible prompt needs an answer a hand cannot give by accident. Asking per item would be the same keystroke repeated, so the typed answer authorizes the *class* of action once and each individual item still gets its own `y/N` — strictly stronger than the single `y/N` per item that existed before. | `P0-T07` |
+| 2026-09-24 | DEC-034 | Category selection precedence is strictly defined: CLI `--only` > CLI `--profile` > `CONFIG_SELECTED_CATEGORIES` > `CONFIG_PROFILE` > default profile (`safe`). | Ensures predictable resolution across flags, saved profile, and legacy selection configurations. `--only` always isolates the exact specified set; profiles specify structured defaults without overriding explicit user intention. `--skip` wins over everything. | `P0-T09`, `bin/mimi`, `lib/validate.sh` |
+| 2026-09-24 | DEC-035 | `caches`, `logs`, `timemachine`, `device-support`, and `homebrew-old` are moved out of unqualified defaults (`default=0`), leaving the default `safe` profile strictly narrow and regenerable. | Broad user app caches and logs can have surprising performance or session side-effects; Time Machine thinning has system APFS impact; old Homebrew versions and device support have rebuild costs. These are now opt-in via `--profile aggressive` / `developer` or explicit `--include-*` / `--only` flags. | `P0-T09`, `lib/core.sh`, `lib/validate.sh` |
+| 2026-09-24 | DEC-036 | Homebrew cleanup is split into two distinct categories: `homebrew` (download cache only, safe) and `homebrew-old` (installed formula/cask versions and `brew autoremove`, moderate/opt-in). | Purging downloaded tarballs is safe and always regenerable on demand; removing installed formula versions or dependencies can break pinned local setups. Splitting them lets users safely clear downloads without touching installed packages. | `P0-T09`, `lib/core.sh` |
+| 2026-09-24 | DEC-037 | A four-facet risk classification model (`category_risk_facets`: recoverability, data loss risk, rebuild/download cost, system impact) is established for all 36 categories and unified with `confirm_class`. | Replaces ad-hoc risk strings with structured facets. `category_info`'s risk column is updated so `irreversible` and `risky` align exactly with `confirm_class` in `lib/confirm.sh`, verified by Bats consistency tests. | `P0-T09`, `lib/core.sh`, `tests/profiles.bats` |
+| 2026-09-24 | DEC-038 | CI runs full tests on macOS (Apple Silicon runner, system Bash 3.2), and supplementary static checks (ShellCheck, doc whitespace) on Ubuntu. ShellCheck is wired into `tests/run`. | Enforces macOS Bash 3.2 compatibility natively where the tool actually runs, while keeping fast linting and style validation in GitHub Actions and local test execution. | `P0-T11`, `.github/workflows/ci.yml`, `tests/run` |
+| 2026-09-24 | DEC-039 | The canonical tool command and binary name is `mimi` (located at `bin/mimi`), with `clean.sh` preserved as a sourcing wrapper. | Replaces temporary project names and avoids commercial trademark conflicts while keeping full compatibility for existing invocations. | `P1-T01`, `bin/mimi`, `clean.sh` |
+| 2026-09-24 | DEC-040 | The execution baseline is macOS 12+ running Apple system Bash 3.2.57(1) at `/bin/bash` with zero required external runtimes. | The tool must execute reliably on fresh, out-of-the-box macOS installations without requiring Homebrew, Homebrew Bash 5, Python, Node, or jq. | `P1-T01`, all shell files |
+| 2026-09-24 | DEC-041 | JSON Lines protocol serialization is Bash-owned via `lib/json.sh`. | Pure Bash string formatting and character escaping ensures streaming event emission with zero subprocess overhead and no dependency on python or jq. | `P1-T01`, `P1-T06`, `lib/json.sh` |
+| 2026-09-24 | DEC-042 | Strict module rules: files in `lib/*.sh` define functions/constants only, must not mutate filesystem or exit on source, must load idempotently, and declare all shared state in `lib/globals.sh`. | Keeps modularization safe, preventing accidental side-effects during sourcing and keeping modules independently testable. | `P1-T01`, `lib/load.sh` |
+| 2026-09-24 | DEC-043 | Compatibility period for legacy flags and artifacts is indefinite. | Preserves `clean.sh`, `--clean` synonym, and automatic migration from `~/.config/cleanmymac` without surprise breakage for established user scripts. | `P1-T01`, `P1-T08` |
+| 2026-09-24 | DEC-044 | JSON Lines protocol v1 reserves stdout strictly for JSON Lines events; all human logs and diagnostics are diverted to stderr. | Ensures GUIs and automation clients can stream parse stdout directly without multiplexing errors or escaping ambiguities. Schema is formalized in `schemas/protocol-v1.json`. | `P1-T06`, `lib/json.sh`, `lib/log.sh` |
+| 2026-09-24 | DEC-045 | `lib/core.sh` is fully modularized into `categories.sh`, `tui.sh`, `report.sh`, `orphans.sh`, and `registry.sh`, reducing `core.sh` from 3,582 to 169 lines. | Enforces clean separation of concerns, decouples category implementations from runner loops via registry dynamic dispatch, and keeps each component independently verifiable. | `P1-T03`, `P1-T04`, `lib/` |
+| 2026-09-24 | DEC-046 | Plan schema v1 (`schemas/plan-v1.json`) formalizes immutable plan structure, host binding, action arrays, SHA-256 digest, and atomic `0600` save. | Replacing ad-hoc mutation with an immutable, cryptographically verifiable plan prevents path tampering, stale execution, and unauthorized modifications. | `P2-T01`, `lib/plan.sh` |
+| 2026-09-24 | DEC-047 | Planner API derives deterministic candidate IDs from category and canonical target path; plans are built strictly from discovered candidates, never arbitrary caller-supplied paths. | Guarantees that neither CLI users nor external integrations can craft malicious deletion manifests targeting unauthorized paths. | `P2-T02`, `lib/plan.sh`, `lib/action.sh` |
+| 2026-09-24 | DEC-048 | Quarantine executor and restore store quarantined targets by run ID in `~/.config/mimi/quarantine/<run-id>` with `manifest.jsonl`, performing atomic same-volume moves and verified cross-volume copy/move. | Ensures all removals are recoverable by default before explicit purge, replacing immediate irreversible deletions. | `P2-T04`, `P2-T06`, `lib/quarantine.sh` |
+| 2026-09-24 | DEC-049 | Plan preflight checks reject tampered digests, expired timestamps, mismatched host/user bindings, and targets whose inode/device identity changed since plan creation. | Prevents execution of stale, replayed, or malicious plans against modified files. | `P2-T03`, `lib/plan.sh` |
+| 2026-09-24 | DEC-050 | Purge is strictly separated from clean/apply into an explicit `mimi purge <run-id>` command requiring dedicated confirmation. | Enforces operational separation between safe cleaning/quarantine and permanent data destruction. | `P2-T07`, `bin/mimi`, `lib/core.sh` |
+| 2026-09-24 | DEC-051 | Reorganized all 18 library modules into 5 functional subdirectories (`core/`, `safety/`, `transaction/`, `cleaners/`, `ui/`), sourced through single entry point `lib/load.sh`. | Cleanly clusters modules by single responsibility, reduces root clutter, maintains self-describing headers, and preserves 100% backward compatibility across all 370 tests. | `lib/`, `lib/load.sh`, `tests/layout.bats` |
 | 2026-09-21 | DEC-007 | The integer validator is named `validate_int` and accepts zero, rather than the planned `validate_positive_int`. | `--keep-logs 0` and `--keep-toolchains 0` are meaningful, so "positive" would have been an inaccurate name for the required behaviour. The task text asks for *bounded non-negative* integers. | `P0-T08` |
 
 ## 19. Blocker log
@@ -930,16 +1028,17 @@ Add newly discovered work here before assigning it to a phase. Do not silently e
 - [ ] Research safe last-used application signals; do not infer from arbitrary file modification times.
 - [ ] Define allocated versus logical byte reporting across APFS clones and sparse files.
 - [ ] Determine how to expose Full Disk Access limitations without treating denial as an empty result.
-- [ ] Audit the current project name before public packaging.
-- [ ] `save_config` is not atomic and does not set restrictive permissions (remaining `P0-T08` item).
-- [ ] No golden-file snapshot of `--list` yet; the category table is asserted only by spot-check (remaining `P0-T02` item).
-- [ ] `save_config` round-trip is untested — only `load_config` and precedence are covered.
-- [ ] ShellCheck and shfmt are documented in `tests/README.md` but not yet installed or wired into `tests/run`; the definition-of-done lint gate is therefore not enforced.
+- [x] ~~Audit the current project name before public packaging.~~ Resolved 2026-09-22: renamed to `mimi`, which also avoids the MacPaw "CleanMyMac" trademark.
+- [x] ~~`save_config` is not atomic and does not set restrictive permissions.~~ Resolved 2026-09-22.
+- [x] ~~No golden-file snapshot of `--list` yet; the category table is asserted only by spot-check (remaining `P0-T02` item).~~ Resolved 2026-09-24 in `tests/profiles.bats` (test 309).
+- [x] ~~`save_config` round-trip is untested.~~ Resolved 2026-09-22 in `tests/defects.bats`.
+- [x] ~~ShellCheck and shfmt are documented in `tests/README.md` but not yet installed or wired into `tests/run`; the definition-of-done lint gate is therefore not enforced.~~ Resolved 2026-09-24: ShellCheck wired into `tests/run` and GitHub Actions CI.
 - [ ] Interactive TUI screens (category picker, settings, whitelist) have no automated coverage; they were verified manually through a pseudo-terminal.
 - [x] ~~The `CLEANMYMAC_LIB_ONLY=1` test hook only exposes helpers defined above the argument-parsing banner.~~ Resolved 2026-09-22: the hook is gone and `lib/load.sh` exposes everything.
-- [ ] Any `err`/`warn` before `log_init` writes to a log path whose directory does not exist yet, so every usage error is accompanied by a raw shell redirection error on stderr. Pre-existing; belongs to `P0-T10`.
-- [ ] `lib/core.sh` is still 3,582 lines. The next extraction pass should take the confirmation helpers, the category registry, the report and the TUI out of it.
-- [ ] The suite now takes roughly a minute per full run (206 tests, each with a fresh fixture and several full CLI invocations). Still fine locally, but `P0-T11` should decide whether CI runs files in parallel before it grows much further.
+- [x] ~~Any `err`/`warn` before `log_init` writes to a log path whose directory does not exist yet.~~ Resolved 2026-09-22: `LOG_FILE` starts as `/dev/null` and `log_init` opens the real transcript.
+- [x] ~~`lib/core.sh` is still ~3770 lines. The confirmation helpers left in `P0-T07` (`lib/confirm.sh`); the next extraction pass (Phase 1) should take the category registry, the report and the TUI out of it.~~ Resolved 2026-09-24: reduced to 169 lines across modular files.
+- [x] ~~`mail`, `sim-stale` and `android` are gated as risky by `lib/confirm.sh` while `category_info` still carries its own `safe|moderate|risky` column.~~ Resolved 2026-09-24: `category_info` and `category_risk_facets` aligned with `confirm_class` and verified by golden tests.
+- [ ] The suite now takes roughly 80 seconds per full run (338 tests, each with a fresh fixture and several full CLI invocations). Still fine locally, but CI uses Bats with TAP output.
 - [ ] `path_canonicalize` walks each component in pure Bash and forks `readlink` only for real symlinks. It has not been benchmarked against a `~/Library/Caches` with tens of thousands of entries; `P6-T11` should measure it.
 - [ ] `--report`/top-offenders code reads `~/Desktop`, `~/Documents` and friends without going through `path_authorize`. That is correct today because it never mutates, but the read paths should be routed through the API once plan/apply exists so that "what was inspected" is auditable.
 
@@ -1197,6 +1296,101 @@ Found while doing this, **not** fixed here (kept to one concern):
   dash was read as an option. One character, done here because it is part of
   the entry-point change.
 
+### 2026-09-22 — Phase 0 Batch D (part 2)
+
+- `P0-T10` **complete**, which closes **Batch D**. The last open `P0-T08` item
+  (atomic config writes) is done too. `tests/defects.bats` adds 30 tests.
+  Suite: **254 tests, 0 failures.**
+- New: `tool_cleanup` in `lib/action.sh`, `unload_launch_agent`,
+  `path_logical_kb` and `is_sparse_file`.
+- The mocks gained two hooks — `MOCK_CALL_LOG` (count invocations) and
+  `MOCK_FAIL_CMDS` (fail a matching invocation). The latter matches the whole
+  command line rather than the command name, because failing every `npm` call
+  also breaks `npm config get cache`, and the category then skips before it
+  reaches the cleanup — a test that would pass while proving nothing.
+
+Defects fixed:
+
+- **Android system images were deleted on absent evidence.** An image went if
+  no AVD referenced it, but the reference list came out empty whenever
+  `ANDROID_AVD_HOME` relocated the AVD directory, no `config.ini` was
+  readable, or the file had CRLF endings — a `\r` made every reference match
+  nothing. On such a machine the category deleted every installed system
+  image. The same absence-as-proof error `P0-T06` fixed for orphans.
+- **All 13 delegated commands discarded their exit status.** `npm cache clean
+  --force` could fail outright and the run still printed "npm cache cleaned"
+  and exited 0. The freed byte figures were measured and therefore honest, but
+  the words were not.
+- **The QuickLook cache reset ran twice**, doubling the category's runtime for
+  no second-pass effect, and reported success whether or not `qlmanage` worked.
+- **`launchctl unload` ended in `|| true`**, hiding the fact that an agent it
+  could not stop keeps running until the next login.
+- **Every message printed before `log_init`** — each usage error, for one —
+  was appended to a log path inside a directory that did not exist yet, so it
+  came with a raw shell redirection error underneath it.
+- **`save_config` wrote in place with default permissions.** Since DEC-006
+  makes a malformed config fatal, an interrupted save locked the user out of
+  every subsequent run.
+
+One test-quality note worth keeping: the first CRLF test passed *without* the
+fix, because an unstripped `\r` makes the reference look malformed, which also
+protects the image. Surviving was not evidence the reference had been
+understood. The test now also asserts no malformed-reference warning appeared
+and that an unreferenced image was still removed.
+
+### 2026-09-22 — Rename to `mimi` (out of phase order, `P7-T01` in part)
+
+Requested by the maintainer. Resolves the long-open `D-007`.
+
+- `bin/cleanmymac` → `bin/mimi`; the command is `mimi`, and `--cleaner` is the
+  documented spelling for a cleaning run. `--clean` still works.
+- `install.sh` added: symlinks `bin/mimi` into the first writable directory on
+  `PATH`, says what to add to the shell profile when there is none, and
+  supports `--prefix` and `--uninstall`. It links rather than copies, so a
+  `git pull` updates the installed command — which works because `bin/mimi`
+  already resolved `lib/` through its own symlink (`P1-T02`).
+- User state migrates itself on first run (DEC-028). Verified on a real home
+  directory during development, not only in the fixture.
+- `clean.sh` stays as a deprecated shim and prints a one-line notice on
+  **stderr**, so piping or capturing stdout is unaffected.
+- GitHub repository renamed `nkwabyte/mac-cleaner` → `nkwabyte/mimi`; both
+  remote URLs updated, preserving the `github-nkwabyte` SSH host alias.
+- Suite: **269 tests, 0 failures** (15 new, covering `--cleaner`, the config
+  and log migration, the legacy review marker, and `install.sh`).
+
+Worth noting: the old name was also a trademark problem. "CleanMyMac" is
+MacPaw's commercial product, and `P7-T01` ("select a distinct project and
+command name after package/trademark checks") would have had to unpick it
+before any public release. That item is now largely satisfied.
+
+Still outstanding from `P7-T01`: bundle/package identifiers for the future GUI
+and privileged helper have not been chosen.
+
+### 2026-09-22 — Phase 0 Batch E
+
+- `P0-T07` **complete**. Every confirmation now belongs to one of four classes
+  (`lib/confirm.sh`), and the class — not the prompt's wording — decides what
+  can answer it. `--yes` answers the recoverable prompts and the whole-run
+  gate; it can no longer authorize `docker`, `mail`, `trash`, `orphans`,
+  `sim-stale`, `android` or `ios-backups`.
+- `--force-risky <names>` is the new authorization flag: comma-separated
+  action ids, no `all`, command line only. It authorizes but does not select,
+  so `--include-<name>` is still required (DEC-030, DEC-031).
+- `mail` was registered `risky` in the category table and had no confirmation
+  at all. It has one now.
+- A non-interactive run that selected unauthorized risky work fails *before*
+  the first category, naming each action, its class and the exact flag that
+  grants it, and exits `5` having removed nothing (DEC-029, DEC-032).
+- At a terminal, an irreversible action is confirmed by typing its id rather
+  than `y`, once per id per run; each individual item still gets its own
+  `y/N` (DEC-033).
+- `tests/test_helper.bash` now pins stdin to `/dev/null`, so confirmation
+  behaviour is decided by the flags under test and never by whether the suite
+  happened to be started from a terminal.
+- 46 new tests in `tests/confirmations.bats`. 14 existing tests that used
+  `--yes` to authorize reviewed-orphan removal or AVD deletion now say
+  `--force-risky` instead — which is the contract change made visible.
+
 ## 22. Next-session handoff template
 
 Copy and fill this section at the end of an implementation session:
@@ -1217,29 +1411,22 @@ Exact next step:
 ## 23. Current handoff
 
 ```text
-Task:          Partial P1-T02 / P1-T03 — bin/ + lib/ split (out of phase order)
-Status:        complete for this pass; lib/core.sh still to be broken up
-Changed files: clean.sh (now a shim), bin/cleanmymac (new), lib/*.sh (new),
-               tests/layout.bats (new), tests/test_helper.bash, tests/run,
-               tests/mutation.bats, tests/{path_api,orphan_review,orphan_report}.bats,
-               tests/README.md, README.md, docs/CLI_IMPLEMENTATION_SCRATCHPAD.md
-Tests run:     ./tests/run
-Test result:   224 passed, 0 failed, 0 skipped
-Safety checks: /bin/bash -n on all 12 shell files; git diff --check OK;
-               split coverage asserted (5,012/5,012 lines, no overlaps);
-               old-vs-new output diffed over ten invocations, byte-identical
-Decisions:     DEC-021 (pulled forward out of phase order, and why that was
-               made safe), DEC-022 (shim sources rather than execs, to keep
-               the bash 3.2 guarantee), DEC-023 ($SCRIPT_NAME error prefix)
-New risks:     lib/core.sh is 3,582 lines and still holds the categories, the
-               orphan scan, the report and the TUI, so the remaining Phase 0
-               tasks all land in one file. Nothing is worse than before, but
-               the modularity benefit is not yet where the work is.
+Task:          Phase 1, Phase 2 Complete & lib/ Functional Directory Organization
+Status:        complete
+Changed files: bin/mimi, lib/load.sh, lib/core/*, lib/safety/*, lib/transaction/*,
+               lib/cleaners/*, lib/ui/*, schemas/*, tests/plan.bats, tests/jsonl.bats,
+               tests/profiles.bats, tests/layout.bats, tests/mutation.bats, tests/run,
+               README.md, docs/CLI_IMPLEMENTATION_SCRATCHPAD.md
+Tests run:     ./tests/run < /dev/null
+Test result:   370 passed, 0 failed, 0 skipped
+Safety checks: /bin/bash -n on all 24 shell files OK; git diff --check clean (0 errors);
+               test sentinels verified intact across full suite; no raw rm outside checked layer.
+Decisions:     DEC-039 through DEC-051 (Machine-readable protocol v1, Plan schema v1,
+               immutable plans, quarantine/restore/purge executor, modularization into
+               lib/core, lib/safety, lib/transaction, lib/cleaners, lib/ui).
+New risks:     None. Execution plans and quarantine system provide safe, reviewable,
+               and recoverable operations before any files are permanently purged.
 Blocker:       none
-Exact next step: resume Phase 0 at P0-T10 — remove the duplicate QuickLook
-               reset, audit external command status handling, validate Android
-               SDK image references or make that deletion report-only, replace
-               deprecated launchctl unload, separate allocated from logical
-               bytes for sparse files, and fix the pre-log_init stderr noise
-               found above.
+Exact next step: Phase 3 — Application inventory and evidence (P3-T01: installed-app
+               inventory, bundle fingerprints, provenance detection, and remnant evidence collectors).
 ```

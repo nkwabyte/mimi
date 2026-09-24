@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# test_helper.bash — shared harness for clean.sh bats tests
+# test_helper.bash — shared harness for the mimi bats tests
 #
 # Sourced by every .bats file via:
 #   load 'test_helper'
@@ -8,7 +8,7 @@
 # What this does
 # --------------
 # 1. Creates a completely isolated fake-home directory under $BATS_TMPDIR
-#    for each test. HOME, TMPDIR, and all clean.sh library paths are
+#    for each test. HOME, TMPDIR, and all mimi library paths are
 #    redirected there so no test can touch the real home.
 # 2. Plants sentinel files *above* and *beside* the fixture root. Teardown
 #    fails the test if any sentinel is missing or modified.
@@ -26,12 +26,12 @@
 # Absolute path to the repository root (two levels up from this file).
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # The documented entry point: the root shim. run_clean drives this rather than
-# bin/cleanmymac directly, so the compatibility path is what the whole suite
+# bin/mimi directly, so the compatibility path is what the whole suite
 # exercises — including the program calling itself "clean.sh" in its messages.
 CLEAN_SH="$REPO_ROOT/clean.sh"
 # The canonical entry point and the library, for the tests that address them.
-CLEANMYMAC_BIN="$REPO_ROOT/bin/cleanmymac"
-CLEANMYMAC_LIB="$REPO_ROOT/lib"
+MIMI_BIN="$REPO_ROOT/bin/mimi"
+MIMI_LIB="$REPO_ROOT/lib"
 MOCKS_BIN="$REPO_ROOT/tests/mocks/bin"
 
 # ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ MOCKS_BIN="$REPO_ROOT/tests/mocks/bin"
 
 setup() {
   # Create a fresh disposable root for this test. bats sets BATS_TMPDIR.
-  TEST_TMPDIR="$(mktemp -d "${BATS_TMPDIR:-/tmp}/cleanmymac-test-XXXXXX")"
+  TEST_TMPDIR="$(mktemp -d "${BATS_TMPDIR:-/tmp}/mimi-test-XXXXXX")"
 
   # Sentinel files planted *outside* the fixture root.
   # Teardown asserts these are untouched.
@@ -51,7 +51,7 @@ setup() {
   SENTINEL_PARENT_HASH="$(cksum "$SENTINEL_PARENT" | awk '{print $1}')"
   SENTINEL_SIBLING_HASH="$(cksum "$SENTINEL_SIBLING" | awk '{print $1}')"
 
-  # Build a fake home directory tree that mirrors what clean.sh expects.
+  # Build a fake home directory tree that mirrors what mimi expects.
   FAKE_HOME="$TEST_TMPDIR/home"
   mkdir -p \
     "$FAKE_HOME/Library/Caches" \
@@ -66,14 +66,14 @@ setup() {
     "$FAKE_HOME/Library/Developer/Xcode/DerivedData" \
     "$FAKE_HOME/Library/Developer/CoreSimulator/Caches" \
     "$FAKE_HOME/Library/Developer/CoreSimulator/Devices" \
-    "$FAKE_HOME/.config/cleanmymac" \
+    "$FAKE_HOME/.config/mimi" \
     "$FAKE_HOME/.Trash"
 
   # Sentinel *inside* the fixture — must still be present after a scan.
   SENTINEL_FIXTURE="$FAKE_HOME/.sentinel-fixture-$$"
   printf 'sentinel-fixture\n' > "$SENTINEL_FIXTURE"
 
-  # Override HOME so clean.sh writes only inside the fixture.
+  # Override HOME so mimi writes only inside the fixture.
   export HOME="$FAKE_HOME"
   # Override TMPDIR so any tmp-category work stays sandboxed.
   export TMPDIR="$TEST_TMPDIR/tmp"
@@ -83,7 +83,7 @@ setup() {
   export PATH="$MOCKS_BIN:$PATH"
 
   # Silence interactive-mode auto-detection: tests always run non-interactively.
-  # clean.sh checks [ -t 0 ] && [ -t 1 ]; stdin/stdout are not a tty in bats.
+  # mimi checks [ -t 0 ] && [ -t 1 ]; stdin/stdout are not a tty in bats.
 }
 
 # ---------------------------------------------------------------------------
@@ -156,22 +156,26 @@ teardown() {
 # Run the tool through the documented ./clean.sh entry point, with the fake
 # home already in the environment. /bin/bash is explicit so a newer Homebrew
 # bash on PATH cannot mask a 3.2 incompatibility — which is also why the shim
-# sources bin/cleanmymac instead of exec'ing it.
+# sources bin/mimi instead of exec'ing it.
+#
+# stdin is pinned to /dev/null so that confirmation behaviour is decided by
+# the flags under test and never by whether the suite happens to have been
+# started from a terminal. A run that reaches a prompt must fail, not block.
 # Usage: run_clean [args...]
 run_clean() {
-  run /bin/bash "$CLEAN_SH" "$@"
+  run /bin/bash "$CLEAN_SH" "$@" < /dev/null
 }
 
 # Run the canonical entry point directly, bypassing the shim.
-run_cleanmymac() {
-  run /bin/bash "$CLEANMYMAC_BIN" "$@"
+run_mimi() {
+  run /bin/bash "$MIMI_BIN" "$@" < /dev/null
 }
 
 # Load the function library into the current shell so a helper can be called
-# directly. Replaces the CLEANMYMAC_LIB_ONLY hook the single-file layout needed.
+# directly. Replaces the MIMI_LIB_ONLY hook the single-file layout needed.
 load_lib() {
   # shellcheck source=/dev/null
-  . "$CLEANMYMAC_LIB/load.sh"
+  . "$MIMI_LIB/load.sh"
 }
 
 # Assert that a fixture path still exists (scan must not delete it).
@@ -189,9 +193,9 @@ assert_fixture_sentinel_intact() {
   assert_fixture_exists "$SENTINEL_FIXTURE"
 }
 
-# Write a minimal config file to $FAKE_HOME/.config/cleanmymac/config.conf
+# Write a minimal config file to $FAKE_HOME/.config/mimi/config.conf
 write_config() {
-  cat > "$FAKE_HOME/.config/cleanmymac/config.conf" <<EOF
+  cat > "$FAKE_HOME/.config/mimi/config.conf" <<EOF
 $*
 EOF
 }
