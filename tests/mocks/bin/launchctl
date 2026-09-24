@@ -1,0 +1,31 @@
+#!/bin/sh
+# Mock: launchctl — stub for launchd agent operations in tests.
+# Real launchctl calls must never run in CI or tests.
+# --- test harness hooks (see tests/README.md) ------------------------------
+# MOCK_CALL_LOG: append every invocation, so a test can count them.
+if [ -n "${MOCK_CALL_LOG:-}" ]; then
+  printf '%s %s\n' "$(basename "$0")" "$*" >> "$MOCK_CALL_LOG"
+fi
+# MOCK_FAIL_CMDS is a |-separated list of glob patterns matched against the
+# whole invocation.
+if [ -n "${MOCK_FAIL_CMDS:-}" ]; then
+  _mock_inv="$(basename "$0") $*"
+  _mock_rest="${MOCK_FAIL_CMDS}|"
+  while [ -n "$_mock_rest" ]; do
+    _mock_pat="${_mock_rest%%|*}"
+    _mock_rest="${_mock_rest#*|}"
+    [ -n "$_mock_pat" ] || continue
+    case "$_mock_inv" in
+      $_mock_pat)
+        echo "$(basename "$0"): mock failure" >&2
+        exit 7
+        ;;
+    esac
+  done
+fi
+# ---------------------------------------------------------------------------
+case "$1" in
+  bootout) exit 1 ;;
+  print)   exit 1 ;;
+  *)       exit 0 ;;
+esac
