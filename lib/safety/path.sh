@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# lib/path.sh — Canonical path and containment API (P0-T03).
+# lib/safety/path.sh lib/path.sh — Canonical path and containment API (P0-T03).
 #
 # Sourced by lib/load.sh; never executed on its own. Defines functions and
 # global state only, so load order matters solely for the few assignments that

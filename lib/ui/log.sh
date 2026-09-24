@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# lib/log.sh — Logging, the run transcript, and the say/info/ok/warn/err family.
+# lib/ui/log.sh lib/log.sh — Logging, the run transcript, and the say/info/ok/warn/err family.
 #
 # Sourced by lib/load.sh; never executed on its own. Defines functions and
 # global state only, so load order matters solely for the few assignments that
@@ -69,6 +69,11 @@ log() {
 }
 
 say() {
+  if [ "${JSONL_ENABLED:-0}" = 1 ]; then
+    printf '%s\n' "$*" >&2
+    printf '%s\n' "$*" >> "$LOG_FILE"
+    return 0
+  fi
   printf '%s\n' "$*"
   printf '%s\n' "$*" >> "$LOG_FILE"
 }

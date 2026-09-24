@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# lib/usage.sh — The --help text.
+# lib/ui/usage.sh lib/usage.sh — The --help text.
 #
 # Sourced by lib/load.sh; never executed on its own. Defines functions and
 # global state only, so load order matters solely for the few assignments that
@@ -11,13 +11,26 @@ usage() {
 mimi — macOS junk cleaner (Xcode/simulator aware)
 
 USAGE:
-  mimi [--scan | --cleaner] [options]
+  mimi [scan | clean | plan | apply | restore | purge] [options]
+  mimi [--scan | --cleaner | --plan] [options]
+
+SUBCOMMANDS:
+  scan [options]          Report reclaimable space only. Deletes nothing.
+  clean [options]         Actually remove junk with confirmation.
+  plan [options]          Generate an immutable execution plan without mutating.
+  apply <plan-file>       Validate and execute a plan using atomic quarantine.
+  restore <run-id>        Restore a previously quarantined run to original paths.
+  purge <run-id>          Permanently remove a quarantined run.
 
 MODES:
-  --scan                 Report reclaimable space only. Deletes nothing. (default)
+  --scan                  Report reclaimable space only. Deletes nothing. (default)
   --cleaner               Actually remove junk. Prompts for confirmation; see
                           CONFIRMATIONS below for what --yes can and cannot
                           answer. --clean is still accepted as a synonym.
+  --plan                  Generate an immutable plan file (synonym for 'plan').
+  --apply <file>          Apply an execution plan (synonym for 'apply').
+  --restore <run-id>      Restore a quarantined run (synonym for 'restore').
+  --purge <run-id>        Permanently purge a quarantine run (synonym for 'purge').
   -i, --interactive       Menu-driven mode: toggle categories, edit the
                           whitelist, tune thresholds, run scan/clean, save
                           your selection as the new default. Also entered
@@ -44,6 +57,10 @@ COMMON OPTIONS:
   -v, --verbose           Print extra detail (paths being inspected/removed).
   --only <list>           Comma-separated category ids to run (see --list).
   --skip <list>           Comma-separated category ids to exclude.
+  --profile <name>        Select preset profile: safe (default, regenerable caches),
+                          developer (safe + dev tools & build artifacts),
+                          aggressive (safe + dev + broad caches/logs/Time Machine),
+                          or 'list' to display profiles.
   --list                  Print all category ids, descriptions, risk level, then exit.
   --report                Print a breakdown of where your disk space actually
                           went — top directories, folders over 1 GB, stale
@@ -163,6 +180,16 @@ OPT-IN (destructive / can remove wanted data — off unless requested):
                           60). Lists every candidate and asks to confirm
                           per AVD (AVDs hold their own app data/snapshots).
   --android-stale-days N    Staleness threshold for --include-android.
+  --include-timemachine     Thin local Time Machine snapshots (moderate risk,
+                          thins local disk purgeable snapshots, not backups).
+  --include-device-support  Prune older iOS DeviceSupport symbol sets (keeps
+                          newest N versions, default 3).
+  --include-homebrew-old    Prune old installed Homebrew formula/cask versions
+                          and remove unused dependencies (`brew autoremove`).
+  --include-caches          Clear all user application caches in ~/Library/Caches/*
+                          (broad sweep, opt-in).
+  --include-logs            Clear all user log files in ~/Library/Logs/*
+                          (broad sweep, opt-in).
 
 WHITELIST (protect paths from being touched):
   --whitelist <items>     Comma-separated entries to exclude. Repeatable.
@@ -181,6 +208,14 @@ WHITELIST (protect paths from being touched):
                                                 cleaning)
                             ml               -> Hugging Face/torch/Ollama/
                                                 LM Studio model caches
+
+AUTOMATION & PROTOCOL:
+  --jsonl, --json         Emit structured JSON Lines events to stdout for machine
+                          integration (protocol v1). Diagnostics go to stderr.
+  --request-id <id>       Correlation ID for protocol v1 events.
+  --no-color              Suppress ANSI color escape codes in terminal output.
+  --no-prompt             Do not prompt interactively; fail with exit 5 if
+                          authorization is missing.
 
   -h, --help              Show this help.
 

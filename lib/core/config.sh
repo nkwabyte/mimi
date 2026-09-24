@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# lib/config.sh — Reading and writing ~/.config/mimi/config.conf.
+# lib/core/config.sh lib/config.sh — Reading and writing ~/.config/mimi/config.conf.
 #
 # Sourced by lib/load.sh; never executed on its own. Defines functions and
 # global state only, so load order matters solely for the few assignments that
@@ -62,6 +62,7 @@ load_config() {
         WHITELIST+=("${_wl[@]}")
         ;;
       SELECTED_CATEGORIES) CONFIG_SELECTED_CATEGORIES="$val" ;;
+      PROFILE) CONFIG_PROFILE="$val" ;;
     esac
   done < "$CONFIG_FILE"
 }
@@ -101,6 +102,9 @@ save_config() {
     printf 'KEEP_LOGS=%s\n' "$KEEP_LOGS"
     printf 'WHITELIST=%s\n' "$wl_joined"
     printf 'SELECTED_CATEGORIES=%s\n' "$sel_joined"
+    if [ -n "$PROFILE" ]; then
+      printf 'PROFILE=%s\n' "$PROFILE"
+    fi
   } > "$tmp"; then
     # Justified raw rm: our own half-written temporary file, which no user
     # action selected and which must not be counted as one.
@@ -118,4 +122,43 @@ save_config() {
 
   ok "settings saved to $CONFIG_FILE"
   return 0
+}
+
+# ---------------------------------------------------------------------------
+# Whitelist presets
+# ---------------------------------------------------------------------------
+
+apply_whitelist_preset() {
+  case "$1" in
+    browsers)
+      WHITELIST+=("$HOME_DIR/Library/Application Support/Google/Chrome")
+      WHITELIST+=("$HOME_DIR/Library/Application Support/Firefox")
+      WHITELIST+=("$HOME_DIR/Library/Application Support/BraveSoftware")
+      WHITELIST+=("$HOME_DIR/Library/Application Support/Microsoft Edge")
+      WHITELIST+=("$HOME_DIR/Library/Application Support/Arc")
+      ;;
+    ml)
+      WHITELIST+=("$HOME_DIR/.cache/huggingface")
+      WHITELIST+=("$HOME_DIR/.cache/torch")
+      WHITELIST+=("$HOME_DIR/.ollama")
+      WHITELIST+=("$HOME_DIR/.lmstudio")
+      ;;
+    xcode-simulator)
+      WHITELIST+=("$HOME_DIR/Library/Developer/CoreSimulator")
+      WHITELIST+=("$HOME_DIR/Library/Developer/Xcode/iOS DeviceSupport")
+      ;;
+    xcode-derived)
+      WHITELIST+=("$HOME_DIR/Library/Developer/Xcode/DerivedData")
+      ;;
+    node)
+      WHITELIST+=("$HOME_DIR/Library/Caches/Yarn")
+      WHITELIST+=("$HOME_DIR/.npm")
+      WHITELIST+=("$HOME_DIR/Library/pnpm")
+      ;;
+    *)
+      printf '%s: error: unknown whitelist preset: %s\n' "$SCRIPT_NAME" "$1" >&2
+      printf '  known presets: xcode-simulator, xcode-derived, node, browsers, ml\n' >&2
+      return 1
+      ;;
+  esac
 }

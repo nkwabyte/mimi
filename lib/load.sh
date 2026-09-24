@@ -14,9 +14,27 @@
 
 _mimi_lib_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" > /dev/null 2>&1 && pwd)"
 
-for _mimi_module in globals log util validate confirm usage config path action core; do
+for _mimi_module in \
+  core/globals.sh \
+  ui/log.sh \
+  core/util.sh \
+  ui/json.sh \
+  transaction/plan.sh \
+  transaction/quarantine.sh \
+  core/validate.sh \
+  safety/confirm.sh \
+  ui/usage.sh \
+  core/config.sh \
+  safety/path.sh \
+  safety/action.sh \
+  cleaners/registry.sh \
+  cleaners/categories.sh \
+  cleaners/orphans.sh \
+  ui/report.sh \
+  ui/tui.sh \
+  core/core.sh; do
   # shellcheck source=/dev/null
-  . "$_mimi_lib_dir/$_mimi_module.sh"
+  . "$_mimi_lib_dir/$_mimi_module"
 done
 
 unset _mimi_module _mimi_lib_dir

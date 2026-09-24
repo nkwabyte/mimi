@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# lib/action.sh — Checked mutation layer (P0-T05) and the two removal primitives.
+# lib/safety/action.sh lib/action.sh — Checked mutation layer (P0-T05) and the two removal primitives.
 #
 # Sourced by lib/load.sh; never executed on its own. Defines functions and
 # global state only, so load order matters solely for the few assignments that
@@ -91,18 +91,21 @@ fs_remove() {
 
 # One place that turns an fs_remove outcome into a message and a count.
 report_action() {
-  local what="$1"
+  local what="$1" bytes="${2:-0}"
   case "$FS_REMOVE_STATUS" in
     ok)
       record_action ok
+      [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "ok" "$what" "$bytes"
       return 0
       ;;
     denied)
       record_action denied
+      [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "denied" "$what" 0
       warn "permission denied, not removed: $what"
       ;;
     *)
       record_action failed
+      [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "failed" "$what" 0
       err "failed to remove: $what"
       ;;
   esac
@@ -225,9 +228,13 @@ clear_dir_contents() {
   local before after entry entry_canon
   before="$(dir_size_kb "$canon")"
 
-  if [ "$MODE" = "scan" ]; then
+  if [ "$MODE" = "scan" ] || [ "$MODE" = "plan" ]; then
     info "would clear contents of: $dir ($(human_kb "$before"))"
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
+    plan_candidate_add "${CURRENT_CATEGORY_ID:-unknown}" "clear_dir_contents" "$canon" "$ident" "$((before * 1024))" "safe" "$dir"
+    local cid
+    cid="$(plan_candidate_id "${CURRENT_CATEGORY_ID:-unknown}" "$canon")"
+    [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_candidate "${CURRENT_CATEGORY_ID:-unknown}" "$canon" "$before" "safe" "$cid"
     return 0
   fi
 
@@ -269,6 +276,7 @@ clear_dir_contents() {
       continue
     fi
     record_action ok
+    [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "ok" "$entry" 0
   done
 
   # Measured, not assumed: whatever is still there was not reclaimed.
@@ -282,6 +290,7 @@ clear_dir_contents() {
     return 1
   fi
   ok "cleared: $dir  (freed $(human_kb "$reclaimed"))"
+  [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "ok" "$dir" "$((reclaimed * 1024))"
   return 0
 }
 
@@ -317,9 +326,13 @@ remove_path() {
   local size
   size="$(dir_size_kb "$canon")"
 
-  if [ "$MODE" = "scan" ]; then
+  if [ "$MODE" = "scan" ] || [ "$MODE" = "plan" ]; then
     info "would remove: $p ($(human_kb "$size"))"
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + size))
+    plan_candidate_add "${CURRENT_CATEGORY_ID:-unknown}" "remove_path" "$canon" "$ident" "$((size * 1024))" "safe" "$p"
+    local cid
+    cid="$(plan_candidate_id "${CURRENT_CATEGORY_ID:-unknown}" "$canon")"
+    [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_candidate "${CURRENT_CATEGORY_ID:-unknown}" "$canon" "$size" "safe" "$cid"
     return 0
   fi
 
@@ -339,10 +352,11 @@ remove_path() {
     reclaimed=$((size - leftover))
     [ "$reclaimed" -lt 0 ] && reclaimed=0
     TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + reclaimed))
-    report_action "$p"
+    report_action "$p" "$reclaimed"
     return 1
   fi
   record_action ok
+  [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "ok" "$canon" "$((size * 1024))"
   TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + size))
   ok "removed: $p  (freed $(human_kb "$size"))"
   return 0

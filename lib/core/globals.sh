@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# lib/globals.sh — Global state: every variable the rest of the tool reads.
+# lib/core/globals.sh lib/globals.sh — Global state: every variable the rest of the tool reads.
 #
 # Sourced by lib/load.sh; never executed on its own. Defines functions and
 # global state only, so load order matters solely for the few assignments that
@@ -35,6 +35,7 @@ ASSUME_YES=0
 FORCE_RISKY_LIST=""
 VERBOSE=0
 AGGRESSIVE=0
+PROFILE=""
 KEEP_DEVICE_SUPPORT=3
 KEEP_SIM_LOGS_DAYS=7
 
@@ -51,6 +52,11 @@ INCLUDE_IDE_STALE=0
 INCLUDE_ML_CACHES=0
 INCLUDE_IOS_BACKUPS=0
 INCLUDE_TOOLCHAINS=0
+INCLUDE_TIMEMACHINE=0
+INCLUDE_DEVICE_SUPPORT=0
+INCLUDE_HOMEBREW_OLD=0
+INCLUDE_CACHES=0
+INCLUDE_LOGS=0
 REPORT_ONLY=0
 NO_LOG=0
 KEEP_LOGS=5
@@ -64,6 +70,12 @@ CONFIG_DIR="$HOME_DIR/.config/mimi"
 LEGACY_CONFIG_DIR="$HOME_DIR/.config/cleanmymac"
 CONFIG_FILE="$CONFIG_DIR/config.conf"
 CONFIG_SELECTED_CATEGORIES=""
+CONFIG_PROFILE=""
+PLANS_DIR="$CONFIG_DIR/plans"
+QUARANTINE_DIR="$CONFIG_DIR/quarantine"
+PLAN_FILE=""
+PLAN_OUT_FILE=""
+RUN_ID=""
 INTERACTIVE=0
 
 INSTALLED_IDS_NORM=()
