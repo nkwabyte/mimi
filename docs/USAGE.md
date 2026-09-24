@@ -42,7 +42,13 @@ actually touches.
 | Root | never. The script does not use `sudo` and refuses to touch system paths |
 | Optional | `brew`, `npm`, `yarn`, `pnpm`, `pip`, `docker`, `xcrun`, `uv`, `go`, `adb` — each category skips itself cleanly if its tool is missing |
 
-Install it once:
+Install via Homebrew:
+
+```bash
+brew install nkwabyte/tap/mimi
+```
+
+Or from a local checkout:
 
 ```bash
 ./install.sh          # symlinks `mimi` onto your PATH

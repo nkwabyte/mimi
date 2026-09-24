@@ -165,6 +165,14 @@ automatically.
 
 ## Install
 
+### Via Homebrew (Recommended)
+
+```bash
+brew install nkwabyte/tap/mimi
+```
+
+### From source
+
 ```bash
 git clone https://github.com/nkwabyte/mimi.git
 cd mimi
