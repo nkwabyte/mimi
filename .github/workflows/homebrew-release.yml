@@ -42,17 +42,17 @@ jobs:
           echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout homebrew-tap
+      - name: Checkout homebrew-mimi
         uses: actions/checkout@v4
         with:
-          repository: nkwabyte/homebrew-tap
+          repository: nkwabyte/homebrew-mimi
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: homebrew-tap
+          path: homebrew-mimi
 
       - name: Update Formula
         run: |
-          mkdir -p homebrew-tap/Formula
-          cat <<EOF > homebrew-tap/Formula/mimi.rb
+          mkdir -p homebrew-mimi/Formula
+          cat <<EOF > homebrew-mimi/Formula/mimi.rb
           class Mimi < Formula
             desc "macOS junk and developer cache cleaner (Xcode/simulator aware)"
             homepage "https://github.com/nkwabyte/mimi"
@@ -71,7 +71,7 @@ jobs:
           EOF
 
       - name: Commit and push changes
-        working-directory: homebrew-tap
+        working-directory: homebrew-mimi
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

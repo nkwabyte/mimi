@@ -45,7 +45,7 @@ actually touches.
 Install via Homebrew:
 
 ```bash
-brew install nkwabyte/tap/mimi
+brew install nkwabyte/mimi
 ```
 
 Or from a local checkout:

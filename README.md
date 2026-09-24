@@ -168,7 +168,7 @@ automatically.
 ### Via Homebrew (Recommended)
 
 ```bash
-brew install nkwabyte/tap/mimi
+brew install nkwabyte/mimi
 ```
 
 ### From source
