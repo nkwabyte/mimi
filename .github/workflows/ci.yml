@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test-macos:
+    name: Tests (macOS Bash 3.2)
+    runs-on: macos-14
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify macOS system bash version
+        run: |
+          /bin/bash --version
+          echo "System bash is at /bin/bash"
+
+      - name: Install bats-core
+        run: |
+          brew install bats-core
+
+      - name: Syntax check
+        run: |
+          for f in clean.sh bin/mimi lib/*.sh lib/*/*.sh; do
+            /bin/bash -n "$f"
+          done
+
+      - name: Run Bats test suite
+        run: |
+          ./tests/run < /dev/null
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-test-failure-logs
+          path: |
+            ${{ runner.temp }}/**/clean-*.log
+          retention-days: 7
+
+  static-checks:
+    name: Static Analysis & Style
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck -x clean.sh bin/mimi
+
+      - name: Check documentation trailing whitespace
+        run: |
+          if git grep -n '[[:blank:]]$' '*.md'; then
+            echo "ERROR: Trailing whitespace detected in documentation files." >&2
+            exit 1
+          fi

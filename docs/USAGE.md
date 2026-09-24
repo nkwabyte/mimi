@@ -1,4 +1,4 @@
-# clean.sh — complete usage reference
+# mimi — complete usage reference
 
 Every flag, category, key binding and config option, with what each one
 actually touches.
@@ -42,10 +42,10 @@ actually touches.
 | Root | never. The script does not use `sudo` and refuses to touch system paths |
 | Optional | `brew`, `npm`, `yarn`, `pnpm`, `pip`, `docker`, `xcrun`, `uv`, `go`, `adb` — each category skips itself cleanly if its tool is missing |
 
-Make it executable once:
+Install it once:
 
 ```bash
-chmod +x clean.sh
+./install.sh          # symlinks `mimi` onto your PATH
 ```
 
 ---
@@ -67,7 +67,7 @@ Affected: `~/Library/Application Support/Google/Chrome`, `.../Firefox`,
    Ghostty, Warp, VS Code…)
 3. **Fully quit and reopen it** — a window reload is not enough
 
-`clean.sh` prints a warning at the top of every run if this is missing, and
+`mimi` prints a warning at the top of every run if this is missing, and
 marks each directory it could not read with `no permission to read:`.
 
 ### Quit the apps you are about to clean
@@ -81,13 +81,13 @@ detects running apps and warns you — it never kills anything.
 ## Quick start
 
 ```bash
-./clean.sh                 # bare invocation from a terminal → interactive menu
-./clean.sh --scan          # report what would be freed, delete nothing
-./clean.sh --clean         # actually clean, asks once to confirm
-./clean.sh --clean --yes   # no prompts at all
-./clean.sh --report        # where did my disk space go? deletes nothing
-./clean.sh --list          # every category id, risk level, default state
-./clean.sh --help          # full flag list
+mimi                 # bare invocation from a terminal → interactive menu
+mimi --scan          # report what would be freed, delete nothing
+mimi --cleaner         # actually clean, asks once to confirm
+mimi --cleaner --yes   # answer the ordinary prompts (not the risky ones)
+mimi --report        # where did my disk space go? deletes nothing
+mimi --list          # every category id, risk level, default state
+mimi --help          # full flag list
 ```
 
 ---
@@ -111,11 +111,13 @@ The estimate is an upper bound. Categories that delegate to another tool
 (`brew cleanup`, `pnpm store prune`, `uv cache prune`) can only report the
 size of the directory, not how much that tool will decide to drop.
 
-### `--clean`
+### `--cleaner`
 
 Does the work. Prompts once before starting unless `--yes` is given, and
-prompts again per item for the genuinely destructive categories
-(`docker`, `ios-backups`, `ml-caches`, `sim-stale`, `android`).
+prompts again for the genuinely destructive categories (`docker`, `mail`,
+`trash`, `orphans`, `sim-stale`, `android`, `ios-backups`, `ml-caches`).
+`--yes` answers only the first kind; see
+[Confirmation classes](#confirmation-classes).
 
 ```
   cleared: ~/Library/Application Support/Notion/Partitions/notion/Service Worker/CacheStorage  (freed 8.4G)
@@ -127,9 +129,41 @@ Free space before: 48G  ->  after: 67G
 
 ---
 
+## Transactional workflow: plan, apply, restore, and purge
+
+For maximum safety and reproducibility, `mimi` provides an immutable plan/apply workflow with automatic quarantine and rollback.
+
+### `mimi plan`
+Discovers cleanup candidates according to your selected categories and writes an immutable, SHA-256 digested execution plan (`schemas/plan-v1.json`) with restricted `0600` permissions. Nothing is deleted or modified.
+```bash
+mimi plan --only caches
+# or specify an exact output file:
+mimi plan --only caches --plan-out ~/Desktop/mimi-plan.json
+```
+
+### `mimi apply <plan-file>`
+Preflights the execution plan (verifying the cryptographic digest, schema version, host/user binding, expiration, and ensuring target file identities have not changed), prompts for approval (or `--yes`), and moves targets into an isolated quarantine store (`~/.config/mimi/quarantine/<run-id>`) with verified postconditions.
+```bash
+mimi apply ~/.config/mimi/plans/plan-20260924-120000-1234.json
+```
+
+### `mimi restore <run-id>`
+Restores a previously quarantined run back to the original filesystem locations, verifying destination availability and file identities.
+```bash
+mimi restore run-20260924-120000-1234
+```
+
+### `mimi purge <run-id>`
+Permanently deletes the quarantine directory for a specified run after explicit confirmation.
+```bash
+mimi purge run-20260924-120000-1234
+```
+
+---
+
 ## Interactive mode
 
-Entered by running `./clean.sh` with **no arguments at all** from a real
+Entered by running `mimi` with **no arguments at all** from a real
 terminal, or explicitly with `-i` / `--interactive`. Any other flag keeps the
 script fully scriptable.
 
@@ -236,12 +270,16 @@ Whitelist  (2 entries)
 
 ## Flag reference
 
-### Modes
+### Subcommands and modes
 
-| Flag | Effect |
+| Subcommand / Mode | Effect |
 |---|---|
-| `--scan` | Report only, delete nothing. **Default.** |
-| `--clean` | Actually delete. Confirms once unless `--yes`. |
+| `scan`, `--scan` | Report reclaimable space only, delete nothing. **Default.** |
+| `clean`, `--cleaner` | Actually delete. Confirms once unless `--yes`. `--clean` is accepted too. |
+| `plan`, `--plan` | Discovers candidates and generates an immutable execution plan (`schemas/plan-v1.json`). |
+| `apply <plan-file>`, `--apply <file>` | Validates plan integrity and moves targets into an isolated quarantine run. |
+| `restore <run-id>`, `--restore <id>` | Restores a previously quarantined run back to original paths. |
+| `purge <run-id>`, `--purge <id>` | Permanently deletes a quarantined run after explicit confirmation. |
 | `--report` | Print a full disk breakdown, then exit. Deletes nothing. |
 | `--list` | Print every category id, risk and default state, then exit. |
 | `-i`, `--interactive` | Force the menu even when other flags are present. |
@@ -251,7 +289,9 @@ Whitelist  (2 entries)
 
 | Flag | Effect |
 |---|---|
-| `-y`, `--yes` | Never prompt. Use with care on opt-in categories. |
+| `-y`, `--yes` | Answer the *recoverable* prompts: the whole-run gate and anything that comes back by itself. It cannot answer a risky or irreversible one. |
+| `--profile <name>` | Select category profile (`safe`, `developer`, `aggressive`, or `list` to print profiles). Precedence: `--only` > `--profile` > `CONFIG_SELECTED_CATEGORIES` > `CONFIG_PROFILE` > `safe`. |
+| `--force-risky <names>` | Authorize risky/irreversible actions by name, for this invocation only: `docker`, `mail`, `trash`, `orphans`, `sim-stale`, `android`, `ios-backups`. No `all`. Never read from or written to the config file. Authorizes but does not select — the matching `--include-<name>` is still required. |
 | `-v`, `--verbose` | Print every path as it is inspected and removed. |
 | `--aggressive` | Prune harder where a category supports it: older Xcode device support, `.xcarchive` builds, extra browser cache dirs, `uv cache clean` instead of `prune`, and `--tmp-stale-days 0`. Still fully whitelist-respecting. |
 | `--only <ids>` | Comma-separated category ids to run — nothing else runs. |
@@ -280,6 +320,11 @@ enough to run that category — you do not also need `--only`.
 
 | Flag | Runs |
 |---|---|
+| `--include-timemachine` | Local Time Machine APFS snapshots (thinning). |
+| `--include-device-support` | Xcode iOS DeviceSupport old OS symbol sets. |
+| `--include-homebrew-old` | Old installed Homebrew formula/cask versions and unused dependencies (`brew autoremove`). |
+| `--include-caches` | Broad user application caches (`~/Library/Caches/*`). |
+| `--include-logs` | Broad user log files (`~/Library/Logs/*`). |
 | `--include-docker-cache` | `docker builder prune -f` + `docker image prune -f` — dangling build cache and untagged images only. This is what actually shrinks `Docker.raw`. |
 | `--include-docker` | `docker system prune -af --volumes` — **all** unused images, containers and volumes. Much more aggressive than the above. |
 | `--include-trash` | Empty `~/.Trash`. Irreversible. |
@@ -305,16 +350,26 @@ enough to run that category — you do not also need `--only`.
 
 | Flag | Effect |
 |---|---|
-| `--remove-orphans-from <file>` | Remove exactly the paths listed in a review file produced by `--include-orphans`. The file must still carry its `# cleanmymac-orphan-review v1` header, `#` comments a line out only in the first column, and each path must resolve to a direct child of a scanned orphan location. Refused lines are reported with a reason code. |
+| `--remove-orphans-from <file>` | Remove exactly the paths listed in a review file produced by `--include-orphans`. The file must still carry its `# mimi-orphan-review v1` header, `#` comments a line out only in the first column, and each path must resolve to a direct child of a scanned orphan location. Refused lines are reported with a reason code. |
+
+### Automation and protocol
+
+| Flag | Effect |
+|---|---|
+| `--jsonl`, `--json` | Emit structured JSON Lines events to stdout for machine integration (protocol v1). Diagnostics go to stderr. |
+| `--request-id <id>` | Correlation ID for protocol v1 events. |
+| `--no-color` | Suppress ANSI color escape codes in terminal output. |
+| `--no-prompt` | Do not prompt interactively; exit `5` immediately if confirmation or authorization is missing. |
 
 ### Exit codes
 
 | Code | Meaning |
 |---|---|
 | `0` | Everything asked for was done, including `--help`, `--list` and `--report` |
-| `1` | Invalid usage, or you declined the confirmation prompt |
+| `1` | Invalid usage |
 | `3` | The run finished, but at least one selected action failed or was refused by the system |
 | `4` | A signal (Ctrl-C, `SIGTERM`) stopped the run before it finished |
+| `5` | A required confirmation was declined, or could not be obtained at all |
 
 `2` is deliberately unused — too many tools read it as "usage", and invalid
 usage here is already `1`.
@@ -342,14 +397,14 @@ than the size taken before the attempt.
 On Ctrl-C the tool does **not** die mid-delete. The signal handler records the
 interruption, the action in progress is allowed to finish, and nothing further
 is started — so a tree is never left half-removed with a total that claims
-otherwise.
+neither state. The run exits 4.
 
 Every invalid-usage message is written to **stderr** with the same prefix, so
 it is easy to grep for in a wrapper script:
 
 ```
-clean.sh: error: --only: unknown category 'cahces' (run './clean.sh --list' to see them all)
-Try './clean.sh --help' for the full list of options.
+mimi: error: --only: unknown category 'cahces' (run 'mimi --list' to see them all)
+Try 'mimi --help' for the full list of options.
 ```
 
 ### What gets rejected
@@ -376,56 +431,57 @@ explains the fix.
 
 ## Category reference
 
-`./clean.sh --list` prints the live list. Risk levels mean:
+`mimi --list` prints the live list. Risk levels mean:
 
 - **safe** — regenerated automatically, nothing is lost but time
 - **moderate** — regenerated, but re-downloading or rebuilding costs real time
 - **risky** — can remove data you actually wanted; always opt-in and confirmed
 
-### On by default
+### On by default (safe profile)
 
 | ID | Risk | What it removes |
 |---|---|---|
 | `browsers` | safe | Chromium-family caches across **every** profile (`Default`, `Profile 1..N`, Guest, System) for Chrome, Chrome Beta/Canary, Chrome for Testing, Chromium, Brave, Brave Beta, Edge, Vivaldi, Opera, Opera GX, Arc, Dia, Yandex, Comet — plus Firefox's startup and shader caches. Details [below](#what-browsers-and-electron-touch). |
 | `electron` | safe | The same Chromium cache layout inside Electron apps — Notion, Slack, VS Code, Postman, Obsidian, Discord, Claude, pgAdmin and anything else with the layout — **including `Partitions/*`**, where the multi-GB `Service Worker/CacheStorage` hides. |
 | `dev-caches` | safe | `uv cache prune`, `go clean -cache`, Trivy, GitHub Copilot, `gh`, gem, giget, Firebase, Playwright, Deno, Bazel, sccache, node-gyp, cargo registry cache, NuGet http caches, SwiftPM, JetBrains, `.dartServer`, `.gradle/.tmp`. |
-| `caches` | safe | Everything under `~/Library/Caches/*`. |
 | `tmp` | safe | `$TMPDIR` (`/private/var/folders/…/T`) and the matching per-user cache dir, for entries older than `--tmp-stale-days`. Anything newer is **reported with its size** but left alone — a running process may be using it. Apple's live IPC dirs are always skipped. |
-| `logs` | safe | `~/Library/Logs/*`. |
 | `diagnostics` | safe | Old crash and diagnostic reports. |
 | `dsstore` | safe | Stray `.DS_Store` files under your home directory. |
 | `quicklook` | safe | QuickLook thumbnail cache (`qlmanage -r cache`). |
 | `xcode-derived` | safe | Xcode `DerivedData`. Xcode rebuilds it. |
 | `sim-caches` | safe | The iOS Simulator's own cache directory. |
 | `sim-unavailable` | safe | Simulator devices Xcode already marked unavailable (`xcrun simctl delete unavailable`). |
-| `device-support` | moderate | Old Xcode iOS DeviceSupport symbol sets, keeping the newest `--keep-device-support`. |
-| `homebrew` | safe | `brew autoremove` (uninstalls formulae that only existed as a dependency of something you removed), then `brew cleanup -s --prune=all`. |
+| `homebrew` | safe | Homebrew package download cache only (`brew cleanup -s --prune=all`). |
 | `npm` | safe | `npm cache clean --force`. |
 | `yarn` | safe | `yarn cache clean` for Yarn Classic; for Yarn Berry (v2+, which has no `yarn cache dir`) it clears `~/.yarn/berry/cache` directly. |
-| `pnpm` | safe | `pnpm store prune`. |
+| `pnpm` | safe | `pnpm store prune` (prunes unreferenced packages). |
 | `cocoapods` | safe | `~/Library/Caches/CocoaPods`. |
 | `gradle` | safe | `~/.gradle/caches`. |
 | `pip` | safe | `pip cache purge`. |
-| `timemachine` | moderate | Thins **local** Time Machine snapshots. Your real backups on an external drive are untouched. |
 
 ### Off by default (opt-in)
 
 | ID | Risk | What it removes | Flag |
 |---|---|---|---|
-| `xcode-archives` | moderate | Old `.xcarchive` builds. You may need these for dSYMs or App Store resubmission. Only with `--aggressive`. | — |
+| `caches` | safe | Broad user application caches in `~/Library/Caches/*`. | `--include-caches` |
+| `logs` | safe | Broad user log files in `~/Library/Logs/*`. | `--include-logs` |
 | `docker-cache` | safe | Dangling Docker build cache and untagged images. Never touches running containers, named volumes or tagged images. | `--include-docker-cache` |
-| `docker` | risky | **All** unused images, containers and volumes. | `--include-docker` |
-| `mail` | risky | Mail.app's local download cache. | `--include-mail` |
-| `trash` | risky | Empties `~/.Trash`. Irreversible. | `--include-trash` |
-| `orphans` | risky | Reports leftovers no installed app claims. Heuristic, never deletes — see [its section](#possible-app-leftovers). | `--include-orphans` |
-| `whatsapp` | moderate | WhatsApp's expired Status/Stories media only. Chat media and every database are untouched. | `--include-whatsapp` |
-| `sim-stale` | moderate | Simulator devices unused for `--sim-stale-days`. Booted and never-booted devices are always kept. | `--include-sim-stale` |
 | `claude-cache` | safe | The Claude desktop app's Electron cache dirs. Reports but never removes `vm_bundles`. | `--include-claude-cache` |
-| `android` | moderate | Android system images no AVD references, plus AVDs unused for `--android-stale-days`. Confirms per AVD. | `--include-android` |
-| `ide-stale` | moderate | Config/plugin/cache folders of superseded JetBrains and Android Studio versions. Keeps the newest of each product. | `--include-ide-stale` |
+| `xcode-archives` | moderate | Old `.xcarchive` builds. You may need these for dSYMs or App Store resubmission. Only with `--aggressive`. | — |
+| `device-support` | moderate | Old Xcode iOS DeviceSupport symbol sets, keeping the newest `--keep-device-support`. | `--include-device-support` |
+| `homebrew-old` | moderate | Old installed formula/cask versions and unused dependencies (`brew autoremove`). | `--include-homebrew-old` |
+| `timemachine` | moderate | Thins **local** Time Machine snapshots. Your real backups on an external drive are untouched. | `--include-timemachine` |
+| `whatsapp` | moderate | WhatsApp's expired Status/Stories media only. Chat media and every database are untouched. | `--include-whatsapp` |
+| `ide-stale` | moderate | Config/plugin folders of superseded JetBrains and Android Studio versions. Keeps the newest of each product. | `--include-ide-stale` |
 | `ml-caches` | moderate | Hugging Face and PyTorch model caches. Without the flag it only *reports* sizes. Ollama and LM Studio models are never deleted, only reported. | `--include-ml-caches` |
-| `ios-backups` | risky | Local iPhone/iPad backups in MobileSync. Confirms per backup with size and date. | `--include-ios-backups` |
 | `toolchains` | moderate | Superseded Kotlin/Native prebuilts, Gradle wrapper distributions, Gradle's auto-provisioned JDKs, and every SDKMAN candidate except the one `current` points at. Keeps the newest `--keep-toolchains`. | `--include-toolchains` |
+| `docker` | risky | **All** unused images, containers and volumes (`docker system prune -af --volumes`). | `--include-docker` |
+| `mail` | risky | Mail.app's local download cache. | `--include-mail` |
+| `sim-stale` | risky | Simulator devices unused for `--sim-stale-days`. Booted and never-booted devices are always kept. | `--include-sim-stale` |
+| `android` | risky | Android system images no AVD references, plus AVDs unused for `--android-stale-days`. Confirms per AVD. | `--include-android` |
+| `trash` | irreversible | Empties `~/.Trash`. Irreversible. | `--include-trash` |
+| `orphans` | irreversible | Reports leftovers no installed app claims. Heuristic, never deletes — see [its section](#possible-app-leftovers). | `--include-orphans` |
+| `ios-backups` | irreversible | Local iPhone/iPad backups in MobileSync. Confirms per backup with size and date. | `--include-ios-backups` |
 
 ### What `browsers` and `electron` touch
 
@@ -472,10 +528,10 @@ On top of that, **any `--include-X` flag adds X to the run list**, whether or
 not `--only` named it. `--skip` still removes it.
 
 ```bash
-./clean.sh --scan --only caches,logs,dsstore      # only these three
-./clean.sh --clean --skip homebrew,gradle         # defaults minus two
-./clean.sh --clean --include-trash                # defaults plus trash
-./clean.sh --clean --only browsers --include-docker-cache   # browsers + docker-cache
+mimi --scan --only caches,logs,dsstore      # only these three
+mimi --cleaner --skip homebrew,gradle         # defaults minus two
+mimi --cleaner --include-trash                # defaults plus trash
+mimi --cleaner --only browsers --include-docker-cache   # browsers + docker-cache
 ```
 
 ---
@@ -489,9 +545,9 @@ A whitelist entry is either:
   whose inferred name or bundle id matches
 
 ```bash
-./clean.sh --clean --whitelist ~/Library/Caches/JetBrains
-./clean.sh --clean --whitelist 'com.adobe.*,com.figma.*'
-./clean.sh --clean --whitelist ~/Dev --whitelist ~/Documents   # repeatable
+mimi --cleaner --whitelist ~/Library/Caches/JetBrains
+mimi --cleaner --whitelist 'com.adobe.*,com.figma.*'
+mimi --cleaner --whitelist ~/Dev --whitelist ~/Documents   # repeatable
 ```
 
 Whitelisted paths are reported as `whitelisted, skipped:` so you can see the
@@ -508,8 +564,8 @@ protection working.
 | `ml` | Hugging Face, torch, Ollama and LM Studio model caches |
 
 ```bash
-./clean.sh --clean --whitelist-preset xcode-simulator
-./clean.sh --clean --whitelist-preset browsers --whitelist-preset ml
+mimi --cleaner --whitelist-preset xcode-simulator
+mimi --cleaner --whitelist-preset browsers --whitelist-preset ml
 ```
 
 ---
@@ -519,7 +575,8 @@ protection working.
 `orphans` looks for config, preferences, caches, containers and LaunchAgents
 whose names no installed application claims.
 
-**It never deletes anything** — not with `--clean`, `--yes` or `--aggressive`.
+**It never deletes anything** — not with `--cleaner`, `--yes`, `--aggressive`
+or `--force-risky`.
 It writes a report. Removing any of it is a separate, deliberate step
 (`--remove-orphans-from`).
 
@@ -550,14 +607,14 @@ plain directory walk finds, the run says so and marks every candidate
 
 ```bash
 # 1. Report only — nothing is touched, under any flag
-./clean.sh --only orphans --include-orphans --scan
+mimi --only orphans --include-orphans --scan
 
 # 2. Edit the generated review file — delete a line, or put a # in its FIRST
 #    column, for anything to keep. Keep the header line: the file is refused
 #    without it.
 
 # 3. Remove exactly what remains
-./clean.sh --clean --remove-orphans-from ~/Library/Logs/cleanmymac/orphans-review-<timestamp>.txt
+mimi --cleaner --remove-orphans-from ~/Library/Logs/mimi/orphans-review-<timestamp>.txt
 ```
 
 ---
@@ -565,7 +622,7 @@ plain directory walk finds, the run says so and marks every candidate
 ## The disk report
 
 ```bash
-./clean.sh --report
+mimi --report
 ```
 
 Deletes nothing. It exists because the categories above only remove what is
@@ -602,7 +659,7 @@ It walks your whole home directory, so give it a few minutes.
 
 ## Config file
 
-`~/.config/cleanmymac/config.conf`, written by **Save current selection +
+`~/.config/mimi/config.conf`, written by **Save current selection +
 settings as default** in the interactive menu. Loaded at the start of *every*
 invocation, interactive or not. Plain `KEY=value`; edit it by hand if you
 prefer.
@@ -627,7 +684,7 @@ Delete the file to go back to built-in defaults.
 Every run writes a full transcript to:
 
 ```
-~/Library/Logs/cleanmymac/clean-YYYYMMDD-HHMMSS.log
+~/Library/Logs/mimi/clean-YYYYMMDD-HHMMSS.log
 ```
 
 It includes the stderr of every delegated command (`brew`, `docker`, `npm`…),
@@ -643,12 +700,12 @@ and fed back in.
 Want none of it at all:
 
 ```bash
-./clean.sh --clean --no-log     # transcript goes to a scratch file, deleted on exit
-./clean.sh --clean --keep-logs 0  # write this run's log, keep nothing older
+mimi --cleaner --no-log     # transcript goes to a scratch file, deleted on exit
+mimi --cleaner --keep-logs 0  # write this run's log, keep nothing older
 ```
 
 The `logs` category clears `~/Library/Logs/*` but explicitly skips
-`cleanmymac` — otherwise it would delete the transcript it is writing
+`mimi` — otherwise it would delete the transcript it is writing
 mid-run, along with any orphan review file you had not acted on yet.
 
 ---
@@ -660,19 +717,19 @@ mid-run, along with any orphan review file you had not acted on yet.
 ```bash
 # 0. Grant Full Disk Access, quit your browsers and Electron apps.
 # 1. See where everything actually is — deletes nothing.
-./clean.sh --report
+mimi --report
 
 # 2. Scan, then clean the safe default set.
-./clean.sh --scan
-./clean.sh --clean
+mimi --scan
+mimi --cleaner
 
 # 3. The opt-in wins, one at a time so you can see each result.
-./clean.sh --clean --only docker-cache --include-docker-cache   # start Docker first
-./clean.sh --clean --only toolchains --include-toolchains
-./clean.sh --clean --only ide-stale --include-ide-stale
-./clean.sh --clean --only android --include-android
-./clean.sh --clean --only ml-caches --include-ml-caches         # re-downloads models
-./clean.sh --clean --only ios-backups --include-ios-backups     # irreversible
+mimi --cleaner --only docker-cache --include-docker-cache   # start Docker first
+mimi --cleaner --only toolchains --include-toolchains
+mimi --cleaner --only ide-stale --include-ide-stale
+mimi --cleaner --only android --include-android
+mimi --cleaner --only ml-caches --include-ml-caches         # re-downloads models
+mimi --cleaner --only ios-backups --include-ios-backups     # irreversible
 
 # 4. Reboot — purgeable space and snapshots are only released on restart.
 ```
@@ -680,13 +737,13 @@ mid-run, along with any orphan review file you had not acted on yet.
 ### Just the browser and Electron win
 
 ```bash
-./clean.sh --clean --only browsers,electron --yes
+mimi --cleaner --only browsers,electron --yes
 ```
 
 ### A conservative weekly run
 
 ```bash
-./clean.sh --clean --yes \
+mimi --cleaner --yes \
   --skip timemachine,device-support \
   --whitelist-preset xcode-simulator
 ```
@@ -694,17 +751,39 @@ mid-run, along with any orphan review file you had not acted on yet.
 ### Free space fast without touching anything downloadable
 
 ```bash
-./clean.sh --clean --only caches,tmp,logs,diagnostics,xcode-derived --yes
+mimi --cleaner --only caches,tmp,logs,diagnostics,xcode-derived --yes
 ```
 
 ### Scriptable / cron
 
 ```bash
-./clean.sh --clean --yes --only caches,logs,tmp,dsstore >> ~/clean-cron.log 2>&1
+mimi --cleaner --yes --only caches,logs,tmp,dsstore >> ~/clean-cron.log 2>&1
 ```
 
-`--yes` suppresses all prompts, and non-terminal stdin disables the
+`--yes` answers the ordinary prompts, and non-terminal stdin disables the
 interactive menu and all colour, so output stays log-friendly.
+
+A cron line that selects a risky or irreversible category needs `--force-risky`
+as well, because there is no terminal to ask on:
+
+```bash
+mimi --cleaner --yes --only trash --include-trash --force-risky trash
+```
+
+Without it the run exits `5`, removes nothing at all, and names the flag it
+needed.
+
+### Confirmation classes
+
+| Class | What it covers | What answers it |
+|---|---|---|
+| read-only | `--scan`, `--report`, the `orphans` report | nothing is asked |
+| recoverable | caches, re-downloadable models, the whole-run gate | `--yes` |
+| risky | `docker`, `mail`, `sim-stale`, `android` | `y/N` at a terminal, or `--force-risky <name>` |
+| irreversible | `trash`, `ios-backups`, `orphans` | typing the action's own name at a terminal, or `--force-risky <name>` |
+
+The check happens **before any category runs**, so an unauthorized scripted
+run costs nothing rather than stopping part-way through.
 
 ---
 
@@ -715,7 +794,7 @@ interactive menu and all colour, so output stays log-friendly.
   `/usr`, `/bin`, `/sbin`, `/etc`, `/var`, `/private`, `/Users` and `$HOME`
   itself can never be the target of a removal, regardless of category or
   whitelist bugs.
-- **Scan is the default.** You have to ask for `--clean` explicitly.
+- **Scan is the default.** You have to ask for `--cleaner` explicitly.
 - **Destructive categories are opt-in and confirmed**, per item where the
   items are individually meaningful (backups, AVDs, Simulator devices).
 - **The whitelist is checked on every single path**, including each entry
@@ -756,4 +835,5 @@ kept; the rest are pruned at the start of each run. Raise the number, or use
 `--no-log` to keep none.
 
 **Undo** — there is none. `--scan` first, whitelist what matters, and note
-that `trash` and `ios-backups` in particular are genuinely irreversible.
+that `trash` and `ios-backups` in particular are genuinely irreversible —
+which is why `--yes` cannot authorize either of them.
