@@ -3,7 +3,7 @@
 Bats-based suite for the CLI. Every test runs against a throwaway fake home
 directory — no test can touch your real one.
 
-The code lives in `bin/mimi` plus `lib/*.sh`; `clean.sh` at the repo root
+The code lives in `bin/mimi` plus modules under `lib/`; `clean.sh` at the repo root
 is a deprecated shim over it. `run_clean` drives the shim, so the documented entry point
 is what the whole suite exercises.
 
@@ -19,10 +19,13 @@ is what the whole suite exercises.
 ./tests/run mutation        # ditto
 ./tests/run layout          # ditto
 ./tests/run defects         # ditto
+./tests/run profiles        # ditto
+./tests/run jsonl           # ditto
+./tests/run plan            # ditto
 ```
 
 `tests/run` installs bats-core via Homebrew if it is missing, runs
-`/bin/bash -n` over `clean.sh`, `bin/mimi` and every `lib/*.sh` as a
+`/bin/bash -n` over `clean.sh`, `bin/mimi`, `lib/*.sh` and `lib/*/*.sh` as a
 syntax gate, then executes the suite.
 
 ## Developer tools
@@ -34,9 +37,9 @@ syntax gate, then executes the suite.
 | [shfmt](https://github.com/mvdan/sh) | recommended | `brew install shfmt` |
 
 ```bash
-shellcheck -s bash clean.sh bin/mimi lib/*.sh tests/test_helper.bash tests/run
+shellcheck -s bash clean.sh bin/mimi lib/*.sh lib/*/*.sh tests/test_helper.bash tests/run
 shfmt -d -i 2 -ci clean.sh bin lib  # -d shows a diff; -w rewrites in place
-/bin/bash -n clean.sh bin/mimi lib/*.sh   # must pass on system bash 3.2
+/bin/bash -n clean.sh bin/mimi lib/*.sh lib/*/*.sh   # must pass on system bash 3.2
 ```
 
 `mimi` targets macOS's system `/bin/bash` (3.2). No associative arrays, no
@@ -58,6 +61,9 @@ tests/
 ├── mutation.bats       # checked removals and truthful accounting (P0-T05)
 ├── layout.bats         # bin/lib split and the clean.sh shim
 ├── defects.bats        # contained correctness defects (P0-T10)
+├── profiles.bats       # preset profiles, precedence, risk facets & registry
+├── jsonl.bats          # machine interface & JSON Lines protocol v1 (P1-T06)
+├── plan.bats           # transactional plans, quarantine, restore & purge (Phase 2)
 ├── fixtures/           # static read-only fixture data (see its README)
 └── mocks/bin/          # stubs for every external command clean.sh may call
 ```

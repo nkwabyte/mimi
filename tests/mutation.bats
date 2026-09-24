@@ -345,7 +345,7 @@ unlock() {
   # the guard. Non-comment lines that delete something, sorted so the answer
   # does not depend on which module they ended up in.
   found="$(grep -hE '(^|[^_[:alnum:]])rm[[:space:]]+-|find .*-delete' \
-      "$CLEAN_SH" "$MIMI_BIN" "$MIMI_LIB"/*.sh \
+      "$CLEAN_SH" "$MIMI_BIN" "$MIMI_LIB"/*.sh "$MIMI_LIB"/*/*.sh \
     | grep -vE '^[[:space:]]*#' \
     | grep -vE 'FS_REMOVE_ERROR=' \
     | grep -vE 'info "Delete one with' \

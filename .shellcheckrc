@@ -1,0 +1,3 @@
+# .shellcheckrc
+# SC2034: Variables defined in lib/globals.sh and bin/mimi are shared across modules via lib/load.sh
+disable=SC2034

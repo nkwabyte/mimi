@@ -129,6 +129,38 @@ Free space before: 48G  ->  after: 67G
 
 ---
 
+## Transactional workflow: plan, apply, restore, and purge
+
+For maximum safety and reproducibility, `mimi` provides an immutable plan/apply workflow with automatic quarantine and rollback.
+
+### `mimi plan`
+Discovers cleanup candidates according to your selected categories and writes an immutable, SHA-256 digested execution plan (`schemas/plan-v1.json`) with restricted `0600` permissions. Nothing is deleted or modified.
+```bash
+mimi plan --only caches
+# or specify an exact output file:
+mimi plan --only caches --plan-out ~/Desktop/mimi-plan.json
+```
+
+### `mimi apply <plan-file>`
+Preflights the execution plan (verifying the cryptographic digest, schema version, host/user binding, expiration, and ensuring target file identities have not changed), prompts for approval (or `--yes`), and moves targets into an isolated quarantine store (`~/.config/mimi/quarantine/<run-id>`) with verified postconditions.
+```bash
+mimi apply ~/.config/mimi/plans/plan-20260924-120000-1234.json
+```
+
+### `mimi restore <run-id>`
+Restores a previously quarantined run back to the original filesystem locations, verifying destination availability and file identities.
+```bash
+mimi restore run-20260924-120000-1234
+```
+
+### `mimi purge <run-id>`
+Permanently deletes the quarantine directory for a specified run after explicit confirmation.
+```bash
+mimi purge run-20260924-120000-1234
+```
+
+---
+
 ## Interactive mode
 
 Entered by running `mimi` with **no arguments at all** from a real
@@ -238,12 +270,16 @@ Whitelist  (2 entries)
 
 ## Flag reference
 
-### Modes
+### Subcommands and modes
 
-| Flag | Effect |
+| Subcommand / Mode | Effect |
 |---|---|
-| `--scan` | Report only, delete nothing. **Default.** |
-| `--cleaner` | Actually delete. Confirms once unless `--yes`. `--clean` is accepted too. |
+| `scan`, `--scan` | Report reclaimable space only, delete nothing. **Default.** |
+| `clean`, `--cleaner` | Actually delete. Confirms once unless `--yes`. `--clean` is accepted too. |
+| `plan`, `--plan` | Discovers candidates and generates an immutable execution plan (`schemas/plan-v1.json`). |
+| `apply <plan-file>`, `--apply <file>` | Validates plan integrity and moves targets into an isolated quarantine run. |
+| `restore <run-id>`, `--restore <id>` | Restores a previously quarantined run back to original paths. |
+| `purge <run-id>`, `--purge <id>` | Permanently deletes a quarantined run after explicit confirmation. |
 | `--report` | Print a full disk breakdown, then exit. Deletes nothing. |
 | `--list` | Print every category id, risk and default state, then exit. |
 | `-i`, `--interactive` | Force the menu even when other flags are present. |
@@ -254,6 +290,7 @@ Whitelist  (2 entries)
 | Flag | Effect |
 |---|---|
 | `-y`, `--yes` | Answer the *recoverable* prompts: the whole-run gate and anything that comes back by itself. It cannot answer a risky or irreversible one. |
+| `--profile <name>` | Select category profile (`safe`, `developer`, `aggressive`, or `list` to print profiles). Precedence: `--only` > `--profile` > `CONFIG_SELECTED_CATEGORIES` > `CONFIG_PROFILE` > `safe`. |
 | `--force-risky <names>` | Authorize risky/irreversible actions by name, for this invocation only: `docker`, `mail`, `trash`, `orphans`, `sim-stale`, `android`, `ios-backups`. No `all`. Never read from or written to the config file. Authorizes but does not select — the matching `--include-<name>` is still required. |
 | `-v`, `--verbose` | Print every path as it is inspected and removed. |
 | `--aggressive` | Prune harder where a category supports it: older Xcode device support, `.xcarchive` builds, extra browser cache dirs, `uv cache clean` instead of `prune`, and `--tmp-stale-days 0`. Still fully whitelist-respecting. |
@@ -283,6 +320,11 @@ enough to run that category — you do not also need `--only`.
 
 | Flag | Runs |
 |---|---|
+| `--include-timemachine` | Local Time Machine APFS snapshots (thinning). |
+| `--include-device-support` | Xcode iOS DeviceSupport old OS symbol sets. |
+| `--include-homebrew-old` | Old installed Homebrew formula/cask versions and unused dependencies (`brew autoremove`). |
+| `--include-caches` | Broad user application caches (`~/Library/Caches/*`). |
+| `--include-logs` | Broad user log files (`~/Library/Logs/*`). |
 | `--include-docker-cache` | `docker builder prune -f` + `docker image prune -f` — dangling build cache and untagged images only. This is what actually shrinks `Docker.raw`. |
 | `--include-docker` | `docker system prune -af --volumes` — **all** unused images, containers and volumes. Much more aggressive than the above. |
 | `--include-trash` | Empty `~/.Trash`. Irreversible. |
@@ -309,6 +351,15 @@ enough to run that category — you do not also need `--only`.
 | Flag | Effect |
 |---|---|
 | `--remove-orphans-from <file>` | Remove exactly the paths listed in a review file produced by `--include-orphans`. The file must still carry its `# mimi-orphan-review v1` header, `#` comments a line out only in the first column, and each path must resolve to a direct child of a scanned orphan location. Refused lines are reported with a reason code. |
+
+### Automation and protocol
+
+| Flag | Effect |
+|---|---|
+| `--jsonl`, `--json` | Emit structured JSON Lines events to stdout for machine integration (protocol v1). Diagnostics go to stderr. |
+| `--request-id <id>` | Correlation ID for protocol v1 events. |
+| `--no-color` | Suppress ANSI color escape codes in terminal output. |
+| `--no-prompt` | Do not prompt interactively; exit `5` immediately if confirmation or authorization is missing. |
 
 ### Exit codes
 
@@ -346,7 +397,7 @@ than the size taken before the attempt.
 On Ctrl-C the tool does **not** die mid-delete. The signal handler records the
 interruption, the action in progress is allowed to finish, and nothing further
 is started — so a tree is never left half-removed with a total that claims
-otherwise.
+neither state. The run exits 4.
 
 Every invalid-usage message is written to **stderr** with the same prefix, so
 it is easy to grep for in a wrapper script:
@@ -386,50 +437,51 @@ explains the fix.
 - **moderate** — regenerated, but re-downloading or rebuilding costs real time
 - **risky** — can remove data you actually wanted; always opt-in and confirmed
 
-### On by default
+### On by default (safe profile)
 
 | ID | Risk | What it removes |
 |---|---|---|
 | `browsers` | safe | Chromium-family caches across **every** profile (`Default`, `Profile 1..N`, Guest, System) for Chrome, Chrome Beta/Canary, Chrome for Testing, Chromium, Brave, Brave Beta, Edge, Vivaldi, Opera, Opera GX, Arc, Dia, Yandex, Comet — plus Firefox's startup and shader caches. Details [below](#what-browsers-and-electron-touch). |
 | `electron` | safe | The same Chromium cache layout inside Electron apps — Notion, Slack, VS Code, Postman, Obsidian, Discord, Claude, pgAdmin and anything else with the layout — **including `Partitions/*`**, where the multi-GB `Service Worker/CacheStorage` hides. |
 | `dev-caches` | safe | `uv cache prune`, `go clean -cache`, Trivy, GitHub Copilot, `gh`, gem, giget, Firebase, Playwright, Deno, Bazel, sccache, node-gyp, cargo registry cache, NuGet http caches, SwiftPM, JetBrains, `.dartServer`, `.gradle/.tmp`. |
-| `caches` | safe | Everything under `~/Library/Caches/*`. |
 | `tmp` | safe | `$TMPDIR` (`/private/var/folders/…/T`) and the matching per-user cache dir, for entries older than `--tmp-stale-days`. Anything newer is **reported with its size** but left alone — a running process may be using it. Apple's live IPC dirs are always skipped. |
-| `logs` | safe | `~/Library/Logs/*`. |
 | `diagnostics` | safe | Old crash and diagnostic reports. |
 | `dsstore` | safe | Stray `.DS_Store` files under your home directory. |
 | `quicklook` | safe | QuickLook thumbnail cache (`qlmanage -r cache`). |
 | `xcode-derived` | safe | Xcode `DerivedData`. Xcode rebuilds it. |
 | `sim-caches` | safe | The iOS Simulator's own cache directory. |
 | `sim-unavailable` | safe | Simulator devices Xcode already marked unavailable (`xcrun simctl delete unavailable`). |
-| `device-support` | moderate | Old Xcode iOS DeviceSupport symbol sets, keeping the newest `--keep-device-support`. |
-| `homebrew` | safe | `brew autoremove` (uninstalls formulae that only existed as a dependency of something you removed), then `brew cleanup -s --prune=all`. |
+| `homebrew` | safe | Homebrew package download cache only (`brew cleanup -s --prune=all`). |
 | `npm` | safe | `npm cache clean --force`. |
 | `yarn` | safe | `yarn cache clean` for Yarn Classic; for Yarn Berry (v2+, which has no `yarn cache dir`) it clears `~/.yarn/berry/cache` directly. |
-| `pnpm` | safe | `pnpm store prune`. |
+| `pnpm` | safe | `pnpm store prune` (prunes unreferenced packages). |
 | `cocoapods` | safe | `~/Library/Caches/CocoaPods`. |
 | `gradle` | safe | `~/.gradle/caches`. |
 | `pip` | safe | `pip cache purge`. |
-| `timemachine` | moderate | Thins **local** Time Machine snapshots. Your real backups on an external drive are untouched. |
 
 ### Off by default (opt-in)
 
 | ID | Risk | What it removes | Flag |
 |---|---|---|---|
-| `xcode-archives` | moderate | Old `.xcarchive` builds. You may need these for dSYMs or App Store resubmission. Only with `--aggressive`. | — |
+| `caches` | safe | Broad user application caches in `~/Library/Caches/*`. | `--include-caches` |
+| `logs` | safe | Broad user log files in `~/Library/Logs/*`. | `--include-logs` |
 | `docker-cache` | safe | Dangling Docker build cache and untagged images. Never touches running containers, named volumes or tagged images. | `--include-docker-cache` |
-| `docker` | risky | **All** unused images, containers and volumes. | `--include-docker` |
-| `mail` | risky | Mail.app's local download cache. | `--include-mail` |
-| `trash` | risky | Empties `~/.Trash`. Irreversible. | `--include-trash` |
-| `orphans` | risky | Reports leftovers no installed app claims. Heuristic, never deletes — see [its section](#possible-app-leftovers). | `--include-orphans` |
-| `whatsapp` | moderate | WhatsApp's expired Status/Stories media only. Chat media and every database are untouched. | `--include-whatsapp` |
-| `sim-stale` | moderate | Simulator devices unused for `--sim-stale-days`. Booted and never-booted devices are always kept. | `--include-sim-stale` |
 | `claude-cache` | safe | The Claude desktop app's Electron cache dirs. Reports but never removes `vm_bundles`. | `--include-claude-cache` |
-| `android` | moderate | Android system images no AVD references, plus AVDs unused for `--android-stale-days`. Confirms per AVD. | `--include-android` |
-| `ide-stale` | moderate | Config/plugin/cache folders of superseded JetBrains and Android Studio versions. Keeps the newest of each product. | `--include-ide-stale` |
+| `xcode-archives` | moderate | Old `.xcarchive` builds. You may need these for dSYMs or App Store resubmission. Only with `--aggressive`. | — |
+| `device-support` | moderate | Old Xcode iOS DeviceSupport symbol sets, keeping the newest `--keep-device-support`. | `--include-device-support` |
+| `homebrew-old` | moderate | Old installed formula/cask versions and unused dependencies (`brew autoremove`). | `--include-homebrew-old` |
+| `timemachine` | moderate | Thins **local** Time Machine snapshots. Your real backups on an external drive are untouched. | `--include-timemachine` |
+| `whatsapp` | moderate | WhatsApp's expired Status/Stories media only. Chat media and every database are untouched. | `--include-whatsapp` |
+| `ide-stale` | moderate | Config/plugin folders of superseded JetBrains and Android Studio versions. Keeps the newest of each product. | `--include-ide-stale` |
 | `ml-caches` | moderate | Hugging Face and PyTorch model caches. Without the flag it only *reports* sizes. Ollama and LM Studio models are never deleted, only reported. | `--include-ml-caches` |
-| `ios-backups` | risky | Local iPhone/iPad backups in MobileSync. Confirms per backup with size and date. | `--include-ios-backups` |
 | `toolchains` | moderate | Superseded Kotlin/Native prebuilts, Gradle wrapper distributions, Gradle's auto-provisioned JDKs, and every SDKMAN candidate except the one `current` points at. Keeps the newest `--keep-toolchains`. | `--include-toolchains` |
+| `docker` | risky | **All** unused images, containers and volumes (`docker system prune -af --volumes`). | `--include-docker` |
+| `mail` | risky | Mail.app's local download cache. | `--include-mail` |
+| `sim-stale` | risky | Simulator devices unused for `--sim-stale-days`. Booted and never-booted devices are always kept. | `--include-sim-stale` |
+| `android` | risky | Android system images no AVD references, plus AVDs unused for `--android-stale-days`. Confirms per AVD. | `--include-android` |
+| `trash` | irreversible | Empties `~/.Trash`. Irreversible. | `--include-trash` |
+| `orphans` | irreversible | Reports leftovers no installed app claims. Heuristic, never deletes — see [its section](#possible-app-leftovers). | `--include-orphans` |
+| `ios-backups` | irreversible | Local iPhone/iPad backups in MobileSync. Confirms per backup with size and date. | `--include-ios-backups` |
 
 ### What `browsers` and `electron` touch
 
