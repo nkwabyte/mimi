@@ -100,6 +100,117 @@ report_system_data() {
   return 0
 }
 
+# ---------------------------------------------------------------------------
+# P6-T05: largest individual files (report only)
+# ---------------------------------------------------------------------------
+#
+# Single files, not folders: the VM disk, the dataset, the .ipa, the video
+# export. Sizes are allocated bytes (what deleting would free); a sparse file
+# also shows what it claims to be. Nothing here is ever removed by mimi —
+# a large file is as likely to be precious as forgotten.
+report_large_files() {
+  local min_mb="${1:-$REPORT_LARGE_FILE_MB}" f kb shown=0 total=0 extra
+  say ""
+  info "Largest individual files under \$HOME (${min_mb} MB and larger on disk; report only):"
+  while IFS=$'\t' read -r kb f; do
+    [ -n "$f" ] || continue
+    shown=$((shown + 1))
+    total=$((total + kb))
+    extra=""
+    if is_sparse_file "$f"; then
+      extra="  (sparse file; claims $(human_kb "$(path_logical_kb "$f")"))"
+    fi
+    printf '  %10s  %s%s\n' "$(human_kb "$kb")" "$f" "$extra" | tee -a "$LOG_FILE"
+  done < <(
+    find "$HOME_DIR" -xdev -type f -size +"${min_mb}"M -print0 2>/dev/null \
+      | while IFS= read -r -d '' f; do
+          # Rank by what is on disk. An iCloud file evicted to the cloud, or a
+          # sparse file that is mostly holes, can claim gigabytes and occupy
+          # almost nothing; deleting it would free almost nothing.
+          kb="$(du -k "$f" 2>/dev/null | awk '{print $1}')"
+          [ "${kb:-0}" -ge $((min_mb * 1024)) ] || continue
+          printf '%s\t%s\n' "$kb" "$f"
+        done | sort -rn | head -"${REPORT_LARGE_FILE_LIMIT:-25}"
+  )
+  if [ "$shown" -eq 0 ]; then
+    info "  (none)"
+  else
+    info "  $shown file(s), $(human_kb "$total") in total. mimi never removes these; check"
+    info "  each one before deleting it yourself."
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# P6-T07: stale downloads (report only)
+# ---------------------------------------------------------------------------
+#
+# "Stale" means not OPENED for N days. The signal is Spotlight's
+# kMDItemLastUsedDate (updated when a file is opened); a file never opened
+# falls back to kMDItemDateAdded (when it arrived in Downloads). Modification
+# time is deliberately not used: copying, unzipping, or syncing rewrites it
+# and says nothing about use. Items Spotlight has no dates for are counted
+# but not judged.
+
+# Epoch seconds of a Spotlight date attribute, or nothing when unset.
+_md_date_epoch() {
+  local p="$1" attr="$2" v
+  command -v mdls > /dev/null 2>&1 || return 1
+  v="$(mdls -raw -name "$attr" "$p" 2>/dev/null)" || return 1
+  case "$v" in
+    ''|'(null)') return 1 ;;
+  esac
+  date -j -f '%Y-%m-%d %H:%M:%S %z' "$v" +%s 2>/dev/null
+}
+
+report_stale_downloads() {
+  local days="${1:-$DOWNLOADS_STALE_DAYS}" dir="$HOME_DIR/Downloads"
+  [ -d "$dir" ] || return 0
+  say ""
+  info "Downloads not opened in ${days}+ days (report only):"
+
+  local now cutoff e b last src kb unknown=0
+  now="$(date +%s)"
+  cutoff=$((now - days * 86400))
+  local -a rows=()
+  for e in "$dir"/* "$dir"/.[!.]*; do
+    [ -e "$e" ] || [ -L "$e" ] || continue
+    b="$(basename "$e")"
+    case "$b" in .DS_Store|.localized) continue ;; esac
+    src="last opened"
+    last="$(_md_date_epoch "$e" kMDItemLastUsedDate || true)"
+    if [ -z "$last" ]; then
+      src="added, never opened"
+      last="$(_md_date_epoch "$e" kMDItemDateAdded || true)"
+    fi
+    if [ -z "$last" ]; then
+      unknown=$((unknown + 1))
+      continue
+    fi
+    [ "$last" -lt "$cutoff" ] || continue
+    kb="$(dir_size_kb "$e")"
+    rows+=("$kb"$'\t'"$(date -r "$last" '+%Y-%m-%d')"$'\t'"$src"$'\t'"$e")
+  done
+
+  local total=0 n=0 line d s p
+  if [ "${#rows[@]}" -gt 0 ]; then
+    while IFS=$'\t' read -r kb d s p; do
+      n=$((n + 1))
+      total=$((total + kb))
+      printf '  %10s  %s  (%s %s)\n' "$(human_kb "$kb")" "$p" "$s" "$d" | tee -a "$LOG_FILE"
+    done < <(printf '%s\n' "${rows[@]}" | sort -rn)
+  fi
+  if [ "$n" -eq 0 ]; then
+    info "  (none)"
+  else
+    info "  $n item(s), $(human_kb "$total") in total. mimi never removes downloads."
+  fi
+  if [ "$unknown" -gt 0 ]; then
+    info "  $unknown item(s) have no Spotlight dates and were not judged."
+  fi
+  return 0
+}
+
 report_top_offenders() {
   section "Where your disk space actually is"
   check_full_disk_access
@@ -184,6 +295,9 @@ report_top_offenders() {
         printf '  %10s  %s\n' "$(human_kb "$nm_kb")" "$nm" | tee -a "$LOG_FILE"
       done
   info "Delete one with: rm -rf <path>   (then \`npm install\` when you next need it)"
+
+  report_large_files
+  report_stale_downloads
 
   # Purgeable space / snapshots: the other half of the "System Data" mystery.
   say ""

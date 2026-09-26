@@ -12,6 +12,11 @@
 
 # "--" so a $0 that begins with a dash cannot be read as a basename(1) option.
 SCRIPT_NAME="$(basename -- "$0")"
+# The release version. Single source of truth: `mimi --version`, the JSON
+# protocol's engine_version, and the release workflow (which refuses to
+# publish a tag that does not match it) all read this line.
+MIMI_VERSION="0.2.0"
+
 HOME_DIR="$HOME"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 LOG_DIR="$HOME_DIR/Library/Logs/mimi"
@@ -67,6 +72,11 @@ UNINSTALL_ZAP=0
 NO_LOG=0
 KEEP_LOGS=5
 TMP_STALE_DAYS=3
+# --report: files at least this many MB are listed individually (P6-T05),
+# and downloads not opened for this many days are listed (P6-T07).
+REPORT_LARGE_FILE_MB=500
+REPORT_LARGE_FILE_LIMIT=25
+DOWNLOADS_STALE_DAYS=90
 KEEP_TOOLCHAINS=1
 
 SIM_STALE_DAYS=60
@@ -79,12 +89,14 @@ CONFIG_SELECTED_CATEGORIES=""
 CONFIG_PROFILE=""
 PLANS_DIR="$CONFIG_DIR/plans"
 QUARANTINE_DIR="$CONFIG_DIR/quarantine"
+# Append-only record of uninstalls and delegated (Homebrew) actions: one JSON
+# object per line. Never rewritten; restore/purge results live per run.
+HISTORY_FILE="$CONFIG_DIR/history.jsonl"
 PLAN_FILE=""
 PLAN_OUT_FILE=""
 RUN_ID=""
 APP_TARGET=""
 APP_SOURCE_FILTER="all"
-UNINSTALL_DATA_MODE="ask"  # keep | purge | ask (Phase 4)
 INTERACTIVE=0
 
 INSTALLED_IDS_NORM=()

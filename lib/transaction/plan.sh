@@ -32,21 +32,39 @@ plan_init() {
   PLAN_ACTIONS=()
 }
 
+# Stable identifier for a candidate: "cand-" + 16 hex digits derived from the
+# category and canonical path. It is an identifier, not an integrity check
+# (the plan digest is SHA-256), so it uses the native md5 binary: shasum is a
+# Perl script and cost ~10 ms per candidate, which dominated large scans.
 plan_candidate_id() {
   local cat="$1" target="$2"
-  local raw="${cat}:${target}"
-  if command -v shasum >/dev/null 2>&1; then
-    printf 'cand-%s' "$(printf '%s' "$raw" | shasum -a 256 | awk '{print substr($1,1,16)}')"
+  local raw="${cat}:${target}" h=""
+  if [ -x /sbin/md5 ]; then
+    h="$(/sbin/md5 -q -s "$raw" 2>/dev/null)"
+  elif command -v shasum >/dev/null 2>&1; then
+    h="$(printf '%s' "$raw" | shasum -a 256 | awk '{print $1}')"
+  fi
+  if [ -n "$h" ]; then
+    printf 'cand-%s' "${h:0:16}"
   else
     printf 'cand-%s' "$(printf '%s' "$raw" | cksum | awk '{print $1}')"
   fi
 }
 
+# Candidate id of the most recent plan_candidate_add, so callers that also
+# emit a JSON candidate event do not compute it a second time.
+PLAN_LAST_CID=""
+
 plan_candidate_add() {
   local cat="$1" op="$2" p="$3" ident="$4" bytes="${5:-0}" risk="${6:-safe}" evid="${7:-}"
-  local cid
-  cid="$(plan_candidate_id "$cat" "$p")"
-  PLAN_CANDIDATES+=("${cid}::${cat}::${op}::${p}::${ident}::${bytes}::${risk}::${evid}")
+  PLAN_LAST_CID="$(plan_candidate_id "$cat" "$p")"
+  PLAN_CANDIDATES+=("${PLAN_LAST_CID}::${cat}::${op}::${p}::${ident}::${bytes}::${risk}::${evid}")
+}
+
+# True when discovered candidates are needed: building a plan, or streaming
+# candidate events. A plain human scan needs neither.
+plan_candidates_wanted() {
+  [ "$MODE" = "plan" ] || [ "${JSONL_ENABLED:-0}" = 1 ]
 }
 
 plan_candidate_count() {
@@ -74,7 +92,7 @@ plan_build() {
     risk="${item#*::*::*::*::*::*::}"; risk="${risk%%::*}"
     evid="${item##*::}"
 
-    act_id="$(printf 'act-%04d' "$(( ${#PLAN_ACTIONS[@]} + 1 ))")"
+    printf -v act_id 'act-%04d' "$(( ${#PLAN_ACTIONS[@]} + 1 ))"
     plan_add_action "$act_id" "$cat" "$op" "$p" "$ident" "$bytes" "$risk" "$evid"
   done
 }
@@ -84,18 +102,24 @@ plan_add_action() {
   PLAN_ACTIONS+=("${action_id}::${category}::${operation}::${target_path}::${target_identity}::${expected_bytes}::${risk}::${evidence}")
 }
 
+# SHA-256 over every action followed by a newline. The actions are streamed
+# into the hash rather than concatenated into one Bash string first: that
+# concatenation copied the growing string on every append and made a
+# 10,000-action plan take minutes. The bytes hashed are unchanged, so existing
+# plans keep their digests.
 plan_compute_digest() {
-  local input=""
-  local item
-  for item in "${PLAN_ACTIONS[@]}"; do
-    input="${input}${item}
-"
-  done
-  if command -v shasum >/dev/null 2>&1; then
-    printf '%s' "$input" | shasum -a 256 | awk '{print $1}'
-  else
-    printf '%s' "$input" | cksum | awk '{print $1}'
-  fi
+  _plan_digest_input | {
+    if command -v shasum >/dev/null 2>&1; then
+      shasum -a 256 | awk '{print $1}'
+    else
+      cksum | awk '{print $1}'
+    fi
+  }
+}
+
+_plan_digest_input() {
+  [ "${#PLAN_ACTIONS[@]}" -gt 0 ] || return 0
+  printf '%s\n' "${PLAN_ACTIONS[@]}"
 }
 
 plan_serialize() {
@@ -153,15 +177,23 @@ plan_serialize() {
     evid="${item##*::}"
 
     i=$((i + 1))
+    local e_act e_cat e_op e_p e_ident e_risk e_evid
+    json_escape_to e_act "$act_id"
+    json_escape_to e_cat "$cat"
+    json_escape_to e_op "$op"
+    json_escape_to e_p "$p"
+    json_escape_to e_ident "$ident"
+    json_escape_to e_risk "$risk"
+    json_escape_to e_evid "$evid"
     printf '    {\n'
-    printf '      "action_id": "%s",\n' "$(json_escape "$act_id")"
-    printf '      "category": "%s",\n' "$(json_escape "$cat")"
-    printf '      "operation": "%s",\n' "$(json_escape "$op")"
-    printf '      "target_path": "%s",\n' "$(json_escape "$p")"
-    printf '      "target_identity": "%s",\n' "$(json_escape "$ident")"
+    printf '      "action_id": "%s",\n' "$e_act"
+    printf '      "category": "%s",\n' "$e_cat"
+    printf '      "operation": "%s",\n' "$e_op"
+    printf '      "target_path": "%s",\n' "$e_p"
+    printf '      "target_identity": "%s",\n' "$e_ident"
     printf '      "expected_bytes": %d,\n' "$bytes"
-    printf '      "risk": "%s",\n' "$(json_escape "$risk")"
-    printf '      "evidence": "%s"\n' "$(json_escape "$evid")"
+    printf '      "risk": "%s",\n' "$e_risk"
+    printf '      "evidence": "%s"\n' "$e_evid"
     if [ "$i" -lt "$count" ]; then
       printf '    },\n'
     else
@@ -338,8 +370,21 @@ plan_preflight() {
 
     # Operation tool_cleanup might not have a target_path
     [ -z "$p" ] && continue
+    # A retain action records something the plan must NOT touch; it is
+    # verified after apply, never authorized for mutation.
+    [ "$op" = "retain" ] && continue
 
-    if ! canon="$(path_authorize "$p")"; then
+    if [ "$cat" = "uninstall-app" ]; then
+      # Application bundles live outside $HOME, so the general path gate
+      # (home and temp only) cannot authorize them. They get their own,
+      # narrower rule instead of a wider global root: see
+      # uninstall_authorize_bundle.
+      if ! uninstall_authorize_bundle "$p"; then
+        err "plan preflight: application bundle refused: $p ($UNINSTALL_DENY_REASON)"
+        return 1
+      fi
+      canon="$UNINSTALL_CANONICAL"
+    elif ! canon="$(path_authorize "$p")"; then
       err "plan preflight: target outside authorized roots: $p ($(path_deny_message))"
       return 1
     fi

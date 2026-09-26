@@ -6,6 +6,9 @@
 
 load 'test_helper'
 
+# `run --separate-stderr` is used for JSON output.
+bats_require_minimum_version 1.5.0
+
 setup() {
   TEST_TMPDIR="$(mktemp -d "${BATS_TMPDIR:-/tmp}/mimi-test-XXXXXX")"
   # Canonicalize to resolve /var -> /private/var (and /tmp -> /private/tmp)
@@ -276,6 +279,8 @@ EOF
   local canon_cont
   canon_cont="$(cd -P "$cont" 2>/dev/null && pwd -P || echo "$cont")"
   for item in "${PLAN_ACTIONS[@]}"; do
+    # Kept items are recorded as "retain" actions; only moves count here.
+    case "$item" in *"::retain::"*) continue ;; esac
     local p="${item#*::*::*::}"; p="${p%%::*}"
     if [ "$p" = "$canon_cont" ]; then
       found=1
@@ -305,6 +310,8 @@ EOF
   # In keep mode only the bundle (and LaunchAgents) should be in the plan.
   local has_pref=0 item
   for item in "${PLAN_ACTIONS[@]}"; do
+    # Kept items are recorded as "retain" actions; only moves count here.
+    case "$item" in *"::retain::"*) continue ;; esac
     local p="${item#*::*::*::}"; p="${p%%::*}"
     if echo "$p" | grep -q "Preferences"; then
       has_pref=1
@@ -334,6 +341,8 @@ EOF
   # Weak Caches entry should not appear.
   local has_weak_cache=0 item
   for item in "${PLAN_ACTIONS[@]}"; do
+    # Kept items are recorded as "retain" actions; only moves count here.
+    case "$item" in *"::retain::"*) continue ;; esac
     local p="${item#*::*::*::}"; p="${p%%::*}"
     if echo "$p" | grep -q "Library/Caches/WeakApp"; then
       has_weak_cache=1
@@ -380,6 +389,8 @@ EOF
 
   local has_gc=0 item
   for item in "${PLAN_ACTIONS[@]}"; do
+    # Kept items are recorded as "retain" actions; only moves count here.
+    case "$item" in *"::retain::"*) continue ;; esac
     local p="${item#*::*::*::}"; p="${p%%::*}"
     if echo "$p" | grep -q "Group Containers"; then
       has_gc=1
@@ -640,7 +651,7 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" =~ "Homebrew Cask Delegation" ]]
   [[ "$output" =~ "--zap" ]]
-  [[ "$output" =~ "Homebrew warns that --zap may remove shared vendor files" ]]
+  [[ "$output" =~ "Homebrew deletes these directly; mimi cannot quarantine or restore them" ]]
   grep -q "brew uninstall --cask --zap zap-cask" "$MOCK_CALL_LOG"
 }
 
@@ -718,4 +729,373 @@ EOF
   run /bin/bash "$MIMI_BIN" purge "$run_id" --yes
   [ "$status" -eq 0 ]
   [ ! -d "$FAKE_HOME/.config/mimi/quarantine/$run_id" ]
+}
+
+# ===========================================================================
+# Phase 4 completion — gaps closed on 2026-09-26
+# ===========================================================================
+
+# The plan file a --plan-only run printed.
+plan_file_from() {
+  printf '%s\n' "$1" | grep -o "$FAKE_HOME/.config/mimi/plans/uninstall-[^\"]*\.json" | head -1
+}
+
+# Quarantine run id from an apply summary.
+run_id_from() {
+  printf '%s\n' "$1" | grep -o 'uninstall-[0-9]\{8\}-[0-9]\{6\}-[0-9]*' | head -1
+}
+
+# ---------------------------------------------------------------------------
+# P4-T01: modes and refusals
+# ---------------------------------------------------------------------------
+
+@test "modes: --keep-data and --purge-data together are a usage error" {
+  create_app "$FAKE_HOME/Applications/Both.app" "Both" "com.example.both" "1.0"
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Both.app" --keep-data --purge-data --yes
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -q "contradict each other"
+  [ -d "$FAKE_HOME/Applications/Both.app" ]
+}
+
+@test "modes: the default keeps user data without a terminal and says how to include it" {
+  local app="$FAKE_HOME/Applications/AskApp.app"
+  create_app "$app" "AskApp" "com.example.askapp" "1.0"
+  touch "$FAKE_HOME/Library/Preferences/com.example.askapp.plist"
+
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --yes < /dev/null
+  [ "$status" -eq 0 ]
+  [ ! -e "$app" ]
+  [ -f "$FAKE_HOME/Library/Preferences/com.example.askapp.plist" ]
+  echo "$output" | grep -q "Pass --purge-data to include it"
+}
+
+@test "modes: --purge-data moves attributable data but never shared data" {
+  local app="$FAKE_HOME/Applications/PurgeApp.app"
+  create_app "$app" "PurgeApp" "com.example.purgeapp" "1.0"
+  touch "$FAKE_HOME/Library/Preferences/com.example.purgeapp.plist"
+  mkdir -p "$FAKE_HOME/Library/Group Containers/group.com.example.purgeapp"
+
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --purge-data --yes
+  [ "$status" -eq 0 ]
+  [ ! -e "$FAKE_HOME/Library/Preferences/com.example.purgeapp.plist" ]
+  [ -d "$FAKE_HOME/Library/Group Containers/group.com.example.purgeapp" ]
+  echo "$output" | grep -q "kept item(s) verified intact"
+}
+
+@test "authorize: bundles outside application folders, symlinks, and /System are refused" {
+  source_lib
+  create_app "$FAKE_HOME/Documents/Stray.app" "Stray" "com.example.stray" "1.0"
+  ! uninstall_authorize_bundle "$FAKE_HOME/Documents/Stray.app"
+  [ "$UNINSTALL_DENY_REASON" = "not inside an application folder" ]
+
+  create_app "$FAKE_HOME/Applications/Real.app" "Real" "com.example.real" "1.0"
+  ln -s "$FAKE_HOME/Applications/Real.app" "$FAKE_HOME/Applications/Link.app"
+  ! uninstall_authorize_bundle "$FAKE_HOME/Applications/Link.app"
+  [ "$UNINSTALL_DENY_REASON" = "the bundle is a symbolic link" ]
+
+  ! uninstall_authorize_bundle "/System/Applications/Calculator.app"
+  uninstall_authorize_bundle "$FAKE_HOME/Applications/Real.app"
+}
+
+@test "authorize: a vendor-folder app is allowed, a bundle inside a bundle is not" {
+  source_lib
+  create_app "$FAKE_HOME/Applications/Acme/Acme Tool.app" "Acme Tool" "com.acme.tool" "1.0"
+  create_app "$FAKE_HOME/Applications/Host.app/Contents/Helper.app" "Helper" "com.example.helper" "1.0"
+  uninstall_authorize_bundle "$FAKE_HOME/Applications/Acme/Acme Tool.app"
+  ! uninstall_authorize_bundle "$FAKE_HOME/Applications/Host.app/Contents/Helper.app"
+}
+
+# ---------------------------------------------------------------------------
+# P4-T02: running processes
+# ---------------------------------------------------------------------------
+
+@test "process: --yes cannot force-quit a running app" {
+  source_lib
+  ASSUME_YES=1
+  app_process_list_pids() { PROC_PIDS=("4242:Busy"); PROC_COUNT=1; }
+  app_process_request_quit() { return 0; }
+  app_process_wait_gone() { return 1; }
+  app_process_force_quit() { : > "$TEST_TMPDIR/killed"; return 0; }
+
+  local rc=0
+  uninstall_handle_processes "com.example.busy" "$FAKE_HOME/Applications/Busy.app" "Busy" < /dev/null > "$TEST_TMPDIR/out" 2>&1 || rc=$?
+  [ "$rc" -eq "$EXIT_CANCELLED" ]
+  [ ! -e "$TEST_TMPDIR/killed" ]
+  grep -q "unsaved work" "$TEST_TMPDIR/out"
+}
+
+@test "process: --force-risky app-terminate authorizes the force-quit" {
+  source_lib
+  FORCE_RISKY_LIST="app-terminate"
+  app_process_list_pids() { PROC_PIDS=("4242:Busy"); PROC_COUNT=1; }
+  app_process_request_quit() { return 0; }
+  app_process_wait_gone() { return 1; }
+  app_process_force_quit() { : > "$TEST_TMPDIR/killed"; return 0; }
+
+  uninstall_handle_processes "com.example.busy" "$FAKE_HOME/Applications/Busy.app" "Busy" < /dev/null > /dev/null 2>&1
+  [ -e "$TEST_TMPDIR/killed" ]
+}
+
+@test "process: an app that quits normally is never force-quit" {
+  source_lib
+  app_process_list_pids() { PROC_PIDS=("4242:Nice"); PROC_COUNT=1; }
+  app_process_request_quit() { return 0; }
+  app_process_wait_gone() { return 0; }
+  app_process_force_quit() { : > "$TEST_TMPDIR/killed"; return 0; }
+  uninstall_handle_processes "com.example.nice" "$FAKE_HOME/Applications/Nice.app" "Nice" < /dev/null > /dev/null 2>&1
+  [ ! -e "$TEST_TMPDIR/killed" ]
+}
+
+@test "cli: app-terminate is accepted by --force-risky" {
+  create_app "$FAKE_HOME/Applications/Ft.app" "Ft" "com.example.ft" "1.0"
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Ft.app" --yes --force-risky app-terminate
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# P4-T03 / P4-T04: plan-bound, ordered, verified
+# ---------------------------------------------------------------------------
+
+@test "plan-bound: --plan-only saves a plan that 'mimi apply' carries out and verifies" {
+  local app="$FAKE_HOME/Applications/Planned.app"
+  create_app "$app" "Planned" "com.example.planned" "1.0"
+
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --plan-only
+  [ "$status" -eq 0 ]
+  [ -d "$app" ]
+  local plan
+  plan="$(plan_file_from "$output")"
+  [ -f "$plan" ]
+  [ "$(stat -f '%Lp' "$plan")" = "600" ]
+
+  run /bin/bash "$MIMI_BIN" apply "$plan" --yes
+  [ "$status" -eq 0 ]
+  [ ! -e "$app" ]
+  echo "$output" | grep -q "application removed"
+}
+
+@test "plan-bound: a plan edited after it was written is refused" {
+  local app="$FAKE_HOME/Applications/Edited.app"
+  create_app "$app" "Edited" "com.example.edited" "1.0"
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --plan-only
+  local plan
+  plan="$(plan_file_from "$output")"
+  sed -i '' 's#"target_path": ".*Edited.app"#"target_path": "'"$FAKE_HOME"'/Documents"#' "$plan"
+
+  run /bin/bash "$MIMI_BIN" apply "$plan" --yes
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "digest mismatch"
+  [ -d "$app" ]
+}
+
+@test "plan-bound: a bundle replaced after planning is refused" {
+  local app="$FAKE_HOME/Applications/Swapped.app"
+  create_app "$app" "Swapped" "com.example.swapped" "1.0"
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --plan-only
+  local plan
+  plan="$(plan_file_from "$output")"
+  rm -rf "$app"
+  create_app "$app" "Swapped" "com.example.swapped" "2.0"
+
+  run /bin/bash "$MIMI_BIN" apply "$plan" --yes
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "changed since plan creation"
+  [ -d "$app" ]
+}
+
+@test "order: LaunchAgents are stopped and moved before the bundle" {
+  local app="$FAKE_HOME/Applications/Ordered.app"
+  create_app "$app" "Ordered" "com.example.ordered" "1.0"
+  cat > "$FAKE_HOME/Library/LaunchAgents/com.example.ordered.helper.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>Label</key><string>com.example.ordered.helper</string>
+<key>ProgramArguments</key><array><string>$app/Contents/MacOS/Ordered</string></array></dict></plist>
+PLIST
+  export MOCK_CALL_LOG="$TEST_TMPDIR/calls"
+
+  source_lib
+  app_inspect_bundle "$app"
+  collect_app_evidence "$APP_INFO_CANONICAL_PATH" "Ordered" "com.example.ordered" "" "Ordered"
+  plan_init
+  uninstall_build_plan "$APP_INFO_CANONICAL_PATH" "Ordered" "com.example.ordered"
+  plan_build ""
+  local first="${PLAN_ACTIONS[0]#*::}" second="${PLAN_ACTIONS[1]#*::}"
+  [ "${first%%::*}" = "uninstall-launchagent" ]
+  [ "${second%%::*}" = "uninstall-app" ]
+
+  uninstall_apply > /dev/null 2>&1
+  [ ! -e "$FAKE_HOME/Library/LaunchAgents/com.example.ordered.helper.plist" ]
+  grep -q "launchctl bootout gui/.*/com.example.ordered.helper" "$MOCK_CALL_LOG"
+}
+
+@test "verify: data recreated after planning is reported as a leftover" {
+  local app="$FAKE_HOME/Applications/Regrow.app"
+  create_app "$app" "Regrow" "com.example.regrow" "1.0"
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --plan-only --purge-data
+  local plan
+  plan="$(plan_file_from "$output")"
+  mkdir -p "$FAKE_HOME/Library/Caches/com.example.regrow"
+
+  run /bin/bash "$MIMI_BIN" apply "$plan" --yes
+  [ "$status" -eq 3 ]
+  echo "$output" | grep -q "leftover still present (new since the plan was made): .*Caches/com.example.regrow"
+}
+
+@test "history: an uninstall is recorded" {
+  local app="$FAKE_HOME/Applications/Hist.app"
+  create_app "$app" "Hist" "com.example.hist" "1.0"
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --yes
+  [ "$status" -eq 0 ]
+  local h="$FAKE_HOME/.config/mimi/history.jsonl"
+  [ -f "$h" ]
+  /usr/bin/python3 -c '
+import json, sys
+rec = [json.loads(l) for l in open(sys.argv[1])][-1]
+assert rec["type"] == "uninstall" and rec["status"] == "ok", rec
+assert rec["bundle_id"] == "com.example.hist" and rec["quarantined"] >= 1, rec
+' "$h"
+}
+
+@test "json: --json emits candidates, results, and a finished event" {
+  local app="$FAKE_HOME/Applications/Jay.app"
+  create_app "$app" "Jay" "com.example.jay" "1.0"
+  run --separate-stderr /bin/bash "$MIMI_BIN" app uninstall "$app" --yes --json
+  [ "$status" -eq 0 ]
+  echo "$output" | /usr/bin/python3 -c '
+import json, sys
+ev = [json.loads(l) for l in sys.stdin if l.strip()]
+types = [e["type"] for e in ev]
+assert types[0] == "hello", types
+assert "candidate" in types and "action_result" in types, types
+assert ev[-1]["type"] == "run_finished" and ev[-1]["status"] == "ok", ev[-1]
+'
+}
+
+# ---------------------------------------------------------------------------
+# P4-T05: Homebrew hand-off
+# ---------------------------------------------------------------------------
+
+@test "cask: --cask on an app Homebrew did not install is refused, not guessed" {
+  create_app "$FAKE_HOME/Applications/NotCask.app" "NotCask" "com.example.notcask" "1.0"
+  export MOCK_CALL_LOG="$TEST_TMPDIR/calls"
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/NotCask.app" --cask --yes
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -q "was not installed by Homebrew Cask"
+  ! grep -q "brew uninstall" "$MOCK_CALL_LOG" 2>/dev/null
+}
+
+@test "cask: a token brew does not list as installed is refused" {
+  mkdir -p "$FAKE_HOME/Caskroom/stale-cask/1.0"
+  create_app "$FAKE_HOME/Applications/Stale Cask.app" "Stale Cask" "com.example.stale" "1.0"
+  export MOCK_FAIL_CMDS="brew list*"
+  export MOCK_CALL_LOG="$TEST_TMPDIR/calls"
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Stale Cask.app" --cask --yes
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -q "refusing to guess"
+  ! grep -q "brew uninstall" "$MOCK_CALL_LOG"
+}
+
+@test "cask: --zap previews the cask's zap paths and flags shared ones" {
+  local meta="$FAKE_HOME/Caskroom/zappy/.metadata/1.0/20260101000000.000/Casks"
+  mkdir -p "$meta"
+  printf '{"token":"zappy","artifacts":[{"app":["Zappy.app"]},{"zap":[{"trash":["~/Library/Preferences/com.example.zappy.plist","~/Library/Group Containers/group.com.example.zappy"]}]}]}\n' \
+    > "$meta/zappy.json"
+  create_app "$FAKE_HOME/Applications/Zappy.app" "Zappy" "com.example.zappy" "1.0"
+  export MOCK_CALL_LOG="$TEST_TMPDIR/calls"
+
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Zappy.app" --zap --yes
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "Library/Preferences/com.example.zappy.plist"
+  echo "$output" | grep -q "\[shared\] .*Group Containers/group.com.example.zappy"
+  grep -q "brew uninstall --cask --zap zappy" "$MOCK_CALL_LOG"
+  /usr/bin/python3 -c '
+import json, sys
+rec = [json.loads(l) for l in open(sys.argv[1])][-1]
+assert rec["type"] == "cask-uninstall" and rec["exit"] == 0 and rec["zap"] == 1, rec
+' "$FAKE_HOME/.config/mimi/history.jsonl"
+}
+
+@test "cask: a failing brew is reported and recorded" {
+  mkdir -p "$FAKE_HOME/Caskroom/broken-cask/1.0"
+  create_app "$FAKE_HOME/Applications/Broken Cask.app" "Broken Cask" "com.example.broken" "1.0"
+  export MOCK_FAIL_CMDS="brew uninstall*"
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Broken Cask.app" --cask --yes
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "Homebrew cask uninstall failed"
+  grep -q '"type":"cask-uninstall","status":"failed"' "$FAKE_HOME/.config/mimi/history.jsonl"
+}
+
+# ---------------------------------------------------------------------------
+# P4-T06: restore
+# ---------------------------------------------------------------------------
+
+@test "restore: bundle and data come back with the same identity, and a second restore is harmless" {
+  local app="$FAKE_HOME/Applications/Back.app"
+  create_app "$app" "Back" "com.example.back" "1.0"
+  printf 'setting\n' > "$FAKE_HOME/Library/Preferences/com.example.back.plist"
+  local ident_app
+  ident_app="$(stat -f '%d:%i' "$app")"
+
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --purge-data --yes
+  local run_id
+  run_id="$(run_id_from "$output")"
+  [ -n "$run_id" ]
+
+  run /bin/bash "$MIMI_BIN" restore "$run_id"
+  [ "$status" -eq 0 ]
+  [ "$(stat -f '%d:%i' "$app")" = "$ident_app" ]
+  [ "$(cat "$FAKE_HOME/Library/Preferences/com.example.back.plist")" = "setting" ]
+  echo "$output" | grep -q "re-register their login items"
+
+  run /bin/bash "$MIMI_BIN" restore "$run_id"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "already restored"
+}
+
+@test "restore: a reinstalled app is never overwritten" {
+  local app="$FAKE_HOME/Applications/Again.app"
+  create_app "$app" "Again" "com.example.again" "1.0"
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --yes
+  local run_id
+  run_id="$(run_id_from "$output")"
+  create_app "$app" "Again" "com.example.again" "2.0"
+
+  run /bin/bash "$MIMI_BIN" restore "$run_id"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "something already exists at"
+  grep -q "<string>2.0</string>" "$app/Contents/Info.plist"
+  ls "$FAKE_HOME/.config/mimi/quarantine/$run_id" | grep -q "Again.app__"
+}
+
+@test "restore: LaunchAgents come back with a note that they are not running" {
+  local app="$FAKE_HOME/Applications/Agented.app"
+  create_app "$app" "Agented" "com.example.agented" "1.0"
+  printf '<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.example.agented</string></dict></plist>\n' \
+    > "$FAKE_HOME/Library/LaunchAgents/com.example.agented.plist"
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --yes
+  [ ! -e "$FAKE_HOME/Library/LaunchAgents/com.example.agented.plist" ]
+  local run_id
+  run_id="$(run_id_from "$output")"
+
+  run /bin/bash "$MIMI_BIN" restore "$run_id"
+  [ "$status" -eq 0 ]
+  [ -f "$FAKE_HOME/Library/LaunchAgents/com.example.agented.plist" ]
+  echo "$output" | grep -q "launchctl bootstrap gui/"
+}
+
+@test "gate: user documents named after the app survive even --purge-data" {
+  local app="$FAKE_HOME/Applications/Writer.app"
+  create_app "$app" "Writer" "com.example.writer" "1.0"
+  mkdir -p "$FAKE_HOME/Documents/Writer" "$FAKE_HOME/Desktop/Writer" "$FAKE_HOME/.writer"
+  printf 'my novel\n' > "$FAKE_HOME/Documents/Writer/novel.txt"
+  printf 'notes\n' > "$FAKE_HOME/.writer/config"
+  touch "$FAKE_HOME/Library/Preferences/com.example.writer.plist"
+
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --purge-data --yes
+  [ "$status" -eq 0 ]
+  [ "$(cat "$FAKE_HOME/Documents/Writer/novel.txt")" = "my novel" ]
+  [ -d "$FAKE_HOME/Desktop/Writer" ]
+  # A name-only dotfolder is weak evidence: kept, never moved.
+  [ -f "$FAKE_HOME/.writer/config" ]
+  [ ! -e "$FAKE_HOME/Library/Preferences/com.example.writer.plist" ]
 }

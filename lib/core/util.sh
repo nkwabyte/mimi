@@ -36,7 +36,12 @@ dir_size_kb() {
   # volume (most visibly /Library, which has the Xcode simulator runtime
   # volumes under Developer/CoreSimulator) reports several times its real
   # on-disk size and every total built from it is wrong.
-  du -skx "$p" 2>/dev/null | awk '{print $1}' | tail -1
+  # One process: `du -s` prints a single "<kb>\t<path>" line.
+  local out
+  out="$(du -skx "$p" 2>/dev/null)"
+  out="${out##*$'\n'}"
+  out="${out%%[[:space:]]*}"
+  printf '%s' "${out:-0}"
 }
 
 # LOGICAL (apparent) size of a single file, in KB — what the file claims to be

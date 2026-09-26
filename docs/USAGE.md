@@ -270,6 +270,67 @@ for name matching at all.
 The bundle footprint is reported separately from the attributable-data
 estimate, and both separately from what is retained.
 
+### `mimi app uninstall <target>`
+
+Removes an application by **moving it to quarantine**, never by deleting it.
+The target resolves exactly like `app inspect`.
+
+```bash
+mimi app uninstall Slack                    # asks once whether to include user data
+mimi app uninstall Slack --purge-data       # bundle + LaunchAgents + attributable data
+mimi app uninstall Slack --keep-data        # bundle + LaunchAgents only
+mimi app uninstall Slack --plan-only        # write the plan; nothing moves
+mimi apply ~/.config/mimi/plans/uninstall-<id>.json
+mimi restore uninstall-<id>                 # undo, until…
+mimi purge uninstall-<id>                   # …you release the space for good
+```
+
+What happens, in order:
+
+1. **Refusals.** System and Apple apps, bundles without a bundle ID or with a
+   signature that contradicts it, symlinked bundles, and anything that is not
+   an `.app` directly in an application folder (or one vendor folder down)
+   are refused.
+2. **Plan.** LaunchAgents that belong to the app, then the bundle, then — if
+   included — attributable user data. Everything the evidence could not
+   attribute (weak, shared, conflicting, system locations) and any data you
+   chose to keep is written into the plan as **kept**. The plan is saved
+   `0600` and is valid for 24 hours.
+3. **Preflight.** The saved plan file — not an in-memory copy — goes through
+   the same checks as `mimi apply`: digest, expiry, user, and file identity.
+   An edited plan, or a bundle replaced since planning, is refused.
+4. **Running app.** It is asked to quit normally, so it can offer to save.
+   If it is still running after 10 seconds (often a save dialog), force-quitting
+   needs a person at the terminal or `--force-risky app-terminate`. `--yes`
+   cannot approve it: quarantine can bring files back, not unsaved work.
+5. **Apply.** Each LaunchAgent is stopped (`launchctl bootout gui/<uid>/<Label>`)
+   and moved, then the bundle, then the data.
+6. **Verify.** The bundle is gone, every kept item is still there, and
+   anything attributable that is still present is reported as a leftover
+   (exit `3`).
+
+The run is recorded in `~/.config/mimi/history.jsonl`. `--json` streams the
+same protocol events as `apply`.
+
+**User data by default.** At a terminal you are asked once. Without one, or
+with `--yes`, user data is kept and the run tells you to pass `--purge-data`.
+Your documents are never part of an uninstall: only Library locations the
+evidence ties to the app are candidates.
+
+**Restore** puts the bundle and data back as the same files. Running it
+twice is harmless. If the app was reinstalled in the meantime, the original
+path is never overwritten: the quarantined copy stays put and the run says so.
+Restored LaunchAgents start at your next login (or with
+`launchctl bootstrap gui/$(id -u) <plist>`), and a restored app re-registers
+its login items when it is next opened.
+
+**Homebrew casks.** `--cask` hands the uninstall to `brew uninstall --cask`,
+and only for an app Homebrew installed and still lists. `--zap` also removes
+the files the cask's `zap` stanza lists. mimi previews those paths and flags
+shared ones such as App Group containers. Homebrew deletes them directly, so
+they are **not** restorable by mimi. The command and its exit status are
+recorded in the history file.
+
 ---
 
 ## Interactive mode
@@ -402,6 +463,7 @@ Whitelist  (2 entries)
 | `purge <run-id>`, `--purge <id>` | Permanently deletes a quarantined run after explicit confirmation. |
 | `apps [list]` | Read-only application inventory. `--json` emits `schemas/apps-list-v1.json`. |
 | `app inspect <target>` | Read-only footprint, provenance, signing, and remnant evidence for one app. `--json` emits `schemas/app-inspect-v1.json`. |
+| `app uninstall <target>` | Move an app (and optionally its data) to quarantine through a saved, preflighted plan. `--keep-data`, `--purge-data`, `--plan-only`, `--cask`, `--zap`. See [its section](#mimi-app-uninstall-target). |
 | `--report` | Print a full disk breakdown, then exit. Deletes nothing. |
 | `--list` | Print every category id, risk and default state, then exit. |
 | `-i`, `--interactive` | Force the menu even when other flags are present. |
