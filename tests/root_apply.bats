@@ -459,3 +459,21 @@ acme_pkg() {
   [ "$(echo "$output" | awk -F'\t' '$1 ~ /^sys-/' | wc -l | tr -d ' ')" = 1 ]
   echo "$output" | grep -q "	payload	$R/Library/Application Support/Dup	"
 }
+
+@test "root: works with a plutil that prints its errors to stdout (macOS 14)" {
+  setup_root; acme
+  daemon com.acme.socket com.acme.socket "$R/Library/PrivilegedHelperTools/com.acme.socket" com.acme.app
+  helper com.acme.socket
+  # Wrap the real plutil the way macOS 14 behaves: a missing key prints the
+  # error on stdout and exits 1.
+  mkdir -p "$TEST_TMPDIR/oldbin"
+  cat > "$TEST_TMPDIR/oldbin/plutil" <<'SH'
+#!/bin/sh
+out="$(/usr/bin/plutil "$@" 2>&1)"; rc=$?
+[ "$rc" = 0 ] || { echo "Could not extract value, error: No value at that key path or invalid key path"; exit "$rc"; }
+printf '%s\n' "$out"
+SH
+  chmod +x "$TEST_TMPDIR/oldbin/plutil"
+  PATH="$TEST_TMPDIR/oldbin:$PATH" run candidates com.acme.app
+  [ "$(echo "$output" | awk -F'\t' '$1 ~ /^sys-/ {print $2}' | sort | tr '\n' ' ')" = "daemon daemon helper helper " ]
+}

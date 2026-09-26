@@ -147,6 +147,7 @@ release() { run /bin/bash -c 'cd "$1" && shift && /bin/bash scripts/release.sh "
   done
   echo "$output" | grep -q "\[dry-run\] git push origin v0.2.0"
   echo "$output" | grep -q "\[dry-run\] gh release create v0.2.0"
+  echo "$output" | grep -q "\[dry-run\] gh pr checks .* --watch --fail-fast"
   echo "$output" | grep -q "Dry run complete"
   [ "$(cd "$WORK" && git rev-parse HEAD; git tag; cat CHANGELOG.md lib/core/globals.sh)" = "$before" ]
   ! grep -q -E 'gh (pr create|pr merge|release create)' "$GH_LOG"

@@ -30,7 +30,9 @@ machine:
 3. **Bump**: `bump-version.sh`, then commits `release: vX.Y.Z` on `dev` and
    pushes it.
 4. **Pull request** `dev → main`: opened (or an open one reused) with the
-   release notes, then merged.
+   release notes. The script waits for its CI checks (`gh pr checks
+   --watch`) and stops if they fail — CI runs on an older macOS than most
+   development machines — then merges.
 5. **Verify** that `origin/main` carries the new `MIMI_VERSION` and changelog.
 6. **Tag** `vX.Y.Z` on `origin/main` and push the tag.
 7. **Publish** the GitHub release with the notes from `CHANGELOG.md`. This

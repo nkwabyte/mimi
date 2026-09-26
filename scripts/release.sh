@@ -21,7 +21,8 @@
 #   2. Runs the full test suite.
 #   3. Bumps MIMI_VERSION and dates CHANGELOG.md (scripts/bump-version.sh),
 #      commits "release: vX.Y.Z" on dev, pushes dev.
-#   4. Opens (or reuses) the dev -> main pull request and merges it.
+#   4. Opens (or reuses) the dev -> main pull request, waits for its CI
+#      checks to pass, and merges it.
 #   5. Verifies main carries MIMI_VERSION X.Y.Z.
 #   6. Tags main as vX.Y.Z and pushes the tag.
 #   7. Publishes the GitHub release with the CHANGELOG.md notes. Publishing
@@ -142,6 +143,18 @@ if [ "$PUBLISH_ONLY" = 0 ]; then
     pr="$(gh pr list -R "$GITHUB_REPO" --base "$MAIN_BRANCH" --head "$DEV_BRANCH" --state open --json number --jq '.[0].number')"
     [ -n "$pr" ] || die "could not find the pull request that was just created"
     ok "opened pull request #$pr"
+  fi
+  # CI runs on an older macOS than most development machines; a release
+  # must not merge while it is red or still running.
+  if [ "$DRY_RUN" = 1 ]; then
+    run gh pr checks -R "$GITHUB_REPO" "$pr" --watch --fail-fast
+  else
+    info "waiting for CI on pull request #$pr ..."
+    sleep 10
+    if ! gh pr checks -R "$GITHUB_REPO" "$pr" --watch --fail-fast; then
+      die "CI failed on pull request #$pr; fix it on $DEV_BRANCH and run this again (the PR is reused)"
+    fi
+    ok "CI passed on pull request #$pr"
   fi
   ask "Merge pull request #$pr into $MAIN_BRANCH?" || die "stopped before merging; merge #$pr yourself, then run: scripts/release.sh $version --publish-only"
   if ! run gh pr merge -R "$GITHUB_REPO" "$pr" --merge; then
