@@ -1638,6 +1638,21 @@ found and closed:
 - Phase 5 exit gate: all items met except the independent review, which the
   owner has arranged.
 
+### 2026-09-27 — CI failure on macos-14 after v0.2.0
+
+- CI (`macos-14`) failed the launchd tests in `tests/root_apply.bats`; they
+  passed locally (macOS 27). Cause: on macOS 14, `plutil -extract` prints
+  "Could not extract value…" to stdout for a missing key, so the root tool
+  read error text as `AssociatedBundleIdentifiers` and as the program path.
+  It failed safe (nothing attributable), but shipped in v0.2.0.
+- Fixed in `libexec/mimi-root-apply` (`plist_str`, the association lookup)
+  and in `lib/apps/inventory.sh` / `lib/apps/evidence.sh`: plutil output is
+  used only when it exits 0. Regression test wraps plutil with the macOS 14
+  behaviour; confirmed the committed tool fails it and the fix passes.
+- Actions bumped to `checkout@v7` / `upload-artifact@v7` (Node 24).
+- Lesson: the release script runs the local suite only; CI runs on an older
+  macOS. Consider waiting for CI on the release PR before merging.
+
 ## 22. Next-session handoff template
 
 Copy and fill this section at the end of an implementation session:
