@@ -214,6 +214,11 @@ mimi apply ~/.config/mimi/plans/plan-*.json
 # 5. Restore or purge a quarantined run
 mimi restore <run-id>
 mimi purge <run-id>
+
+# 6. Inventory and inspect applications (read-only, zero mutation)
+mimi apps list
+mimi app inspect Slack
+mimi app inspect "com.tinyspeck.slackmacgap" --json
 ```
 
 `--scan` (or `mimi scan`, the default) **never deletes anything**. You always have to pass
@@ -232,6 +237,7 @@ lib/
   core/             # globals, util, validate, config, orchestrator (core.sh)
   safety/           # canonical path resolution, confirmation gates, checked mutation
   transaction/      # execution plans (plan.sh), quarantine & rollback (quarantine.sh)
+  apps/             # installed app inventory (inventory.sh), evidence (evidence.sh), inspect (inspect.sh)
   cleaners/         # category registry, clean handlers, orphan analysis
   ui/               # log, JSON Lines protocol v1, usage/help, report, interactive TUI
 schemas/            # JSON Schema specifications (protocol-v1.json, plan-v1.json)
@@ -482,12 +488,12 @@ compares every entry against every app actually installed on your Mac
 (found via Spotlight, so it doesn't matter where the app lives). Anything
 left over with no matching installed app is a candidate.
 
-> **This category never deletes anything.** Not with `--cleaner`, not with
-> `--yes`, not with `--aggressive`, not with `--force-risky`. It writes a
-> report. The only way any of it can be removed is to read that report, decide
-> for yourself, and pass it back with `--remove-orphans-from` — which is
-> itself an irreversible-class action needing a terminal or
-> `--force-risky orphans`.
+> **To remove them all:** `mimi clean --only orphans --remove-orphans` (or tick
+> `orphans` in the menus and press `c`). Every leftover, `[strong]` and
+> `[weak]`, is **moved to a quarantine run** rather than deleted —
+> `mimi restore orphans-<timestamp>` puts it all back,
+> `mimi purge orphans-<timestamp>` releases the space. Without
+> `--remove-orphans`, the category only reports.
 
 The reason is what the scan actually knows. It works by **absence**: an entry
 is listed because no installed application claimed its name. That is not
@@ -562,12 +568,13 @@ them: this is not a general "delete these paths" flag.
 
 ```bash
 # 1. Preview only — nothing is touched
-mimi --only orphans --include-orphans --scan
+mimi scan --only orphans --remove-orphans
 
-# 2. Open the generated review file. Delete the line — or put a # in its
-#    first column — for everything you want to KEEP.
+# 2a. Move everything found to quarantine (undo with restore):
+mimi clean --only orphans --remove-orphans
 
-# 3. Remove exactly what is left:
+# 2b. …or remove a hand-picked subset: delete the lines you want to KEEP from
+#     the generated review file, then:
 mimi --cleaner --remove-orphans-from "<path from step 1 output>"
 ```
 
@@ -709,8 +716,9 @@ mimi --list
 --include-trash            Opt into emptying ~/.Trash
 --include-mail             Opt into clearing Mail's download cache
 --include-docker           Opt into `docker system prune -af --volumes`
---include-orphans          Opt into REPORTING possible app leftovers (never
-                           deletes; see --remove-orphans-from)
+--include-orphans          Opt into reporting possible app leftovers
+--remove-orphans           Move every leftover found to quarantine (use with
+                           clean; undo with restore, free with purge)
 --remove-orphans-from FILE Remove exactly the paths listed in a reviewed
                            orphans report this tool wrote
 --include-whatsapp         Opt into WhatsApp's expired Status/Stories cache

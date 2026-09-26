@@ -1,0 +1,22 @@
+#!/bin/sh
+# Mock: pkgutil — Installer receipt database (read-only queries only).
+#
+# `pkgutil --file-info PATH` prints the volume/path header and, when
+# MOCK_PKG_INDEX maps PATH to a package id ("path|pkgid" per line), a
+# "pkgid:" line for each mapping. Every other invocation fails, so a test
+# notices if the code ever tries to forget or modify a receipt.
+if [ -n "${MOCK_CALL_LOG:-}" ]; then
+  printf '%s %s\n' "$(basename "$0")" "$*" >> "$MOCK_CALL_LOG"
+fi
+case "$1" in
+  --file-info)
+    p="$2"
+    printf 'volume: /\npath: %s\n' "$p"
+    if [ -n "${MOCK_PKG_INDEX:-}" ] && [ -f "${MOCK_PKG_INDEX}" ]; then
+      awk -F'|' -v a="$p" '$1 == a { print "\npkgid: " $2 "\npkg-version: 1.0" }' "$MOCK_PKG_INDEX"
+    fi
+    exit 0
+    ;;
+esac
+echo "pkgutil (mock): unsupported invocation: $*" >&2
+exit 1

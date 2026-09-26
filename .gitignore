@@ -28,6 +28,8 @@
 .VolumeIcon.icns
 .com.apple.timemachine.donotpresent
 
+docs/info.txt
+
 # Editors and IDEs
 .idea/
 .vscode/

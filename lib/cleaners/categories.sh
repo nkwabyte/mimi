@@ -502,17 +502,24 @@ cat_mail() {
   clear_dir_contents "$HOME_DIR/Library/Containers/com.apple.mail/Data/Library/Mail Downloads"
 }
 
-# This category is report-only, under every flag, in every mode.
-#
 # It works by absence: an entry is listed because no installed application
-# claimed its name. That is a guess, not ownership — an app can rename itself,
-# ship helpers under its own prefix, live on a volume that is not mounted, or
-# simply not be in Spotlight's index yet. Acting on a guess is what makes an
-# "orphan cleaner" dangerous, so the only way anything here can be deleted is
-# to read the generated file, decide for yourself, and pass it back with
-# --remove-orphans-from, which revalidates every line (see P0-T04).
+# (or installed command-line tool) claimed its name. That is a guess, not
+# ownership — an app can rename itself, ship helpers under its own prefix,
+# live on a volume that is not mounted, or not be in Spotlight's index yet.
+#
+# By default the category reports and writes a review file. With
+# --remove-orphans on a clean (or the orphans category ticked for a clean in
+# the menus) every candidate, strong and weak, is MOVED TO QUARANTINE rather
+# than deleted: because the list is a guess, the removal has to be undoable.
+# `mimi restore <run-id>` puts everything back; `mimi purge <run-id>` frees
+# the space for good. The review file and --remove-orphans-from remain for
+# removing a hand-picked subset.
 cat_orphans() {
-  section "Possible application leftovers (report only)"
+  if [ "$MODE" = "clean" ] && [ "$REMOVE_ORPHANS" = 1 ]; then
+    section "Application leftovers (moving to quarantine)"
+  else
+    section "Possible application leftovers (report only)"
+  fi
   if [ "$INCLUDE_ORPHANS" != 1 ]; then
     warn "skipped (opt-in only, pass --include-orphans; try --only orphans --include-orphans --scan first to preview)"
     return
@@ -551,9 +558,18 @@ cat_orphans() {
 
   say ""
   info "[strong] = the folder is named by bundle id and no installed app claims that id."
-  info "[weak]   = the name is a guess (bare words, OS service names, UUIDs, or the"
-  info "           app index was incomplete). A [weak] entry is NOT evidence that any"
-  info "           application was uninstalled."
+  info "[weak]   = the name is a guess (bare words, UUIDs, or the app index was"
+  info "           incomplete). A [weak] entry is NOT evidence that any application"
+  info "           was uninstalled."
+
+  if [ "$MODE" = "clean" ] && [ "$REMOVE_ORPHANS" = 1 ]; then
+    orphans_quarantine_all "$total_kb"
+    return 0
+  fi
+  if [ "$REMOVE_ORPHANS" = 1 ]; then
+    info "(scan mode — with clean, these $n item(s) would be moved to quarantine)"
+    return 0
+  fi
   warn "Both tiers are heuristic. Neither is removed by this scan."
 
   local review_file="$LOG_DIR/orphans-review-$TIMESTAMP.txt"
@@ -565,12 +581,82 @@ cat_orphans() {
     warn "$ORPHAN_REVIEW_SKIPPED candidate(s) contain a newline in their name and could not be"
     warn "listed in a line-based file; remove those by hand."
   fi
-  info "Nothing here is deleted by --clean. To remove some of it, open that file,"
-  info "delete or comment out every line you want to KEEP, then run:"
-  info "  ./$SCRIPT_NAME --clean --remove-orphans-from \"$review_file\""
+  info "To move ALL of them to quarantine (undo with 'restore'), run:"
+  info "  $SCRIPT_NAME clean --only orphans --remove-orphans"
+  info "To remove only some, delete the lines you want to KEEP from that file, then run:"
+  info "  $SCRIPT_NAME clean --remove-orphans-from \"$review_file\""
 
   # Deliberately NOT added to TOTAL_BEFORE_KB: that figure answers "how much
   # would --clean free", and --clean frees none of this.
+  return 0
+}
+
+# Move every current orphan candidate into one quarantine run.
+#
+# Every path goes through the same checks as a reviewed-file line
+# (validate_orphan_target: still exists, a direct child of a scanned root,
+# canonical, not whitelisted) immediately before it is moved, and SIP-protected
+# entries are left alone. A user LaunchAgent is stopped first so it does not
+# keep running from the quarantine.
+orphans_quarantine_all() {
+  local total_kb="${1:-0}" n="${#ORPHAN_CANDIDATE_PATHS[@]}"
+  local run_id="orphans-$TIMESTAMP" i p canon ident size moved=0 moved_kb=0
+
+  say ""
+  info "Moving $n leftover(s) ($(human_kb "$total_kb")) to quarantine run $run_id ..."
+  if ! quarantine_init_run "$run_id"; then
+    err "could not create the quarantine run; nothing was moved"
+    record_action failed
+    return 1
+  fi
+
+  for ((i = 0; i < n; i++)); do
+    p="${ORPHAN_CANDIDATE_PATHS[$i]}"
+    if interrupted; then
+      record_action skipped
+      continue
+    fi
+    if ! validate_orphan_target "$p"; then
+      case "$ORPHAN_DENY_REASON" in
+        missing) verbose "gone before it was moved: $p" ;;
+        whitelisted) record_action skipped; info "whitelisted, skipped: $p" ;;
+        *) record_action skipped; warn "refused ($(orphan_deny_message)): $p" ;;
+      esac
+      continue
+    fi
+    canon="$ORPHAN_CANONICAL"
+    if path_is_sip_protected "$canon"; then
+      record_action protected
+      verbose "protected by macOS (System Integrity Protection), left alone: $canon"
+      continue
+    fi
+    ident="$(path_identity "$canon")" || ident=""
+    size="$(dir_size_kb "$canon")"
+    if [[ "$canon" == *"/LaunchAgents/"* ]]; then
+      unload_launch_agent "$canon" || true
+    fi
+    if quarantine_target "orphan-$i" "orphans" "$canon" "$ident" "$((size * 1024))"; then
+      record_action ok
+      moved=$((moved + 1))
+      moved_kb=$((moved_kb + size))
+      ok "quarantined: $canon  ($(human_kb "$size"))"
+      [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "quarantined" "$canon" "$((size * 1024))"
+    else
+      record_action failed
+      err "could not move to quarantine: $canon"
+    fi
+  done
+
+  say ""
+  if [ "$moved" -gt 0 ]; then
+    ok "$moved leftover(s), $(human_kb "$moved_kb"), moved to quarantine run $run_id"
+    info "Something missing from an app? Put everything back with:"
+    info "  $SCRIPT_NAME restore $run_id"
+    info "The space is released once you are sure, with:"
+    info "  $SCRIPT_NAME purge $run_id"
+  else
+    info "nothing was moved"
+  fi
   return 0
 }
 

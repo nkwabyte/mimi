@@ -1,0 +1,39 @@
+#!/bin/sh
+# Mock: codesign — signature display only (`codesign -d --verbose=2 PATH`).
+#
+# Reports "not signed" unless MOCK_CODESIGN_INDEX maps PATH to a signature,
+# one "<path>|<identifier>|<team id>|<authority>" line per bundle. An
+# authority of "adhoc" reports an ad-hoc signature with no Team ID. Output
+# goes to stderr, as the real codesign's does. Any other operation (signing,
+# removing a signature) fails.
+if [ -n "${MOCK_CALL_LOG:-}" ]; then
+  printf '%s %s\n' "$(basename "$0")" "$*" >> "$MOCK_CALL_LOG"
+fi
+case "$1" in
+  -d|--display) ;;
+  *) echo "codesign (mock): unsupported invocation: $*" >&2; exit 1 ;;
+esac
+p=""
+for arg in "$@"; do p="$arg"; done
+if [ -n "${MOCK_CODESIGN_INDEX:-}" ] && [ -f "${MOCK_CODESIGN_INDEX}" ]; then
+  line="$(awk -F'|' -v a="$p" '$1 == a { print; exit }' "$MOCK_CODESIGN_INDEX")"
+  if [ -n "$line" ]; then
+    ident="$(printf '%s' "$line" | cut -d'|' -f2)"
+    team="$(printf '%s' "$line" | cut -d'|' -f3)"
+    auth="$(printf '%s' "$line" | cut -d'|' -f4)"
+    {
+      printf 'Executable=%s/Contents/MacOS/x\n' "$p"
+      printf 'Identifier=%s\n' "$ident"
+      if [ "$auth" = "adhoc" ]; then
+        printf 'Signature=adhoc\n'
+        printf 'TeamIdentifier=not set\n'
+      else
+        printf 'Authority=%s\n' "$auth"
+        printf 'TeamIdentifier=%s\n' "${team:-not set}"
+      fi
+    } >&2
+    exit 0
+  fi
+fi
+printf '%s: code object is not signed at all\n' "$p" >&2
+exit 1
