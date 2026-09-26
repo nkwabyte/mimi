@@ -34,7 +34,7 @@ Next tasks (agreed 2026-09-26):
 
 1. ~~Release hygiene~~ — done 2026-09-26.
 2. ~~Phase 6 selectively~~ — `P6-T05`, `P6-T07`, `P6-T11`, TUI tests done 2026-09-26. Remaining performance items are in the parking lot.
-3. Phase 5 (privileged scope) last, starting with the `P5-T03` design decision.
+3. Phase 5: `P5-T01`–`P5-T05` done (option B, DEC-061, two slices). Waiting on the independent review of `libexec/mimi-root-apply` to close the exit gate.
 
 ## 4. Baseline snapshot
 
@@ -795,42 +795,52 @@ Phase objective: handle system-installed components without turning the applicat
 
 ### `P5-T01` — Vendor uninstaller policy
 
-- [ ] Verify identity and location before offering hand-off.
-- [ ] Display exact executable/arguments and privilege implications.
-- [ ] Never silently run arbitrary scripts discovered inside an app.
+Status: `[x]` complete — 2026-09-26
+
+- [x] Verify identity and location before offering hand-off. *(`uninstall_vendor_check`: the uninstaller found for this app, inside the bundle or its vendor folder, not a symlink, an application bundle, signed with the SAME Team ID as the app)*
+- [x] Display exact executable/arguments and privilege implications. *(`app uninstall --vendor-uninstaller` shows `open -W -n <path>` and warns it may ask for an admin password and is not restorable; `app inspect` states whether the hand-off is allowed and why)*
+- [x] Never silently run arbitrary scripts discovered inside an app. *(scripts, command files, binaries, and .pkg are never run; launching is the irreversible action `vendor-uninstaller` — typed confirmation or `--force-risky vendor-uninstaller`, never `--yes`; recorded in `history.jsonl`)*
 
 ### `P5-T02` — Package receipt ownership graph
 
-- [ ] Map receipt payloads to canonical paths.
-- [ ] Detect paths owned by multiple installed receipts.
-- [ ] Keep shared and uncertain payloads.
-- [ ] Treat `pkgutil --forget` as bookkeeping after verified removal, not deletion.
+Status: `[x]` complete — 2026-09-26 (report-only; removal belongs to `P5-T05`)
+
+- [x] Map receipt payloads to canonical paths. *(`lib/apps/receipts.sh`: payload resolved against each package's install location; grouped at the first non-structural path)*
+- [x] Detect paths owned by multiple installed receipts. *(index of every third-party receipt, built once per run (~1 s for 52 packages / 135k paths); shared items split up to two levels to find exclusive parts. `pkgutil --file-info` misses packages with their own install location, so it is not relied on — the same index now also attributes such apps to their package)*
+- [x] Keep shared and uncertain payloads. *(reported as `shared` with the other owners; nothing is acted on yet)*
+- [x] Treat `pkgutil --forget` as bookkeeping after verified removal, not deletion. *(never run; the mock fails on anything but read-only queries; documented for `P5-T05`)*
 
 ### `P5-T03` — Privileged architecture decision
 
-- [ ] Threat-model helper installation, update, XPC, caller identity, plan replay, and self-removal.
-- [ ] Prototype current Service Management behavior on supported macOS versions.
-- [ ] Choose native helper design and record the decision before implementation.
+Status: `[x]` complete — decided 2026-09-26: option B (DEC-061)
+
+- [x] Threat-model helper installation, update, XPC, caller identity, plan replay, and self-removal. *(`docs/PRIVILEGED_DESIGN.md` §2)*
+- [-] Prototype current Service Management behavior on supported macOS versions. *(only relevant to option C, not chosen; needs a Developer ID-signed app bundle)*
+- [x] Choose native helper design and record the decision before implementation. *(B: a minimal standalone `sudo` tool; C revisited with the GUI)*
 
 ### `P5-T04` — Narrow helper protocol
 
-- [ ] Accept typed, plan-bound actions only.
-- [ ] Independently verify plan, caller, identity, canonical root, and ownership.
-- [ ] Expose no arbitrary path deletion or command execution.
-- [ ] Log exact results without secrets.
+Status: `[x]` complete — 2026-09-26 (as the request format of option B)
+
+- [x] Accept typed, plan-bound actions only. *(request v1: `bundle_id=` plus `select=sys-<id>` lines; anything else is rejected)*
+- [x] Independently verify plan, caller, identity, canonical root, and ownership. *(root re-derives candidates; ids bind kind + path + device:inode; request owned by `SUDO_UID`, not group/world-writable, < 1 h old; root-owned regular files only; fixed roots)*
+- [x] Expose no arbitrary path deletion or command execution. *(a request cannot contain a path; the only external commands are fixed: `launchctl bootout`, `plutil`, `pkgutil --file-info`, `mv`)*
+- [x] Log exact results without secrets. *(per-run `manifest.tsv` and `info.tsv`; mimi records `system-request` in `history.jsonl`)*
 
 ### `P5-T05` — System-scope plan/apply
 
-- [ ] Add one supported system artifact class at a time.
-- [ ] Request privilege only when applying exact reviewed actions.
-- [ ] Test denial, cancellation, stale plans, partial failure, and rollback limitations.
+Status: `[x]` complete — 2026-09-26 (two slices); independent review pending
+
+- [x] Add one supported system artifact class at a time. *(slice 1: LaunchDaemons, system LaunchAgents, privileged helper tools; slice 2: exclusive package payload in allowed roots, and `pkgutil --forget` at purge once every item is verified gone)*
+- [x] Request privilege only when applying exact reviewed actions. *(`mimi app uninstall <app> --system` writes the request and prints the `sudo` command; mimi never calls sudo; typed bundle id at apply)*
+- [x] Test denial, cancellation, stale plans, partial failure, and rollback limitations. *(`tests/root_apply.bats`: forged ids, paths in requests, replaced files, writable/stale/foreign requests, wrong confirmation, occupied restore, purge confirmation, run-id traversal, no-root refusal)*
 
 ### Phase 5 exit gate
 
-- [ ] Independent security review passes.
-- [ ] Shared receipt payloads remain protected.
-- [ ] The helper cannot act outside plan-bound allowed operations.
-- [ ] Helper update and self-removal are tested.
+- [ ] Independent security review passes. *(in progress 2026-09-26: external reviewer, plus `/security-review`)*
+- [x] Shared receipt payloads remain protected. *(`tests/root_apply.bats`: shared items listed as not attributable, never selected; receipts kept while any item remains)*
+- [x] The helper cannot act outside plan-bound allowed operations. *(requests select derived ids only; forged ids, paths, replaced files, stale/foreign requests, and run-id traversal refused by test)*
+- [x] Helper update and self-removal are tested. *(`--install` (update = reinstall, stale copy detected by mimi) and `--uninstall-tool`, keeping quarantine runs)*
 
 ## 13. Phase 6 — Cleaner expansion and performance
 
@@ -1064,12 +1074,13 @@ Resolve decisions only when their owning phase needs them. Do not let later-phas
 | 2026-09-26 | DEC-058 | In the interactive UI, the category selection is the confirmation: a menu clean answers the whole-run gate and authorizes each selected risky/irreversible category as `--force-risky` would, and nothing unselected. CLI prompts are unchanged. | The user reviews every category and its colour-coded risk before pressing `c`; further prompts duplicated that decision. The CLI keeps its gates because a flag in a script is easy to forget, which is the rationale of DEC-029–DEC-033. | `lib/ui/tui.sh`, `lib/safety/confirm.sh`, `tests/confirmations.bats` |
 | 2026-09-26 | DEC-059 | Orphan leftovers can be removed in bulk: `--remove-orphans` (or the orphans category ticked for a menu clean) moves every candidate, strong and weak, to a quarantine run. Naming the flag is the authorization; no review file or `--force-risky`. | The review-file round trip was too inconvenient to use. Bulk removal of a heuristic list is only acceptable because it is undoable: quarantine plus `restore`, with space released only by an explicit `purge`. Obvious non-leftovers (macOS structure, installed CLI tools) are excluded first. | `P0-T06` (amended), `lib/cleaners/categories.sh`, `lib/cleaners/orphans.sh` |
 | 2026-09-26 | DEC-060 | Uninstalls are ordinary plans executed from the saved file by the shared executor (`plan_execute_loaded`). App bundles are authorized by a dedicated rule (`uninstall_authorize_bundle`) rather than by adding application folders to `path_authorize`'s roots. Plans gain a no-op `retain` operation recording what must survive. Force-quitting an app is the risky action `app-terminate`. | Widening the global allowed roots to /Applications would let every cleaner reach it; a category-scoped rule keeps the blast radius to one bundle. Recording retained items in the plan makes "shared resources survive" verifiable from the plan alone. Unsaved work is the one thing quarantine cannot restore. | `P4-T01`–`P4-T06`, `lib/apps/uninstall.sh`, `lib/core/core.sh`, `lib/transaction/plan.sh`, `schemas/plan-v1.json` |
+| 2026-09-26 | DEC-061 | Privileged scope uses option B: a standalone `libexec/mimi-root-apply` run explicitly with `sudo`. It re-derives candidates itself; mimi only writes a request selecting candidate ids (hash of kind, path, device:inode) and prints the sudo command. Two independent attribution signals, root-owned regular files only, root-only quarantine with restore/purge, typed bundle-id confirmation. | Keeps the code that runs as root to one reviewable file, works with the existing Homebrew formula and no code-signing, and makes a forged request unable to name a path. Option C (SMAppService) is deferred to the GUI, when a Developer ID-signed app exists. | `P5-T03`–`P5-T05`, `libexec/mimi-root-apply`, `lib/apps/uninstall.sh`, `docs/PRIVILEGED_DESIGN.md` |
 
 ## 19. Blocker log
 
 | Date | Task | Blocker | Needed to unblock | Status |
 |---|---|---|---|---|
-| — | — | No blockers recorded | — | — |
+| 2026-09-26 | `P5-T03` → `P5-T04`, `P5-T05` | Privileged architecture needs the owner's choice (A: hand-offs only, B: minimal `sudo` apply tool, C: `SMAppService` helper) — see `docs/PRIVILEGED_DESIGN.md` | A recorded decision (DEC entry) | resolved 2026-09-26: B (DEC-061) |
 
 ## 20. Discovery and parking lot
 
@@ -1583,6 +1594,49 @@ found and closed:
 - `P6-T11`: `tests/bench`. It found a 6× slowdown in every scan (candidate ids
   hashed twice with Perl `shasum`, recorded even when unused) and a quadratic
   plan digest. Both fixed; numbers in the Phase 6 section.
+
+### 2026-09-26 — Phase 5 (safe part) and release scripts
+
+- `P5-T01` verified vendor-uninstaller hand-off; `P5-T02` receipt ownership
+  graph, shown by `app inspect` (`package_payload`), plus package attribution
+  for apps installed to a package's own location. `P5-T03` written up in
+  `docs/PRIVILEGED_DESIGN.md`; `P5-T04`/`T05` blocked on the decision.
+- Found and fixed along the way: a Bash 3.2 parse error (case pattern inside
+  `$(...)`) in the receipt index; an `open` mock so no test can launch an app.
+- `scripts/`: `release.sh` (checks → tests → bump → PR dev→main → merge →
+  tag → publish → watch tap → sync dev; `--dry-run`, `--publish-only`),
+  `bump-version.sh`, `version.sh`, `lib.sh`, `README.md`; `tests/release.bats`
+  runs them against a throwaway repo with a stub `gh`; `tests/run` now
+  syntax-checks and lints `scripts/*.sh`.
+
+### 2026-09-26 — Phase 5 option B, first slice
+
+- `libexec/mimi-root-apply` and `mimi app uninstall <app> --system`, as
+  recorded in DEC-061 and `docs/PRIVILEGED_DESIGN.md` §7. On this machine it
+  attributes CleanMyMac's, Docker's, Office's, and Logitech's daemons and
+  helpers correctly and lists Docker's `vmnetd` as not attributable.
+- Fixed a Phase 3 resolution bug found on the way: a bundle id ending in
+  `.app` (`com.acme.app`) was treated as a path and could not be resolved.
+- Homebrew formula now installs `libexec/`. `tests/run` lints the root tool;
+  `tests/layout.bats` pins that it sources nothing and that mimi never calls
+  sudo.
+- Exit gate still open: independent security review of the root tool, and
+  helper update/self-removal (the tool has no daemon, so "self-removal" is
+  removing the file; to be covered by the uninstall instructions).
+
+### 2026-09-26 — Phase 5 slice 2 and the hardened copy
+
+- Package payload (attribution by package id or installed app; exclusive,
+  root-owned, allowed roots only), receipts forgotten at purge only, and
+  `--install` / `--uninstall-tool` for a root-owned copy that mimi prefers
+  while identical. Real machine: Logitech's agent + package-installed app,
+  .NET's `/usr/local/share/dotnet/*` items; 17 s → 4 s after a one-pass
+  attribution fix; duplicate candidates across a family of packages removed.
+- System binary folders (`/usr/bin`, `/bin`, …) added to the structural list
+  in both `libexec/mimi-root-apply` and `lib/apps/receipts.sh`, so a file
+  there is reported as itself (and refused), not as the whole folder.
+- Phase 5 exit gate: all items met except the independent review, which the
+  owner has arranged.
 
 ## 22. Next-session handoff template
 

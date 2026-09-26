@@ -204,7 +204,8 @@ brew upgrade nkwabyte/mimi/mimi
 cd path/to/mimi && git pull
 ```
 
-Homebrew picks up a new version once it is published as a GitHub release.
+Homebrew picks up a new version once it is published as a GitHub release
+(maintainers: see [scripts/README.md](scripts/README.md)).
 Updating never touches your config, whitelist, plans, history, or quarantine
 in `~/.config/mimi`.
 

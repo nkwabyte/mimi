@@ -31,6 +31,7 @@ for _mimi_module in \
   cleaners/categories.sh \
   cleaners/orphans.sh \
   apps/inventory.sh \
+  apps/receipts.sh \
   apps/evidence.sh \
   apps/inspect.sh \
   apps/process.sh \
