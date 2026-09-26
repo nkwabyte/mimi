@@ -378,3 +378,70 @@ unlock() {
   grep -qr 'raw delete for the same reason as the rm above' "$MIMI_LIB"
   grep -qr 'Justified raw rm: our own half-written temporary file' "$MIMI_LIB"
 }
+
+# ---------------------------------------------------------------------------
+# System Integrity Protection: skipped, not attempted, not "denied"
+# ---------------------------------------------------------------------------
+
+@test "path_is_sip_protected: true for a SIP-restricted system path, false for a user file" {
+  source_lib
+  path_is_sip_protected /System/Library
+  touch "$FAKE_HOME/plain"
+  ! path_is_sip_protected "$FAKE_HOME/plain"
+  ! path_is_sip_protected "$FAKE_HOME/does-not-exist"
+}
+
+@test "fs_remove: a SIP-protected target is skipped without calling rm" {
+  source_lib
+  mkdir -p "$FAKE_HOME/Library/Caches/sipdir"
+  # Setting sunlnk needs root, so the flag check is stubbed for this path.
+  path_is_sip_protected() { [ "$1" = "$FAKE_HOME/Library/Caches/sipdir" ]; }
+  rm() { : > "$TEST_TMPDIR/rm-called"; return 1; }
+
+  local rc=0
+  fs_remove "$FAKE_HOME/Library/Caches/sipdir" || rc=$?
+  unset -f rm path_is_sip_protected
+  [ "$rc" -ne 0 ]
+  [ "$FS_REMOVE_STATUS" = "protected" ]
+  [ ! -e "$TEST_TMPDIR/rm-called" ]
+  [ -d "$FAKE_HOME/Library/Caches/sipdir" ]
+}
+
+@test "report_action: protected counts as skipped, not denied or failed" {
+  source_lib
+  ACTION_OK=0; ACTION_SKIPPED=0; ACTION_DENIED=0; ACTION_FAILED=0; ACTION_PROTECTED=0
+  FS_REMOVE_STATUS="protected"
+  report_action "/some/daemon/dir" || true
+  [ "$ACTION_SKIPPED" -eq 1 ]
+  [ "$ACTION_PROTECTED" -eq 1 ]
+  [ "$ACTION_DENIED" -eq 0 ]
+  [ "$ACTION_FAILED" -eq 0 ]
+  ! any_action_failed
+}
+
+# ---------------------------------------------------------------------------
+# TUI redraw: one write, lines overwritten in place (no blank frame)
+# ---------------------------------------------------------------------------
+
+@test "tui_paint: overwrites the previous frame in place inside a synchronized update" {
+  source_lib
+  local out
+  out="$(tui_paint 3 "$(printf 'a\nb')")"
+  [ "$out" = $'\033[?2026h\033[3A\ra\033[K\nb\033[K\n\033[J\033[?2026l' ]
+  # First frame: nothing to move over.
+  out="$(tui_paint 0 "x")"
+  [ "$out" = $'\033[?2026h'"x"$'\033[K\n\033[J\033[?2026l' ]
+}
+
+@test "_picker_draw: frame height matches the redraw arithmetic and needs no per-row lookups" {
+  source_lib
+  build_category_state
+  _picker_cache_rows
+  category_info() { echo "category_info called during draw" >&2; return 1; }
+  local frame n
+  frame="$(_picker_draw 0 0 10 120 2>"$TEST_TMPDIR/err")"
+  [ ! -s "$TEST_TMPDIR/err" ]
+  n="$(printf '%s\n' "$frame" | wc -l | tr -d ' ')"
+  # interactive_choose_categories records drawn = vh + 4
+  [ "$n" -eq 14 ]
+}

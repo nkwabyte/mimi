@@ -30,6 +30,11 @@ for _mimi_module in \
   cleaners/registry.sh \
   cleaners/categories.sh \
   cleaners/orphans.sh \
+  apps/inventory.sh \
+  apps/evidence.sh \
+  apps/inspect.sh \
+  apps/process.sh \
+  apps/uninstall.sh \
   ui/report.sh \
   ui/tui.sh \
   core/core.sh; do

@@ -463,3 +463,54 @@ SELECTED_CATEGORIES=trash"
     echo "$output" | grep -q "$id"
   done
 }
+
+# ---------------------------------------------------------------------------
+# Interactive UI: the category selection is the confirmation
+# ---------------------------------------------------------------------------
+
+@test "tui_run_clean: authorizes exactly the selected risky ids, then restores the flags" {
+  source_lib
+  ASSUME_YES=0
+  FORCE_RISKY_LIST=""
+  ONLY_LIST="caches,trash,docker"
+  run_selected_categories() {
+    printf '%s|%s|%s|%s\n' "$MODE" "$ASSUME_YES" "$FORCE_RISKY_LIST" "$FORCE_RISKY_SOURCE" > "$TEST_TMPDIR/seen"
+  }
+  tui_run_clean > /dev/null 2>&1
+  [ "$(cat "$TEST_TMPDIR/seen")" = "clean|1|trash,docker|your category selection" ]
+  # Nothing leaks into later runs.
+  [ "$ASSUME_YES" = 0 ]
+  [ -z "$FORCE_RISKY_LIST" ]
+  [ -z "$FORCE_RISKY_SOURCE" ]
+}
+
+@test "tui_run_clean: a selected irreversible category runs with no prompt and no terminal" {
+  printf 'x\n' > "$FAKE_HOME/.Trash/receipt.pdf"
+  source_lib
+  INCLUDE_TRASH=1
+  ONLY_LIST="trash"
+  SKIP_LIST=""
+  tui_run_clean < /dev/null > "$TEST_TMPDIR/out" 2>&1 || true
+  [ ! -e "$FAKE_HOME/.Trash/receipt.pdf" ]
+  grep -q "trash: authorized by your category selection" "$TEST_TMPDIR/out"
+  ! grep -q "\[y/N\]" "$TEST_TMPDIR/out"
+}
+
+@test "tui_run_clean: a risky category that was not selected is still not authorized" {
+  source_lib
+  ONLY_LIST="caches"
+  run_selected_categories() { force_risky_authorized trash && echo leaked > "$TEST_TMPDIR/leak"; return 0; }
+  tui_run_clean > /dev/null 2>&1
+  [ ! -e "$TEST_TMPDIR/leak" ]
+}
+
+@test "tui_run_clean: the whitelist still protects selected categories" {
+  printf 'x\n' > "$FAKE_HOME/.Trash/keep.pdf"
+  source_lib
+  INCLUDE_TRASH=1
+  WHITELIST=("$FAKE_HOME/.Trash")
+  ONLY_LIST="trash"
+  SKIP_LIST=""
+  tui_run_clean < /dev/null > /dev/null 2>&1 || true
+  [ -f "$FAKE_HOME/.Trash/keep.pdf" ]
+}

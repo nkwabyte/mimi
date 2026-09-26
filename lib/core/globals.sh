@@ -33,6 +33,8 @@ ASSUME_YES=0
 # invocation. Deliberately never read from, or written to, the config file: a
 # saved blanket authorization is exactly the thing the class split removes.
 FORCE_RISKY_LIST=""
+# Who authorized FORCE_RISKY_LIST, for the message: the flag, or the TUI selection.
+FORCE_RISKY_SOURCE=""
 VERBOSE=0
 AGGRESSIVE=0
 PROFILE=""
@@ -58,6 +60,10 @@ INCLUDE_HOMEBREW_OLD=0
 INCLUDE_CACHES=0
 INCLUDE_LOGS=0
 REPORT_ONLY=0
+
+UNINSTALL_DATA_MODE="ask"
+UNINSTALL_DELEGATE_CASK=0
+UNINSTALL_ZAP=0
 NO_LOG=0
 KEEP_LOGS=5
 TMP_STALE_DAYS=3
@@ -76,6 +82,9 @@ QUARANTINE_DIR="$CONFIG_DIR/quarantine"
 PLAN_FILE=""
 PLAN_OUT_FILE=""
 RUN_ID=""
+APP_TARGET=""
+APP_SOURCE_FILTER="all"
+UNINSTALL_DATA_MODE="ask"  # keep | purge | ask (Phase 4)
 INTERACTIVE=0
 
 INSTALLED_IDS_NORM=()
@@ -118,7 +127,18 @@ ORPHAN_DENYLIST=(adobe google microsoft mozilla dropbox 1password icloud
 ORPHAN_SYSTEM_DENYLIST=(loginwindow pbs mbuseragent scopedbookmarkagent
   sharedfilelistd corespotlightd diagnostics_agent contextstoreagent
   tokenbucketratelimiter askpermissiond locationaccessstored mobilemeaccounts
-  org.cups.printingprefs org.sparkle-project.sparkle.autoupdate jbdeviceservice)
+  org.cups.printingprefs org.sparkle-project.sparkle.autoupdate jbdeviceservice
+  animoji differentialprivacy intelligenceflow icdd corepatch categories
+  symbols refsrcsymbols symbolsourcesymbols buildservice avatarcacheindex
+  localizationswitcherd nobackup)
+
+# Entry names that are structure inside a scanned root, not an app's leftover:
+# Preferences/ByHost holds per-machine settings for every app (and is scanned
+# entry by entry on its own), WebKit/Databases is shared WebKit storage, and a
+# bare Caches or default.store (SwiftData's unnamed store) names no owner.
+# Matched against the normalised token.
+ORPHAN_STRUCTURAL_NAMES=(byhost databases caches default.store default.storeshm
+  default.storewal)
 
 # root path :: token-normalization kind :: naming policy, scanned for possible
 # application leftovers. The policy describes how much the *location itself*
@@ -156,6 +176,10 @@ ORPHAN_ROOTS=(
 )
 
 REMOVE_ORPHANS_FILE=""
+# --remove-orphans: move every leftover found this run (strong and weak) to a
+# quarantine run instead of writing a review file. Set by the flag, or by the
+# interactive UI when the orphans category is ticked for a clean.
+REMOVE_ORPHANS=0
 
 ONLY_LIST=""
 SKIP_LIST=""

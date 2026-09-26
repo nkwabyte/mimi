@@ -132,15 +132,17 @@ assert_not_a_candidate() {
   ! echo "$output" | grep -q 'uninstalled apps'
 }
 
-@test "wording: --help describes the category as report only" {
+@test "wording: --help says --include-orphans only reports and --remove-orphans quarantines" {
   run_clean --help
-  echo "$output" | grep -q 'REPORT ONLY'
-  ! echo "$output" | grep -q 'offered for immediate bulk removal'
+  echo "$output" | grep -q 'On its own'
+  echo "$output" | grep -q 'it only reports'
+  echo "$output" | grep -q -- '--remove-orphans        Move EVERY leftover'
+  echo "$output" | grep -q 'to a quarantine run'
 }
 
-@test "wording: --list describes the category as never deleting" {
+@test "wording: --list says the category reports, or quarantines on request" {
   run_clean --list
-  echo "$output" | grep -q 'never deletes'
+  echo "$output" | grep -q 'report, or quarantine with --remove-orphans'
 }
 
 # ---------------------------------------------------------------------------
@@ -361,4 +363,159 @@ assert_not_a_candidate() {
   run_clean --clean --yes --force-risky orphans --only orphans --remove-orphans-from "$generated"
   [ -f "$keep/data" ]
   [ ! -e "$drop" ]
+}
+
+# ---------------------------------------------------------------------------
+# --remove-orphans: every leftover, strong and weak, to quarantine — no file
+# ---------------------------------------------------------------------------
+
+# The quarantine run id printed by a --remove-orphans clean.
+orphan_run_id() {
+  printf '%s\n' "$1" | grep -o 'orphans-[0-9]\{8\}-[0-9]\{6\}' | head -1
+}
+
+@test "remove-orphans: moves strong and weak leftovers to quarantine without a review file" {
+  local strong weak
+  strong="$(CONTAINERS)/com.zzqqxx9.vvbbnn7"
+  weak="$(APPSUP)/Zzqqxx9BareName"
+  mkdir -p "$strong" "$weak"
+  printf 'x\n' > "$strong/data"
+  printf 'x\n' > "$weak/data"
+
+  run_clean --clean --yes --only orphans --remove-orphans
+  [ "$status" -eq 0 ]
+  [ ! -e "$strong" ]
+  [ ! -e "$weak" ]
+  local run_id
+  run_id="$(orphan_run_id "$output")"
+  [ -n "$run_id" ]
+  [ "$(ls "$FAKE_HOME/.config/mimi/quarantine/$run_id" | grep -c '__orphan-')" -eq 2 ]
+  echo "$output" | grep -q "restore $run_id"
+}
+
+@test "remove-orphans: everything comes back with restore" {
+  local strong weak
+  strong="$(CONTAINERS)/com.zzqqxx9.vvbbnn7"
+  weak="$(APPSUP)/Zzqqxx9BareName"
+  mkdir -p "$strong" "$weak"
+  printf 'keep\n' > "$weak/data"
+
+  run_clean --clean --yes --only orphans --remove-orphans
+  local run_id
+  run_id="$(orphan_run_id "$output")"
+  [ ! -e "$weak" ]
+
+  run_mimi restore "$run_id" --yes
+  [ "$status" -eq 0 ]
+  [ -d "$strong" ]
+  [ "$(cat "$weak/data")" = "keep" ]
+}
+
+@test "remove-orphans: needs neither --force-risky nor a terminal" {
+  mkdir -p "$(APPSUP)/Zzqqxx9BareName"
+  run_clean --clean --yes --only orphans --remove-orphans
+  [ "$status" -eq 0 ]
+  [ ! -e "$(APPSUP)/Zzqqxx9BareName" ]
+  ! echo "$output" | grep -q -- '--force-risky'
+}
+
+@test "remove-orphans: whitelisted leftovers stay where they are" {
+  mkdir -p "$(APPSUP)/Zzqqxx9Keep" "$(APPSUP)/Zzqqxx9Drop"
+  run_clean --clean --yes --only orphans --remove-orphans --whitelist "$(APPSUP)/Zzqqxx9Keep"
+  [ "$status" -eq 0 ]
+  [ -d "$(APPSUP)/Zzqqxx9Keep" ]
+  [ ! -e "$(APPSUP)/Zzqqxx9Drop" ]
+}
+
+@test "remove-orphans: a scan only previews" {
+  mkdir -p "$(APPSUP)/Zzqqxx9BareName"
+  run_clean --scan --only orphans --remove-orphans
+  [ "$status" -eq 0 ]
+  [ -d "$(APPSUP)/Zzqqxx9BareName" ]
+  echo "$output" | grep -q 'would be moved to quarantine'
+}
+
+@test "remove-orphans: a leftover LaunchAgent is stopped before it is moved" {
+  mkdir -p "$FAKE_HOME/Library/LaunchAgents"
+  printf '<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.zzqqxx9.agent</string></dict></plist>\n' \
+    > "$FAKE_HOME/Library/LaunchAgents/com.zzqqxx9.agent.plist"
+  export MOCK_CALL_LOG="$TEST_TMPDIR/calls"
+  run_clean --clean --yes --only orphans --remove-orphans
+  [ "$status" -eq 0 ]
+  [ ! -e "$FAKE_HOME/Library/LaunchAgents/com.zzqqxx9.agent.plist" ]
+  grep -q "launchctl bootout gui/.*/com.zzqqxx9.agent" "$MOCK_CALL_LOG"
+}
+
+@test "remove-orphans: ticking orphans in the menus quarantines them on clean" {
+  mkdir -p "$(APPSUP)/Zzqqxx9BareName"
+  source_lib
+  install_apps
+  INCLUDE_ORPHANS=1
+  ONLY_LIST="orphans"
+  SKIP_LIST=""
+  tui_run_clean < /dev/null > "$TEST_TMPDIR/out" 2>&1 || true
+  [ ! -e "$(APPSUP)/Zzqqxx9BareName" ]
+  grep -q "moved to quarantine run orphans-" "$TEST_TMPDIR/out"
+  [ "$REMOVE_ORPHANS" = 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Things that are not leftovers at all
+# ---------------------------------------------------------------------------
+
+@test "fixture: folders of an installed command-line tool are not leftovers" {
+  mkdir -p "$TEST_TMPDIR/bin"
+  printf '#!/bin/sh\n' > "$TEST_TMPDIR/bin/zzlazytool"
+  printf '#!/bin/sh\n' > "$TEST_TMPDIR/bin/zzwatcher"
+  printf '#!/bin/sh\n' > "$TEST_TMPDIR/bin/zzcreateapp"
+  chmod +x "$TEST_TMPDIR/bin/"*
+  export PATH="$TEST_TMPDIR/bin:$PATH"
+  mkdir -p "$(APPSUP)/zzlazytool" "$FAKE_HOME/Library/Preferences/zzcreateapp-nodejs" \
+           "$FAKE_HOME/Library/LaunchAgents" "$(APPSUP)/zzuninstalledtool"
+  touch "$FAKE_HOME/Library/LaunchAgents/com.github.example.zzwatcher.plist"
+
+  source_lib
+  install_apps
+  collect_orphan_candidates
+  assert_not_a_candidate "$(APPSUP)/zzlazytool"
+  assert_not_a_candidate "$FAKE_HOME/Library/Preferences/zzcreateapp-nodejs"
+  assert_not_a_candidate "$FAKE_HOME/Library/LaunchAgents/com.github.example.zzwatcher.plist"
+  # A tool that is not installed is still a candidate.
+  candidate_tier "$(APPSUP)/zzuninstalledtool" > /dev/null
+}
+
+@test "fixture: macOS structure and service data are not leftovers" {
+  mkdir -p "$FAKE_HOME/Library/Preferences/ByHost" "$FAKE_HOME/Library/WebKit/Databases" \
+           "$(APPSUP)/Caches" "$(APPSUP)/DifferentialPrivacy" "$(APPSUP)/Animoji" \
+           "$(APPSUP)/IntelligenceFlow"
+  touch "$(APPSUP)/default.store" "$(APPSUP)/default.store-wal"
+
+  source_lib
+  install_apps
+  collect_orphan_candidates
+  assert_not_a_candidate "$FAKE_HOME/Library/Preferences/ByHost"
+  assert_not_a_candidate "$FAKE_HOME/Library/WebKit/Databases"
+  assert_not_a_candidate "$(APPSUP)/Caches"
+  assert_not_a_candidate "$(APPSUP)/DifferentialPrivacy"
+  assert_not_a_candidate "$(APPSUP)/Animoji"
+  assert_not_a_candidate "$(APPSUP)/IntelligenceFlow"
+  assert_not_a_candidate "$(APPSUP)/default.store"
+  assert_not_a_candidate "$(APPSUP)/default.store-wal"
+}
+
+@test "fixture: a generic last component never hides a leftover" {
+  mkdir -p "$TEST_TMPDIR/bin"
+  printf '#!/bin/sh\n' > "$TEST_TMPDIR/bin/agent"
+  printf '#!/bin/sh\n' > "$TEST_TMPDIR/bin/helper"
+  chmod +x "$TEST_TMPDIR/bin/"*
+  export PATH="$TEST_TMPDIR/bin:$PATH"
+  mkdir -p "$FAKE_HOME/Library/LaunchAgents"
+  touch "$FAKE_HOME/Library/LaunchAgents/com.zzqqxx9.agent.plist" \
+        "$FAKE_HOME/Library/LaunchAgents/com.zzqqxx9.helper.plist"
+
+  source_lib
+  install_apps
+  collect_orphan_candidates
+  candidate_tier "$FAKE_HOME/Library/LaunchAgents/com.zzqqxx9.agent.plist" > /dev/null
+  candidate_tier "$FAKE_HOME/Library/LaunchAgents/com.zzqqxx9.helper.plist" > /dev/null
 }

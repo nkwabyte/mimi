@@ -32,8 +32,10 @@ ACTION_OK=0        # verified: the target is gone
 ACTION_SKIPPED=0   # not attempted: whitelisted, missing, refused, interrupted
 ACTION_FAILED=0    # attempted, and the target is still there
 ACTION_DENIED=0    # attempted, and the reason was permissions
+ACTION_PROTECTED=0 # not attempted: guarded by System Integrity Protection
+                   # (also counted in ACTION_SKIPPED)
 
-# Set by fs_remove: ok | denied | failed.
+# Set by fs_remove: ok | protected | denied | failed.
 FS_REMOVE_STATUS=""
 FS_REMOVE_ERROR=""
 
@@ -45,6 +47,10 @@ record_action() {
   case "$1" in
     ok) ACTION_OK=$((ACTION_OK + 1)) ;;
     skipped) ACTION_SKIPPED=$((ACTION_SKIPPED + 1)) ;;
+    protected)
+      ACTION_SKIPPED=$((ACTION_SKIPPED + 1))
+      ACTION_PROTECTED=$((ACTION_PROTECTED + 1))
+      ;;
     denied) ACTION_DENIED=$((ACTION_DENIED + 1)) ;;
     *) ACTION_FAILED=$((ACTION_FAILED + 1)) ;;
   esac
@@ -57,7 +63,8 @@ any_action_failed() {
 }
 
 # The single checked removal. Returns 0 only when the target is verifiably
-# gone afterwards; otherwise sets FS_REMOVE_STATUS to "denied" or "failed".
+# gone afterwards; otherwise sets FS_REMOVE_STATUS to "protected", "denied",
+# or "failed".
 #
 # Callers must have authorized the path already — this function deletes what
 # it is given.
@@ -66,6 +73,15 @@ fs_remove() {
 
   FS_REMOVE_STATUS=""
   FS_REMOVE_ERROR=""
+
+  # SIP-protected objects cannot be removed by anyone, root included; trying
+  # would only turn a macOS guarantee into a misleading "permission denied".
+  if path_is_sip_protected "$target"; then
+    FS_REMOVE_STATUS="protected"
+    FS_REMOVE_ERROR="protected by System Integrity Protection"
+    printf 'skipped (SIP-protected): %s\n' "$target" >> "$LOG_FILE"
+    return 1
+  fi
 
   FS_REMOVE_ERROR="$(rm -rf -- "$target" 2>&1)" || rc=$?
   [ -n "$FS_REMOVE_ERROR" ] && printf '%s\n' "$FS_REMOVE_ERROR" >> "$LOG_FILE"
@@ -97,6 +113,11 @@ report_action() {
       record_action ok
       [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "ok" "$what" "$bytes"
       return 0
+      ;;
+    protected)
+      record_action protected
+      [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "protected" "$what" 0
+      verbose "protected by macOS (System Integrity Protection), left alone: $what"
       ;;
     denied)
       record_action denied
