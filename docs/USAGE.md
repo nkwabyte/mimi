@@ -18,18 +18,19 @@ actually touches.
 2. [Before your first run](#before-your-first-run)
 3. [Quick start](#quick-start)
 4. [The two modes](#the-two-modes)
-5. [Interactive mode](#interactive-mode)
-6. [Flag reference](#flag-reference)
-7. [Category reference](#category-reference)
-8. [Choosing what runs](#choosing-what-runs)
-9. [Protecting paths: whitelist and presets](#protecting-paths-whitelist-and-presets)
-10. [Possible app leftovers](#possible-app-leftovers)
-11. [The disk report](#the-disk-report)
-12. [Config file](#config-file)
-13. [Logs](#logs)
-14. [Recipes](#recipes)
-15. [Safety model](#safety-model)
-16. [Troubleshooting](#troubleshooting)
+5. [Application inventory and inspection](#application-inventory-and-inspection)
+6. [Interactive mode](#interactive-mode)
+7. [Flag reference](#flag-reference)
+8. [Category reference](#category-reference)
+9. [Choosing what runs](#choosing-what-runs)
+10. [Protecting paths: whitelist and presets](#protecting-paths-whitelist-and-presets)
+11. [Possible app leftovers](#possible-app-leftovers)
+12. [The disk report](#the-disk-report)
+13. [Config file](#config-file)
+14. [Logs](#logs)
+15. [Recipes](#recipes)
+16. [Safety model](#safety-model)
+17. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -167,6 +168,110 @@ mimi purge run-20260924-120000-1234
 
 ---
 
+## Application inventory and inspection
+
+`mimi apps list` and `mimi app inspect` are **read-only**: they create, move,
+and delete nothing, and they never run a vendor uninstaller or touch an
+installer receipt. They exist so you (or a GUI) can see exactly what an app
+owns before anything is ever removed.
+
+### `mimi apps list`
+
+Inventories application bundles in `/Applications`, `/Applications/Utilities`,
+`~/Applications`, `/System/Applications` and one level of vendor folders inside
+them (`/Applications/Adobe Photoshop/Photoshop.app`). Bundles embedded in other
+bundles are not listed. Spotlight is consulted too, and cross-checked against
+the directory walk.
+
+```bash
+mimi apps list                       # table
+mimi apps list --source cask         # only Homebrew casks (all|app|cask|mas|pkg|system)
+mimi apps list --json                # schemas/apps-list-v1.json
+mimi apps list --app-root /Volumes/Work/Applications --app-root ~/Tools
+```
+
+`--app-root` is repeatable; the first one replaces the default roots.
+Explicit roots are walked directly and Spotlight is not consulted.
+
+The inventory says when it is **incomplete** instead of guessing: a root that is
+missing, on an unmounted volume, or unreadable is listed in
+`unavailable_roots`; an empty Spotlight index, or one that missed apps the walk
+found, is noted. Every app carries its canonical path and `device:inode`
+identity, its primary provenance, and whether it is `eligible` for any future
+uninstall.
+
+### `mimi app inspect <target>`
+
+```bash
+mimi app inspect Slack
+mimi app inspect com.tinyspeck.slackmacgap --json   # schemas/app-inspect-v1.json
+mimi app inspect visual-studio-code                 # Homebrew cask token
+mimi app inspect "/Applications/Visual Studio Code.app"
+```
+
+**Resolution rules**, in order. The first rule that matches decides the
+outcome, and a rule that matches more than one app stops with the list of
+choices (exit `1`; with `--json`, an `error` object with every candidate):
+
+1. **path**: the target contains `/` or ends in `.app`. It must be an app bundle
+   (a directory with `Contents/Info.plist`); symlinks are resolved and reported.
+   A bare name is never treated as a path in the current directory.
+2. **bundle ID**: exact, then case-insensitive.
+3. **cask token**: an installed Homebrew cask.
+4. **name**: display name or bundle file name, ignoring case, spaces, `-` and `_`.
+
+There is no fuzzy or substring matching.
+
+**What it reports about the bundle:** bundle ID, version, executable,
+architecture, code signature (identifier, Team ID, authority), nested helpers
+(including Electron helpers in `Contents/Frameworks`), XPC services,
+extensions, login items, bundled launchd jobs and privileged helpers, and every
+provenance fact that applies:
+
+| Provenance | Detected from |
+|---|---|
+| `system` | the sealed system volume, a `com.apple.*` bundle ID, or Apple's own signing authority |
+| `mas` | a Mac App Store receipt inside the bundle |
+| `cask` | the installed cask's recorded definition naming this `.app` (`method: metadata`), or an installed token that matches the app name (`method: name`) |
+| `pkg` | the Installer receipt database (`pkgutil --file-info`) or a receipt named after the bundle ID |
+
+A vendor uninstaller is reported as a fact and never run.
+
+**Eligibility.** An app is *ineligible* for any future uninstall when it is a
+system/Apple app, has no bundle ID, has no `Info.plist`, or is signed with a
+Team ID whose signature identifier contradicts its bundle ID. Unsigned and
+ad-hoc-signed bundles stay eligible but carry an identity warning.
+
+**Remnants.** Evidence is collected one known location at a time:
+`Containers`, `Group Containers`, `Application Scripts`, `Preferences` and
+`ByHost`, `Saved Application State`, `WebKit`, `HTTPStorages`, `Cookies`,
+`Application Support` (looking inside shared vendor folders rather than
+claiming them), `Caches`, `Logs`, crash reports, user `LaunchAgents`, and
+developer dotfolders (`~/.name`, `~/.config/name`). `/Library` locations are
+listed as report-only. Each item carries the reason it was associated and a
+confidence:
+
+| Confidence | Meaning | Class |
+|---|---|---|
+| `authoritative` | macOS names it after the exact bundle ID (sandbox container, preference domain, cookies) | attributable |
+| `strong` | reverse-DNS bundle-ID directory, or a LaunchAgent that launches the app's own binary | attributable |
+| `corroborated` | two independent signals agree, e.g. a name match whose contents reference the bundle ID | attributable |
+| `weak` | one heuristic signal only: a bare name match, a crash log by executable name, a dotfolder, or any symlink (recorded as the link; its target is never followed) | review |
+| `conflicting` | also matches another installed app: a second copy with the same bundle ID, an installed sibling with a more specific ID (`com.foo.app.beta`), or a same-named app | retained |
+| `shared` | shared by design: App Group containers, team-prefixed script folders, vendor updaters (Keystone, Microsoft AutoUpdate, Adobe) | retained |
+
+Only **attributable** items are `selectable`, and that is the single rule any
+uninstall plan uses. Weak items are shown under *Needs Review*; conflicting,
+shared, and system-location items under *Retained / Shared Resources*. Bundle-ID
+matching respects component boundaries: `com.foo.application` is never
+evidence for `com.foo.app`. Names shorter than three characters are not used
+for name matching at all.
+
+The bundle footprint is reported separately from the attributable-data
+estimate, and both separately from what is retained.
+
+---
+
 ## Interactive mode
 
 Entered by running `mimi` with **no arguments at all** from a real
@@ -231,6 +336,15 @@ destructive category is hard to tick by accident. Ticking an opt-in category
 here sets its `--include-*` flag automatically; you never need to remember
 flag names.
 
+**Cleaning from the menus asks no questions.** Pressing `c` here, or
+choosing *Quick clean* on the main menu, runs straight through: the categories
+you ticked are the confirmation. Every selected category is authorized for that
+run, including risky and irreversible ones such as `trash` or `ios-backups`
+(exactly as if you had passed `--yes --force-risky <each one>`), and nothing you
+did not tick is. Leave a category unticked, or whitelist a path, to keep it.
+The whitelist and every path-safety check still apply. Prompts return only on
+the command line, where a flag in a script is easy to forget.
+
 ### Settings
 
 ```
@@ -286,6 +400,8 @@ Whitelist  (2 entries)
 | `apply <plan-file>`, `--apply <file>` | Validates plan integrity and moves targets into an isolated quarantine run. |
 | `restore <run-id>`, `--restore <id>` | Restores a previously quarantined run back to original paths. |
 | `purge <run-id>`, `--purge <id>` | Permanently deletes a quarantined run after explicit confirmation. |
+| `apps [list]` | Read-only application inventory. `--json` emits `schemas/apps-list-v1.json`. |
+| `app inspect <target>` | Read-only footprint, provenance, signing, and remnant evidence for one app. `--json` emits `schemas/app-inspect-v1.json`. |
 | `--report` | Print a full disk breakdown, then exit. Deletes nothing. |
 | `--list` | Print every category id, risk and default state, then exit. |
 | `-i`, `--interactive` | Force the menu even when other flags are present. |
@@ -335,7 +451,8 @@ enough to run that category — you do not also need `--only`.
 | `--include-docker` | `docker system prune -af --volumes` — **all** unused images, containers and volumes. Much more aggressive than the above. |
 | `--include-trash` | Empty `~/.Trash`. Irreversible. |
 | `--include-mail` | Clear Mail.app's local "Mail Downloads" cache. |
-| `--include-orphans` | **Report only.** Scan for leftovers no installed app claims; never deletes. See [Possible app leftovers](#possible-app-leftovers). |
+| `--include-orphans` | Scan for leftovers no installed app or tool claims. On its own, reports only. See [Possible app leftovers](#possible-app-leftovers). |
+| `--remove-orphans` | With `clean`: move **every** leftover found (strong and weak) to a quarantine run. No file to edit; implies `--include-orphans`. Undo with `restore`, free the space with `purge`. |
 | `--include-whatsapp` | Remove WhatsApp's expired Status/Stories media only. |
 | `--include-sim-stale` | Delete Simulator devices unused for `--sim-stale-days`. |
 | `--include-claude-cache` | Clear the Claude desktop app's Electron cache dirs. |
@@ -357,6 +474,13 @@ enough to run that category — you do not also need `--only`.
 | Flag | Effect |
 |---|---|
 | `--remove-orphans-from <file>` | Remove exactly the paths listed in a review file produced by `--include-orphans`. The file must still carry its `# mimi-orphan-review v1` header, `#` comments a line out only in the first column, and each path must resolve to a direct child of a scanned orphan location. Refused lines are reported with a reason code. |
+
+### Applications
+
+| Flag | Effect |
+|---|---|
+| `--app-root <dir>` | Inventory this application folder instead of the defaults. Repeatable. Disables Spotlight. |
+| `--source <kind>` | `apps list` only: `all` (default), `app`, `cask`, `mas`, `pkg`, or `system`. Anything else is a usage error. |
 
 ### Automation and protocol
 
@@ -486,7 +610,7 @@ explains the fix.
 | `sim-stale` | risky | Simulator devices unused for `--sim-stale-days`. Booted and never-booted devices are always kept. | `--include-sim-stale` |
 | `android` | risky | Android system images no AVD references, plus AVDs unused for `--android-stale-days`. Confirms per AVD. | `--include-android` |
 | `trash` | irreversible | Empties `~/.Trash`. Irreversible. | `--include-trash` |
-| `orphans` | irreversible | Reports leftovers no installed app claims. Heuristic, never deletes — see [its section](#possible-app-leftovers). | `--include-orphans` |
+| `orphans` | irreversible | Leftovers no installed app or tool claims. Reports; with `--remove-orphans` (or ticked in the menus) moves them all to quarantine — see [its section](#possible-app-leftovers). | `--include-orphans` |
 | `ios-backups` | irreversible | Local iPhone/iPad backups in MobileSync. Confirms per backup with size and date. | `--include-ios-backups` |
 
 ### What `browsers` and `electron` touch
@@ -579,14 +703,30 @@ mimi --cleaner --whitelist-preset browsers --whitelist-preset ml
 ## Possible app leftovers
 
 `orphans` looks for config, preferences, caches, containers and LaunchAgents
-whose names no installed application claims.
+whose names no installed application — and no installed command-line tool on
+your `PATH` — claims.
 
-**It never deletes anything** — not with `--cleaner`, `--yes`, `--aggressive`
-or `--force-risky`.
-It writes a report. Removing any of it is a separate, deliberate step
-(`--remove-orphans-from`).
+**Remove them all in one step, with no file to edit:**
 
-That is because the scan reasons from **absence**: an entry is listed because
+```bash
+mimi scan  --only orphans --remove-orphans     # preview: what would move
+mimi clean --only orphans --remove-orphans     # move every [strong] and [weak] one
+```
+
+In the menus, tick `orphans` and press `c`: same thing. Everything is **moved
+to a quarantine run** (`orphans-<timestamp>`), not deleted, because the list is
+a guess and a guess has to be undoable:
+
+```bash
+mimi restore orphans-20260926-101500   # an app lost its settings? put it all back
+mimi purge   orphans-20260926-101500   # sure? now the space is released
+```
+
+Whitelisted paths are never moved, a leftover LaunchAgent is stopped before it
+is moved, and entries macOS protects with System Integrity Protection are left
+alone. Without `--remove-orphans`, `--include-orphans` only reports.
+
+Be aware of why a leftover can be wrong: the scan reasons from **absence**: an entry is listed because
 no installed app claimed its name, which is a guess rather than ownership. It
 guesses wrong for apps that renamed themselves but kept their bundle id, beta
 builds installed beside stable ones, helpers and updaters under a vendor
@@ -603,25 +743,28 @@ Results carry a confidence level:
   **everything** when the installed-app index is incomplete. Not evidence
   that anything was uninstalled.
 
-Anything under `com.apple.*`, known bare macOS service names, well-known
+Anything under `com.apple.*`, known bare macOS service names
+(`DifferentialPrivacy`, `Animoji`, `IntelligenceFlow`, …), structural folders
+(`Preferences/ByHost`, `WebKit/Databases`, a bare `Caches`, SwiftData's
+unnamed `default.store`), folders of command-line tools that are installed
+(`mkcert`, `pnpm`, `dotnet`, `watchman`, a `…-nodejs` config folder), well-known
 shared vendor folders (Adobe, Google, Microsoft, Dropbox, iCloud…) and
-`Group Containers` is excluded from the scan entirely.
+`Group Containers` is excluded from the scan entirely. The command-line check
+uses the `PATH` of the shell mimi runs in.
 
 If Spotlight is unavailable, returns nothing, or returns fewer apps than a
 plain directory walk finds, the run says so and marks every candidate
 `[weak]`.
 
+To remove only **some** of them, every report also writes a review file.
+Delete the lines you want to keep (or put a `#` in their first column), then:
+
 ```bash
-# 1. Report only — nothing is touched, under any flag
-mimi --only orphans --include-orphans --scan
-
-# 2. Edit the generated review file — delete a line, or put a # in its FIRST
-#    column, for anything to keep. Keep the header line: the file is refused
-#    without it.
-
-# 3. Remove exactly what remains
 mimi --cleaner --remove-orphans-from ~/Library/Logs/mimi/orphans-review-<timestamp>.txt
 ```
+
+That path deletes outright rather than quarantining, and it is an
+irreversible-class action (a terminal or `--force-risky orphans`).
 
 ---
 
@@ -790,6 +933,9 @@ needed.
 
 The check happens **before any category runs**, so an unauthorized scripted
 run costs nothing rather than stopping part-way through.
+
+These prompts apply to command-line runs. In the interactive menus the
+category selection answers all of them; see [Choose categories](#choose-categories).
 
 ---
 

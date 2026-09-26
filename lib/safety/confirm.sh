@@ -231,7 +231,7 @@ confirm_action() {
   fi
 
   if force_risky_authorized "$id"; then
-    warn "$id: authorized by --force-risky"
+    warn "$id: authorized by ${FORCE_RISKY_SOURCE:---force-risky}"
     return 0
   fi
 

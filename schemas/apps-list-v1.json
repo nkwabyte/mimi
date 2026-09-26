@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MimiAppsListV1",
+  "description": "Output of `mimi apps list --json` (read-only application inventory, v1)",
+  "type": "object",
+  "required": ["schema", "source_filter", "inventory", "apps"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "type": "string", "const": "mimi.apps-list/1" },
+    "source_filter": { "enum": ["all", "app", "cask", "mas", "pkg", "system"] },
+    "inventory": { "$ref": "#/definitions/inventory" },
+    "apps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "bundle_id", "version", "source", "cask_token", "path",
+                     "identity", "is_system", "eligible", "size_kb"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "bundle_id": { "type": "string", "description": "Empty when the bundle declares none" },
+          "version": { "type": "string" },
+          "source": { "enum": ["app", "cask", "mas", "pkg", "system"] },
+          "cask_token": { "type": ["string", "null"] },
+          "path": { "type": "string", "description": "Canonical absolute bundle path" },
+          "identity": { "type": "string", "description": "device:inode of the bundle, pinned for later plans" },
+          "is_system": { "type": "boolean" },
+          "eligible": { "type": "boolean", "description": "False for system/Apple apps and ambiguous identities" },
+          "size_kb": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "inventory": {
+      "type": "object",
+      "required": ["complete", "spotlight", "roots", "unavailable_roots", "notes"],
+      "additionalProperties": false,
+      "properties": {
+        "complete": { "type": "boolean" },
+        "spotlight": { "enum": ["used", "unavailable", "skipped"] },
+        "roots": { "type": "array", "items": { "type": "string" } },
+        "unavailable_roots": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

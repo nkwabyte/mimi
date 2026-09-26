@@ -84,7 +84,7 @@ category_info() {
     docker-cache)      echo "safe|0|Docker dangling build cache + untagged images only, shrinks Docker.raw (opt-in)" ;;
     mail)              echo "risky|0|Mail.app local download cache (opt-in)" ;;
     trash)             echo "irreversible|0|Empty ~/.Trash (irreversible, opt-in)" ;;
-    orphans)           echo "irreversible|0|Report unclaimed config/support/cache leftovers (opt-in, heuristic, never deletes)" ;;
+    orphans)           echo "irreversible|0|Possible app leftovers (opt-in; report, or quarantine with --remove-orphans)" ;;
     whatsapp)          echo "moderate|0|WhatsApp expired Status/Stories media cache, real chat media untouched (opt-in)" ;;
     sim-stale)         echo "risky|0|iOS Simulator devices unused for a long time (opt-in, keeps recently-booted ones)" ;;
     claude-cache)      echo "safe|0|Claude desktop app's browser-style cache dirs only (opt-in)" ;;

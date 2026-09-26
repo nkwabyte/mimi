@@ -159,6 +159,21 @@ path_identity() {
   printf '%s' "$id"
 }
 
+# True when macOS System Integrity Protection guards the object itself: it
+# carries the "restricted" (rootless) or "sunlnk" (system undeletable) file
+# flag. Nothing may remove such an object — not the user, and not root under
+# sudo — so it is skipped rather than attempted. The daemon working folders
+# macOS keeps in $TMPDIR (mobiletimerd, gamed, proactived, ...) are the
+# common case. A final symlink is not followed.
+path_is_sip_protected() {
+  local flags
+  flags="$(stat -f '%Sf' "$1" 2>/dev/null)" || return 1
+  case ",$flags," in
+    *,restricted,* | *,sunlnk,*) return 0 ;;
+  esac
+  return 1
+}
+
 # True when TARGET is ROOT itself or lies underneath it. Both arguments must
 # already be canonical. Matching is on component boundaries only: /a/bcd is
 # not inside /a/bc. Root and target are quoted inside the case pattern, so a

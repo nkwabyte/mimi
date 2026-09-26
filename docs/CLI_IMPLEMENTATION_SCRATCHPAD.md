@@ -26,18 +26,16 @@ Only one task should normally be `[~]` at a time. A task is not complete because
 
 ## 3. Current focus
 
-Current phase: Phase 0 — Safety stabilization
+Current phase: Phase 4 — Reversible user-scope uninstall MVP
 
-Current task: none in progress — `P0-T07` completed 2026-09-22, which closes
-Batch E (`P0-T08` was already complete).
+Current task: none in progress — Phase 3 (Application inventory and evidence, `P3-T01` through `P3-T06`) completed 2026-09-25; audited and gaps closed 2026-09-26.
 
 Next tasks:
 
-1. `P0-T09` — reclassify defaults and profiles (Batch F).
-2. `P0-T12` — documentation and safety contract parity (Batch F).
-3. `P0-T11` — static checks and CI (Batch G).
-
-Do not start plan/apply, application uninstalling, privileged helpers, new cleanup categories, or GUI integration until the Phase 0 exit gate passes.
+1. `P4-T01` — Uninstall modes and target resolution.
+2. `P4-T02` — Running process handling.
+3. `P4-T03` — User-scope uninstall plan.
+4. `P4-T04` — User-scope apply and verification.
 
 ## 4. Baseline snapshot
 
@@ -151,15 +149,13 @@ Depends on: none.
 
 ### `P0-T02` — Characterize the current CLI
 
-Status: `[~]` partially complete — 2026-09-21 (Batch A subset)
+Status: `[x]` complete — 2026-09-24
 
 - [x] Test `--help` and `--list` exit successfully.
-- [~] Snapshot category IDs, risks, and defaults. *(IDs and the risk column are
-  asserted; a full golden-file snapshot of all 35 rows is still outstanding.)*
+- [x] Snapshot category IDs, risks, and defaults. *(Golden-file snapshot in tests/profiles.bats covers all 36 categories)*
 - [x] Test scan is the non-interactive default when a flag is supplied.
 - [x] Test `--only`, `--skip`, repeated whitelist, and presets.
-- [x] Test configuration load/save precedence. *(load and precedence covered;
-  `save_config` round-tripping is not yet tested.)*
+- [x] Test configuration load/save precedence. *(`save_config` round-tripping verified in tests/defects.bats)*
 - [x] Capture current missing-value, invalid-number, and unknown-category behavior before fixing it.
 - [x] Test that a scan does not remove fixture files.
 
@@ -369,7 +365,7 @@ Depends on: `P0-T02`.
 
 ### `P0-T08` — Argument and configuration validation
 
-Status: `[~]` partially complete — 2026-09-21 (Batch A subset)
+Status: `[x]` complete — 2026-09-22
 
 - [x] Add helpers that require option values before reading `$2`. *(`require_arg`)*
 - [x] Validate modes and known category IDs. *(`is_known_category`, `normalize_category_list`)*
@@ -502,19 +498,17 @@ Acceptance:
 
 ### `P1-T02` — Thin entry point
 
-Status: `[~]` mostly complete — 2026-09-22, pulled forward out of phase order
+Status: `[x]` complete — 2026-09-22, pulled forward out of phase order
 (see DEC-021).
 
-- [x] Add `bin/cleanmymac` as the canonical entry point.
+- [x] Add `bin/mimi` as the canonical entry point.
 - [x] Keep `clean.sh` as a compatibility shim during migration. *(see DEC-022
   for why it sources rather than execs.)*
 - [x] Resolve library paths relative to the executable safely. *Resolved from
   `BASH_SOURCE`, following symlinks, never from `$0` or `$PWD`; the lib path
   is deliberately not overridable from the environment, since it is sourced.*
-- [~] Add install-tree and source-tree invocation tests. *Source-tree, symlink
-  and arbitrary-cwd invocation are covered in `tests/layout.bats`. There is no
-  installed layout yet, so install-tree invocation is still outstanding and
-  belongs with `P7-T02`.*
+- [x] Add install-tree and source-tree invocation tests. *(Source-tree, symlink,
+  arbitrary-cwd, and install.sh prefix linking covered in `tests/layout.bats`)*
 
 ### `P1-T03` — Extract core utilities
 
@@ -673,51 +667,66 @@ Phase objective: reliably inspect applications and report potential remnants wit
 
 ### `P3-T01` — Installed-app inventory
 
-- [ ] Inventory standard and explicitly supplied app locations.
-- [ ] Record canonical path and file identity.
-- [ ] Handle unavailable volumes and incomplete Spotlight explicitly.
-- [ ] Add `apps list` human/JSON output.
+Status: `[x]` complete — 2026-09-25, gaps closed and re-verified 2026-09-26
+
+- [x] Inventory standard and explicitly supplied app locations. *(`inventory_scan_apps` in `lib/apps/inventory.sh` walks each root plus one level of plain vendor folders, skipping bundles embedded in `.app`/`.bundle`/`.framework`/`.plugin`/`.appex`/`.xpc`; `--app-root` is repeatable via `app_add_search_root`, the first use replacing the defaults; `MIMI_APP_SEARCH_ROOTS` for tests)*
+- [x] Record canonical path and file identity. *(`APP_INV_PATHS` canonical, `APP_INV_IDENTITIES` `device:inode`, both exported by `apps list --json`)*
+- [x] Handle unavailable volumes and incomplete Spotlight explicitly. *(missing/unmounted/unreadable roots listed in `unavailable_roots`; Spotlight state `used|unavailable|skipped`; an empty index or one that missed walked apps marks the inventory incomplete with a stated note; Spotlight hits are pre-filtered to the search roots)*
+- [x] Add `apps list` human/JSON output. *(`mimi_apps_list`; `--source` validated against `all|app|cask|mas|pkg|system`; JSON is `schemas/apps-list-v1.json`)*
 
 ### `P3-T02` — Bundle and signing fingerprint
 
-- [ ] Read bundle ID, name, version, executable, nested helpers, XPC services, extensions, and login items.
-- [ ] Record signing identifier and Team ID where present.
-- [ ] Reject Apple/system apps and ambiguous identities.
+Status: `[x]` complete — 2026-09-25, gaps closed and re-verified 2026-09-26
+
+- [x] Read bundle ID, name, version, executable, nested helpers, XPC services, extensions, and login items. *(`app_inspect_bundle`, one-pass `plist_read_keys`; helpers include Electron's `Contents/Frameworks/*.app`; extensions include `PlugIns`, `Extensions`, `Library/SystemExtensions`; bundled `Library/LaunchAgents`, `LaunchDaemons`, `LaunchServices` reported as `bundled_launchd`)*
+- [x] Record signing identifier and Team ID where present. *(`app_detect_signing` also records `SIGNING_STATUS` unsigned/adhoc/signed)*
+- [x] Reject Apple/system apps and ambiguous identities. *(`APP_INFO_ELIGIBLE` + `APP_INFO_INELIGIBLE_REASON`: system volume, `com.apple.*`, Apple signing authority, missing `Info.plist`, missing bundle id, Team-signed identifier contradicting the bundle id. Unsigned/ad-hoc and symlinked paths become `identity_warnings`. `uninstall_resolve_target` refuses ineligible apps.)*
 
 ### `P3-T03` — Provenance inventory
 
-- [ ] Detect Homebrew cask provenance.
-- [ ] Detect App Store receipt presence.
-- [ ] Correlate Installer package receipts/BOMs without forgetting or deleting them.
-- [ ] Detect a vendor uninstaller as a report-only fact.
+Status: `[x]` complete — 2026-09-25, gaps closed and re-verified 2026-09-26
+
+- [x] Detect Homebrew cask provenance. *(`app_detect_cask` uses a once-per-process index of installed tokens and the `.app` artifacts declared in each cask's recorded definition, `method: metadata`; falls back to a token matching the app name, `method: name`. Caskroom roots overridable by `MIMI_CASKROOM_DIRS`; the old `FAKE_HOME` test variable no longer leaks into production code.)*
+- [x] Detect App Store receipt presence. *(`_MASReceipt/receipt`)*
+- [x] Correlate Installer package receipts/BOMs without forgetting or deleting them. *(`app_detect_pkg_receipts`: `pkgutil --file-info <bundle>` path correlation plus receipts named after the bundle id; only `--file-info` is ever invoked, pinned by the `pkgutil` mock rejecting everything else)*
+- [x] Detect a vendor uninstaller as a report-only fact. *(`app_detect_uninstaller` ignores icons/docs such as `uninstall.png`, checks vendor folders but never a search root itself; never executed)*
+- [x] Every applicable fact is kept in `provenance_facts`; the primary label follows system > mas > cask > pkg > app.
 
 ### `P3-T04` — Remnant evidence collectors
 
-- [ ] Implement one known root at a time.
-- [ ] Emit evidence facts rather than binary “owned/not owned” claims.
-- [ ] Cover user support data, sandboxes, startup integration, logs/caches, and developer artifacts.
-- [ ] Keep system locations report-only.
+Status: `[x]` complete — 2026-09-25, gaps closed and re-verified 2026-09-26
+
+- [x] Implement one known root at a time. *(`collect_app_evidence` in `lib/apps/evidence.sh`: Containers, Group Containers, Application Scripts, Preferences + ByHost, Saved Application State, WebKit, HTTPStorages, Cookies, Application Support (inside vendor folders), Caches, Logs, DiagnosticReports, LaunchAgents, developer dotfolders, `/Library` system roots)*
+- [x] Emit evidence facts rather than binary “owned/not owned” claims. *(`record_evidence` stores path, root, kind, confidence, class, shared/system flags, size, and reason; paths are canonicalised without following a final symlink and must be contained in their root)*
+- [x] Cover user support data, sandboxes, startup integration, logs/caches, and developer artifacts. *(LaunchAgents are read for `Label`/`Program`/`ProgramArguments[0]`, so an agent launching the app's binary is evidence whatever its name; crash reports by executable name; `~/.name` and `~/.config/name` dotfolders as review-only)*
+- [x] Keep system locations report-only. *(`evidence_system_roots`, overridable by `MIMI_APP_SYSTEM_ROOTS`; always class `retained`)*
+- [x] Performance: each root is listed once and case-folded by a single `awk`; evidence collection on a real home went from ~29 s to ~2 s.
 
 ### `P3-T05` — Confidence and shared-use policy
 
-- [ ] Implement authoritative, strong, corroborated, weak, and conflicting/shared classifications.
-- [ ] Require multiple signals where appropriate.
-- [ ] Veto group containers/shared updaters/sibling resources by default.
-- [ ] Add adversarial and rebrand/shared-sibling fixtures.
+Status: `[x]` complete — 2026-09-25, gaps closed and re-verified 2026-09-26
+
+- [x] Implement authoritative, strong, corroborated, weak, and conflicting/shared classifications. *(six confidences mapped to three classes — attributable / review / retained — by `evidence_classify`)*
+- [x] Require multiple signals where appropriate. *(name-only matches are `weak` unless contents reference the bundle id, a vendor folder agrees with the bundle id's vendor, or a LaunchAgent label agrees with its program path)*
+- [x] Veto group containers/shared updaters/sibling resources by default. *(Group Containers, team-prefixed Application Scripts, vendor folders, Keystone/AutoUpdate/Adobe updaters are `shared`; `ev_index_siblings` makes evidence `conflicting` when a second installed copy shares the bundle id, an installed sibling has a more specific id, or another app has the same name)*
+- [x] Add adversarial and rebrand/shared-sibling fixtures. *(`tests/apps.bats`: `com.foo.application` vs `com.foo.app`, sibling `.beta`, duplicate copies, same-name apps, rebrand, symlinked remnant, short names, updater veto)*
+- [x] `evidence_is_selectable` is the single predicate; `uninstall_build_plan` now uses it.
 
 ### `P3-T06` — App inspection command
 
-- [ ] Add `app inspect APP` with exact resolution rules.
-- [ ] Show application footprint separately from attributable-data estimate.
-- [ ] Explain every remnant and retained candidate.
-- [ ] Export stable JSON for the future GUI.
+Status: `[x]` complete — 2026-09-25, gaps closed and re-verified 2026-09-26
+
+- [x] Add `app inspect APP` with exact resolution rules. *(`resolve_app_target`: path (contains `/` or ends `.app`, must have `Contents/Info.plist`) → bundle id exact then case-insensitive → cask token → normalised name; no fuzzy matching; a bare name is never a cwd path; any rule with several matches stops with the choices)*
+- [x] Show application footprint separately from attributable-data estimate. *(bundle footprint, attributable, needs-review, and retained totals are separate in human and JSON output)*
+- [x] Explain every remnant and retained candidate. *(every item carries root + reason; collector notes explain disabled name matching and duplicate copies)*
+- [x] Export stable JSON for the future GUI. *(`schemas/app-inspect-v1.json` versioned `mimi.app-inspect/1`, including a resolution-error form with candidates; schema conformance tested)*
 
 ### Phase 3 exit gate
 
-- [ ] Inventory works without mutation.
-- [ ] Ambiguous apps stop with choices.
-- [ ] Weak/shared evidence cannot become a selected action.
-- [ ] Fixture reports explain all associations.
+- [x] Inventory works without mutation. *(tree fingerprint before/after `apps list` and `app inspect` is identical)*
+- [x] Ambiguous apps stop with choices. *(human list on stderr; JSON `error.candidates`)*
+- [x] Weak/shared evidence cannot become a selected action. *(`evidence_is_selectable` true only for class `attributable`; asserted for every remnant in the gate fixture and used by the uninstall planner)*
+- [x] Fixture reports explain all associations.
 
 ## 11. Phase 4 — Reversible user-scope uninstall MVP
 
@@ -1012,6 +1021,14 @@ Resolve decisions only when their owning phase needs them. Do not let later-phas
 | 2026-09-24 | DEC-050 | Purge is strictly separated from clean/apply into an explicit `mimi purge <run-id>` command requiring dedicated confirmation. | Enforces operational separation between safe cleaning/quarantine and permanent data destruction. | `P2-T07`, `bin/mimi`, `lib/core.sh` |
 | 2026-09-24 | DEC-051 | Reorganized all 18 library modules into 5 functional subdirectories (`core/`, `safety/`, `transaction/`, `cleaners/`, `ui/`), sourced through single entry point `lib/load.sh`. | Cleanly clusters modules by single responsibility, reduces root clutter, maintains self-describing headers, and preserves 100% backward compatibility across all 370 tests. | `lib/`, `lib/load.sh`, `tests/layout.bats` |
 | 2026-09-21 | DEC-007 | The integer validator is named `validate_int` and accepts zero, rather than the planned `validate_positive_int`. | `--keep-logs 0` and `--keep-toolchains 0` are meaningful, so "positive" would have been an inaccurate name for the required behaviour. The task text asks for *bounded non-negative* integers. | `P0-T08` |
+| 2026-09-26 | DEC-052 | Remnant evidence has six confidences (authoritative, strong, corroborated, weak, conflicting, shared) mapped to three classes (attributable, review, retained); only `attributable` is selectable, via the single predicate `evidence_is_selectable`. | One rule shared by `app inspect` and every planner means a weak, shared, or sibling-owned item cannot become an action by a second code path drifting. | `P3-T05`, `lib/apps/evidence.sh`, `lib/apps/uninstall.sh` |
+| 2026-09-26 | DEC-053 | Bundle-id matching is component-boundary aware (`exact`, `child` = `id.*`, `prefix` = `*.id`) and case-insensitive; substring matching is removed. | `com.foo.application` must never be evidence for `com.foo.app`. | `P3-T04`, `ev_id_match` |
+| 2026-09-26 | DEC-054 | Evidence paths are canonicalised with `nofollow` and must lie inside their root; a symlinked remnant is recorded as the link, `weak`, and its target is never followed. | Prevents a link in `~/Library` from pulling user documents elsewhere into a report or a future plan. | `P3-T04`, `record_evidence` |
+| 2026-09-26 | DEC-055 | App eligibility is decided at inspection (`APP_INFO_ELIGIBLE`): system/Apple apps, missing `Info.plist`, missing bundle id, and Team-signed identifiers contradicting the bundle id are ineligible; unsigned/ad-hoc bundles only warn. | Ad-hoc and unsigned apps are common and legitimate; a signed identity that disagrees with its own Info.plist is not. | `P3-T02`, `lib/apps/inventory.sh` |
+| 2026-09-26 | DEC-056 | Explicit application roots (`--app-root`, `MIMI_APP_SEARCH_ROOTS`) disable Spotlight; host locations (Caskroom, receipts, `/Library` roots) are overridable only through `MIMI_*` environment variables used by tests. | Spotlight results cannot be constrained to a caller's root, and production code must not read test variables such as `FAKE_HOME`. | `P3-T01`, `P3-T03`, `tests/apps.bats` |
+| 2026-09-26 | DEC-057 | `apps list --json` and `app inspect --json` emit single JSON documents versioned `mimi.apps-list/1` and `mimi.app-inspect/1` (`schemas/apps-list-v1.json`, `schemas/app-inspect-v1.json`), not JSON Lines events. | They are request/response reports for the GUI, not a streamed run; a versioned document is the stable contract `P3-T06` asks for. | `P3-T01`, `P3-T06`, `schemas/` |
+| 2026-09-26 | DEC-058 | In the interactive UI, the category selection is the confirmation: a menu clean answers the whole-run gate and authorizes each selected risky/irreversible category as `--force-risky` would, and nothing unselected. CLI prompts are unchanged. | The user reviews every category and its colour-coded risk before pressing `c`; further prompts duplicated that decision. The CLI keeps its gates because a flag in a script is easy to forget, which is the rationale of DEC-029–DEC-033. | `lib/ui/tui.sh`, `lib/safety/confirm.sh`, `tests/confirmations.bats` |
+| 2026-09-26 | DEC-059 | Orphan leftovers can be removed in bulk: `--remove-orphans` (or the orphans category ticked for a menu clean) moves every candidate, strong and weak, to a quarantine run. Naming the flag is the authorization; no review file or `--force-risky`. | The review-file round trip was too inconvenient to use. Bulk removal of a heuristic list is only acceptable because it is undoable: quarantine plus `restore`, with space released only by an explicit `purge`. Obvious non-leftovers (macOS structure, installed CLI tools) are excluded first. | `P0-T06` (amended), `lib/cleaners/categories.sh`, `lib/cleaners/orphans.sh` |
 
 ## 19. Blocker log
 
@@ -1391,6 +1408,99 @@ and privileged helper have not been chosen.
   `--yes` to authorize reviewed-orphan removal or AVD deletion now say
   `--force-risky` instead — which is the contract change made visible.
 
+### 2026-09-26 — Phase 3 audit and completion
+
+Phase 3 had been ticked `[x]` on 2026-09-25, but an audit against the code
+found several claims that were only partly true. Everything below is now
+implemented and tested:
+
+- Inventory: vendor-folder apps, repeatable `--app-root`, unavailable roots
+  reported, Spotlight compared app-by-app with the walk (the old count
+  comparison included hits outside every root), identity exported, `--source`
+  validated. JSON wrapped in a versioned document with an `inventory` block.
+- Bundle fingerprint: Electron helpers, system extensions, bundled launchd jobs
+  and privileged helpers; eligibility and identity warnings (DEC-055).
+- Provenance: cask detection from the installed cask's recorded definition
+  (the old code matched only when the token normalised to the app name, and
+  read a test-only `FAKE_HOME` variable); `pkgutil --file-info` receipt
+  correlation; every fact listed; uninstaller detection ignores icons/docs.
+- Evidence: Application Scripts, Cookies, crash reports, LaunchAgents read by
+  program path, developer dotfolders; boundary-aware id matching (DEC-053);
+  symlink/containment rules (DEC-054); `/Library` roots overridable for tests
+  (the suite previously read the host's `/Library`).
+- Policy: `conflicting` confidence for duplicate copies, more-specific sibling
+  ids, and same-named apps; name-only matches downgraded to `weak`; shared
+  updaters vetoed; `review` class; `evidence_is_selectable` (DEC-052) now used
+  by the Phase 4 planner too.
+- Inspect: explicit resolution order incl. case-insensitive ids, not-an-app and
+  JSON error documents with candidates, `schemas/app-inspect-v1.json`.
+- Performance on a real machine (116 apps): `app inspect <name>` 34 s → 8 s;
+  evidence collection 29 s → 2 s.
+- Tests: `tests/apps.bats` 15 → 58; new `codesign` and `pkgutil` mocks;
+  `tests/README.md` documents the `MIMI_*` isolation variables.
+- Phase 4 files (`lib/apps/process.sh`, `lib/apps/uninstall.sh`,
+  `tests/uninstall.bats`) already existed uncommitted; only the planner's
+  selection predicate and an eligibility guard were changed here. Phase 4
+  tasks remain unchecked pending their own review.
+
+### 2026-09-26 — SIP-protected temp folders and TUI redraw flicker
+
+- A real `clean` run (`docs/info.txt`) reported 23 "permission denied" items,
+  all daemon working folders in `$TMPDIR` (`mobiletimerd`, `gamed`,
+  `proactived`, ...). They carry the `sunlnk` flag and `com.apple.rootless`,
+  so System Integrity Protection guards them: root cannot remove them either,
+  and `sudo` would not help. `path_is_sip_protected` (flags `restricted` or
+  `sunlnk`) now makes `fs_remove` skip them with status `protected`, counted
+  as skipped (`ACTION_PROTECTED`), not denied; the summary says macOS manages
+  them instead of blaming Full Disk Access. JSONL `action_result` status
+  `protected`.
+- Running under `sudo` was requested but not implemented: nothing it would
+  unlock appears in the failing run, and privileged scope is `P5-T03`/`P5-T04`
+  (HOME/TMPDIR resolution for `SUDO_USER`, root-owned logs/config in the user's
+  home, Homebrew refusing to run as root). Awaiting a decision.
+- TUI flicker: every keypress erased the frame (`\033[J`) and then redrew it
+  row by row with ~6 subprocesses per row (~180 ms blank). Frames are now built
+  off-screen and painted in one write by `tui_paint` (cursor up, overwrite each
+  line + `\033[K`, erase leftovers, inside `?2026` synchronized output); picker
+  rows are cached once per session (`_picker_cache_rows`). Frame build ~2 ms.
+  Applies to the category picker, menus, whitelist, and settings screens.
+- Tests: 5 new in `tests/mutation.bats`; 470 passing.
+
+### 2026-09-26 — Menu cleans ask no questions
+
+- Requested: once categories are chosen in the TUI, a clean should not ask
+  anything further; the selection and the whitelist are the user's controls.
+- `tui_run_clean` (`lib/ui/tui.sh`) now backs the picker's `c`, the numeric
+  fallback's `c`, and *Quick clean*. For that run it sets `ASSUME_YES=1` and
+  `FORCE_RISKY_LIST` to exactly the selected risky/irreversible ids
+  (`FORCE_RISKY_SOURCE="your category selection"`), then restores both.
+  Unselected categories stay unauthorized; whitelist and path policy unchanged.
+- This amends DEC-033 for the interactive UI only (see DEC-058). CLI behaviour
+  (`--yes` recoverable only, `--force-risky` per id, typed confirmation for
+  irreversible) is unchanged.
+- Tests: 4 new in `tests/confirmations.bats`.
+
+### 2026-09-26 — Leftovers removable from the CLI without a review file
+
+- Requested: remove every leftover, weak or strong, without editing a file.
+- `--remove-orphans` (implies `--include-orphans`) makes a clean move every
+  candidate into one quarantine run `orphans-<timestamp>`
+  (`orphans_quarantine_all`); `restore` undoes it, `purge` frees the space.
+  Each path is revalidated (`validate_orphan_target`), whitelisted and
+  SIP-protected entries are skipped, LaunchAgents are booted out first.
+  Ticking `orphans` for a menu clean sets `REMOVE_ORPHANS` for that run.
+  A scan with the flag previews. The review file and `--remove-orphans-from`
+  remain for hand-picked removal. Supersedes the "never deletes" rule of
+  `P0-T06` (DEC-059).
+- False positives seen in the real run are excluded: macOS structure
+  (`ByHost`, `WebKit/Databases`, bare `Caches`, `default.store*`) via
+  `ORPHAN_STRUCTURAL_NAMES`; Apple service names added to
+  `ORPHAN_SYSTEM_DENYLIST`; folders of installed command-line tools via
+  `is_installed_cli_tool` (`type -P` on the name, the name minus `-nodejs`,
+  and a non-generic last dotted component). Real-machine count 203 → 171.
+- Tests: 12 new in `tests/orphan_report.bats`; two wording tests updated to
+  the new contract.
+
 ## 22. Next-session handoff template
 
 Copy and fill this section at the end of an implementation session:
@@ -1411,22 +1521,26 @@ Exact next step:
 ## 23. Current handoff
 
 ```text
-Task:          Phase 1, Phase 2 Complete & lib/ Functional Directory Organization
+Task:          Phase 3 audit and completion (P3-T01 through P3-T06, exit gate)
 Status:        complete
-Changed files: bin/mimi, lib/load.sh, lib/core/*, lib/safety/*, lib/transaction/*,
-               lib/cleaners/*, lib/ui/*, schemas/*, tests/plan.bats, tests/jsonl.bats,
-               tests/profiles.bats, tests/layout.bats, tests/mutation.bats, tests/run,
-               README.md, docs/CLI_IMPLEMENTATION_SCRATCHPAD.md
+Changed files: bin/mimi, lib/apps/inventory.sh, lib/apps/evidence.sh, lib/apps/inspect.sh,
+               lib/apps/uninstall.sh (selection predicate + eligibility guard only),
+               lib/ui/usage.sh, schemas/apps-list-v1.json, schemas/app-inspect-v1.json,
+               tests/apps.bats, tests/uninstall.bats (env isolation only),
+               tests/mocks/bin/codesign, tests/mocks/bin/pkgutil, tests/README.md,
+               docs/USAGE.md, docs/CLI_IMPLEMENTATION_SCRATCHPAD.md
 Tests run:     ./tests/run < /dev/null
-Test result:   370 passed, 0 failed, 0 skipped
-Safety checks: /bin/bash -n on all 24 shell files OK; git diff --check clean (0 errors);
-               test sentinels verified intact across full suite; no raw rm outside checked layer.
-Decisions:     DEC-039 through DEC-051 (Machine-readable protocol v1, Plan schema v1,
-               immutable plans, quarantine/restore/purge executor, modularization into
-               lib/core, lib/safety, lib/transaction, lib/cleaners, lib/ui).
-New risks:     None. Execution plans and quarantine system provide safe, reviewable,
-               and recoverable operations before any files are permanently purged.
+Test result:   465 passed, 0 failed, 0 skipped (tests/apps.bats: 58)
+Safety checks: /bin/bash -n and shellcheck -x clean on every shell file (tests/run gates);
+               git diff --check clean; sentinels intact; apps list / app inspect proven
+               non-mutating by a before/after tree fingerprint; pkgutil/codesign mocks
+               reject every non-read invocation.
+Decisions:     DEC-052 through DEC-057.
+New risks:     `apps list` on a real machine takes ~20 s, dominated by `du` of every bundle
+               (116 apps); acceptable for a report, but a size-less fast mode may be wanted
+               by the GUI.
 Blocker:       none
-Exact next step: Phase 3 — Application inventory and evidence (P3-T01: installed-app
-               inventory, bundle fingerprints, provenance detection, and remnant evidence collectors).
+Exact next step: Review the existing uncommitted Phase 4 code (P4-T01 to P4-T06) against
+               its checklist before ticking anything; it now consumes
+               evidence_is_selectable and APP_INFO_ELIGIBLE from Phase 3.
 ```
