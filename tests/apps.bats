@@ -574,8 +574,8 @@ PLIST
   [ "$status" -eq 0 ]
   [ "$(echo "$output" | json_eval 'd["app"]["source"]')" = "pkg" ]
   [ "$(echo "$output" | json_eval 'd["app"]["pkg_receipts"]')" = '["com.example.pkg.installer"]' ]
-  # Only read-only queries reached pkgutil.
-  ! grep '^pkgutil' "$MOCK_CALL_LOG" | grep -v -- '--file-info'
+  # Only read-only queries reached pkgutil: never --forget or anything else.
+  ! grep '^pkgutil' "$MOCK_CALL_LOG" | grep -v -E -- '^pkgutil (--file-info|--pkgs|--pkg-info|--files)( |$)'
 }
 
 @test "provenance: a receipt named after the bundle id is reported" {
@@ -1007,4 +1007,139 @@ check(doc, schema, "$")
   run --separate-stderr /bin/bash "$MIMI_BIN" app inspect "Nope" --json
   [ "$status" -eq 1 ]
   echo "$output" | schema_check "$REPO_ROOT/schemas/app-inspect-v1.json"
+}
+
+# ---------------------------------------------------------------------------
+# P5-T02: Installer package payload ownership (report-only)
+# ---------------------------------------------------------------------------
+
+# mock_receipt ID LOCATION FILE... — a receipt the pkgutil mock serves.
+mock_receipt() {
+  local id="$1" loc="$2" f
+  shift 2
+  export MOCK_PKG_DIR="$TEST_TMPDIR/receipts-db"
+  mkdir -p "$MOCK_PKG_DIR"
+  printf 'volume: /\nlocation: %s\n' "$loc" > "$MOCK_PKG_DIR/$id.info"
+  : > "$MOCK_PKG_DIR/$id.files"
+  for f in "$@"; do printf '%s\n' "$f" >> "$MOCK_PKG_DIR/$id.files"; done
+}
+
+@test "receipts: payload is grouped below structural folders and shared items are split out" {
+  source_lib
+  # Paths are absolute under / in the mock; the fixture never touches them.
+  mock_receipt com.acme.suite.core "" \
+    "Applications/Acme Suite.app" "Applications/Acme Suite.app/Contents/Info.plist" \
+    "Library/LaunchDaemons/com.acme.helper.plist" \
+    "Library/Application Support/Acme/Core/lib.dylib" \
+    "Library/Application Support/Acme/Shared/license.dat"
+  mock_receipt com.acme.suite.extras "" \
+    "Library/Application Support/Acme/Shared/license.dat" \
+    "Library/Application Support/Acme/Extras/tool"
+  receipt_analyze com.acme.suite.core
+  local i out=""
+  for ((i = 0; i < RCPT_ITEM_COUNT; i++)); do
+    out="$out${RCPT_ITEM_STATUS[$i]}:${RCPT_ITEM_PATHS[$i]}:${RCPT_ITEM_OWNERS[$i]};"
+  done
+  echo "$out" | tr ';' '\n' | sort > "$TEST_TMPDIR/got"
+  printf '%s\n' \
+    "exclusive:/Applications/Acme Suite.app:" \
+    "exclusive:/Library/Application Support/Acme/Core:" \
+    "exclusive:/Library/LaunchDaemons/com.acme.helper.plist:" \
+    "shared:/Library/Application Support/Acme/Shared/license.dat:com.acme.suite.extras" | sort > "$TEST_TMPDIR/want"
+  sed -i '' '/^$/d' "$TEST_TMPDIR/got"
+  diff "$TEST_TMPDIR/want" "$TEST_TMPDIR/got"
+}
+
+@test "receipts: a package with its own install location is resolved against it" {
+  source_lib
+  mock_receipt com.vendor.tool "Library/Application Support/Vendor/Tool" \
+    "Tool.app" "Tool.app/Contents/Info.plist" "helper"
+  receipt_analyze com.vendor.tool
+  [ "$RCPT_ITEM_COUNT" -eq 2 ]
+  [ "${RCPT_LOCATIONS[0]}" = "com.vendor.tool|/Library/Application Support/Vendor/Tool" ]
+  [ "${RCPT_ITEM_PATHS[0]}" = "/Library/Application Support/Vendor/Tool/Tool.app" ]
+  [ "${RCPT_ITEM_STATUS[0]}" = "exclusive" ]
+}
+
+@test "receipts: app inspect reports package payload and never changes the receipt database" {
+  local app="$FAKE_HOME/Applications/PkgPayload.app"
+  create_app "$app" "PkgPayload" "com.example.pkgpayload" "1.0"
+  printf '%s|com.example.pkgpayload.pkg\n' "$(canon "$app")" > "$TEST_TMPDIR/pkgs"
+  export MOCK_PKG_INDEX="$TEST_TMPDIR/pkgs"
+  export MOCK_CALL_LOG="$TEST_TMPDIR/calls"
+  mock_receipt com.example.pkgpayload.pkg "" \
+    "Library/LaunchDaemons/com.example.pkgpayload.daemon.plist" \
+    "Library/PrivilegedHelperTools/com.example.pkgpayload.helper"
+
+  run /bin/bash "$MIMI_BIN" app inspect "$app" --json
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | json_eval 'sorted(p["path"] for p in d["package_payload"])')" = \
+    '["/Library/LaunchDaemons/com.example.pkgpayload.daemon.plist", "/Library/PrivilegedHelperTools/com.example.pkgpayload.helper"]' ]
+  [ "$(echo "$output" | json_eval 'set(p["status"] for p in d["package_payload"])')" = '{"exclusive"}' ] || \
+    [ "$(echo "$output" | json_eval 'sorted(set(p["status"] for p in d["package_payload"]))')" = '["exclusive"]' ]
+  echo "$output" | schema_check "$REPO_ROOT/schemas/app-inspect-v1.json"
+  ! grep '^pkgutil' "$MOCK_CALL_LOG" | grep -v -E -- '^pkgutil (--file-info|--pkgs|--pkg-info|--files)( |$)'
+
+  run /bin/bash "$MIMI_BIN" app inspect "$app"
+  echo "$output" | grep -q "Installer Package Payload (report-only"
+}
+
+# ---------------------------------------------------------------------------
+# P5-T01: vendor uninstaller hand-off policy (verdict shown by inspect)
+# ---------------------------------------------------------------------------
+
+@test "vendor uninstaller: inspect says a same-team signed uninstaller app may be launched" {
+  local vendor="$FAKE_HOME/Applications/Acme"
+  create_app "$vendor/Acme Studio.app" "Acme Studio" "com.acme.studio" "1.0"
+  create_app "$vendor/Uninstall Acme Studio.app" "Uninstall Acme Studio" "com.acme.uninstaller" "1.0"
+  {
+    printf '%s|com.acme.studio|ACME123456|Developer ID Application: Acme (ACME123456)\n' "$(canon "$vendor/Acme Studio.app")"
+    printf '%s|com.acme.uninstaller|ACME123456|Developer ID Application: Acme (ACME123456)\n' "$(canon "$vendor/Uninstall Acme Studio.app")"
+  } > "$TEST_TMPDIR/cs"
+  export MOCK_CODESIGN_INDEX="$TEST_TMPDIR/cs"
+
+  run /bin/bash "$MIMI_BIN" app inspect "$vendor/Acme Studio.app" --json
+  [ "$(echo "$output" | json_eval 'd["app"]["vendor_uninstaller_handoff"]["allowed"]')" = "true" ]
+}
+
+@test "vendor uninstaller: a different Team ID, an unsigned one, or a script is never launchable" {
+  local vendor="$FAKE_HOME/Applications/Acme"
+  create_app "$vendor/Acme Studio.app" "Acme Studio" "com.acme.studio" "1.0"
+  create_app "$vendor/Uninstall Acme Studio.app" "Uninstall Acme Studio" "com.evil.uninstaller" "1.0"
+  printf '%s|com.acme.studio|ACME123456|Developer ID Application: Acme (ACME123456)\n%s|com.evil.uninstaller|EVIL999999|Developer ID Application: Evil (EVIL999999)\n' \
+    "$(canon "$vendor/Acme Studio.app")" "$(canon "$vendor/Uninstall Acme Studio.app")" > "$TEST_TMPDIR/cs"
+  export MOCK_CODESIGN_INDEX="$TEST_TMPDIR/cs"
+  run /bin/bash "$MIMI_BIN" app inspect "$vendor/Acme Studio.app" --json
+  [ "$(echo "$output" | json_eval 'd["app"]["vendor_uninstaller_handoff"]["allowed"]')" = "false" ]
+  echo "$output" | json_eval 'd["app"]["vendor_uninstaller_handoff"]["reason"]' | grep -q "EVIL999999"
+
+  local app="$FAKE_HOME/Applications/ScriptApp.app"
+  create_app "$app" "ScriptApp" "com.example.scriptapp" "1.0"
+  mkdir -p "$app/Contents/Resources"
+  printf '#!/bin/sh\nrm -rf /\n' > "$app/Contents/Resources/uninstall.sh"
+  run /bin/bash "$MIMI_BIN" app inspect "$app" --json
+  [ "$(echo "$output" | json_eval 'd["app"]["vendor_uninstaller_handoff"]["allowed"]')" = "false" ]
+  echo "$output" | json_eval 'd["app"]["vendor_uninstaller_handoff"]["reason"]' | grep -q "never runs scripts"
+}
+
+@test "receipts: an app installed by a package to its own location is attributed to it" {
+  local root="$TEST_TMPDIR/sysroot"
+  local app="$FAKE_HOME/Applications/Located.app"
+  create_app "$app" "Located" "com.example.located" "1.0"
+  # The receipt's location is the fixture's Applications folder (relative to /).
+  local rel
+  rel="$(canon "$FAKE_HOME/Applications")"
+  mock_receipt com.example.located.pkg "${rel#/}" "Located.app" "Located.app/Contents/Info.plist"
+
+  run /bin/bash "$MIMI_BIN" app inspect "$app" --json
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | json_eval 'd["app"]["source"]')" = "pkg" ]
+  [ "$(echo "$output" | json_eval 'd["app"]["pkg_receipts"]')" = '["com.example.located.pkg"]' ]
+}
+
+@test "inspect: a bundle id ending in .app is resolved as a bundle id, not a path" {
+  create_app "$FAKE_HOME/Applications/Acme.app" "Acme" "com.acme.app" "1.0"
+  run /bin/bash "$MIMI_BIN" app inspect com.acme.app --json
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | json_eval 'd["resolution"]["method"]')" = "bundle_id" ]
 }

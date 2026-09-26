@@ -77,7 +77,7 @@ jobs:
             license "MIT"
 
             def install
-              prefix.install "bin", "lib", "schemas"
+              prefix.install "bin", "lib", "libexec", "schemas"
             end
 
             test do

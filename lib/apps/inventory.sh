@@ -313,6 +313,13 @@ app_detect_pkg_receipts() {
     done < <(pkgutil --file-info "$app_path" 2>/dev/null || true)
   fi
 
+  # 1b. Packages installed to their own location, which --file-info misses:
+  #     look the bundle path up in the receipt index.
+  local rid
+  while IFS= read -r rid; do
+    _pkg_add "$rid"
+  done < <(receipt_pkgs_for_app "$app_path")
+
   # 2. A receipt named after the bundle identifier.
   if [ -n "$bundle_id" ] && [ -d "$receipts_dir" ]; then
     if [ -f "$receipts_dir/$bundle_id.plist" ] || [ -f "$receipts_dir/$bundle_id.bom" ]; then

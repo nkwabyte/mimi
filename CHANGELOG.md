@@ -6,6 +6,27 @@ and a release tag must match it.
 
 ## [Unreleased]
 
+### Added
+
+- `app inspect` shows what an app's Installer packages put on disk
+  (`package_payload`) and which items other packages share. Apps installed by
+  a package to its own folder are now recognised as package-installed.
+- `mimi app uninstall <app> --vendor-uninstaller` launches the app's own
+  uninstaller, only if it is an app signed by the same developer as the app,
+  after a typed confirmation. Scripts are never run.
+- `mimi app uninstall <app> --system` prepares removal of an app's system
+  LaunchDaemons, LaunchAgents, and privileged helper tools. mimi writes a
+  request and prints the `sudo` command for `libexec/mimi-root-apply`, a small
+  standalone tool that re-checks everything, asks you to type the bundle id,
+  and moves the items to a root-only quarantine (`--restore`, `--purge`).
+  It also handles files an Installer package put on disk for the app when no
+  other package shares them, and forgets the package receipt at `--purge`
+  once every file is gone. mimi itself never runs as root.
+- `sudo libexec/mimi-root-apply --install` installs a root-owned copy of the
+  root tool; mimi uses it while it matches and says when it is out of date.
+- `scripts/release.sh`, `scripts/bump-version.sh`, `scripts/version.sh` for
+  maintainers (see `scripts/README.md`).
+
 ## [0.2.0]
 
 ### Added
@@ -48,6 +69,8 @@ and a release tag must match it.
 
 ### Fixed
 
+- A bundle id ending in `.app` (such as `com.acme.app`) is now found as a
+  bundle id instead of being treated as a missing path.
 - Scans are about 6× faster on large Library folders, and building a plan no
   longer slows down quadratically with its size.
 - The interactive screens no longer flash on every keypress.
