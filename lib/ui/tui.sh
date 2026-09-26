@@ -162,37 +162,110 @@ term_cols() {
 }
 
 # Erase the previous frame: move the cursor back up N lines, then clear
-# everything below it.
+# everything below it. Used when leaving a screen; redraws use tui_paint.
 tui_clear_frame() {
   local n="$1"
   [ "${n:-0}" -gt 0 ] || return 0
   printf '\033[%dA\033[J' "$n"
 }
 
+# Replace the previous frame (N lines) with FRAME in a single write.
+#
+# Erasing the old frame and then drawing the new one row by row left the
+# screen blank for as long as the draw took, which read as a flash on every
+# keypress. Instead the frame is built off-screen, the cursor goes back up,
+# each line is overwritten in place and cleared to its end (\033[K), and only
+# leftover lines below are erased. The write is wrapped in synchronized-output
+# markers (?2026), which iTerm2, kitty, WezTerm, Ghostty and VS Code use to
+# paint atomically and other terminals ignore.
+#
+# FRAME is draw-function output captured with $(...), so its trailing newline
+# is gone; one is added back here.
+tui_paint() {
+  local n="${1:-0}" frame="$2" out
+  frame="${frame//$'\n'/$'\033[K\n'}"$'\033[K\n'
+  out=$'\033[?2026h'
+  [ "$n" -gt 0 ] && out="$out"$'\033['"$n"$'A\r'
+  printf '%s' "$out$frame"$'\033[J\033[?2026l'
+}
+
+# ---------------------------------------------------------------------------
+# Cleaning from the menus
+# ---------------------------------------------------------------------------
+
+# Run a clean of ONLY_LIST from the interactive UI without asking anything.
+#
+# On the command line, --yes answers only recoverable prompts and each risky
+# or irreversible action must be named with --force-risky, because a flag in a
+# cron line is easy to forget. In the menus the situation is different: the
+# user has just looked at every category, with its risk shown, and ticked the
+# ones to clean. That selection is the confirmation. So for this one run:
+#
+#   * the whole-run gate is answered (as --yes would), and
+#   * every selected risky/irreversible category is authorized exactly as
+#     --force-risky <id> would authorize it — and nothing that was not
+#     selected.
+#
+# The whitelist, the path policy, and every other safety check still apply;
+# only the questions are gone. Previous values are restored afterwards so a
+# later scan or CLI-style run is unaffected.
+tui_run_clean() {
+  local saved_yes="$ASSUME_YES" saved_force="$FORCE_RISKY_LIST"
+  local saved_src="${FORCE_RISKY_SOURCE:-}" saved_rm="$REMOVE_ORPHANS" id ids="" rc=0
+
+  MODE=clean
+  for id in ${ONLY_LIST//,/ }; do
+    confirm_is_forceable "$id" && ids="${ids:+$ids,}$id"
+  done
+
+  ASSUME_YES=1
+  FORCE_RISKY_LIST="$ids"
+  # A ticked orphans category means: move the leftovers it finds to quarantine.
+  case ",$ONLY_LIST," in *,orphans,*) REMOVE_ORPHANS=1 ;; esac
+  FORCE_RISKY_SOURCE="your category selection"
+  say "Cleaning the selected categories: ${C_BOLD}${ONLY_LIST//,/, }${C_RESET}"
+  say "${C_DIM}No further questions — the selection and the whitelist decide what is removed.${C_RESET}"
+
+  run_selected_categories || rc=$?
+
+  ASSUME_YES="$saved_yes"
+  FORCE_RISKY_LIST="$saved_force"
+  FORCE_RISKY_SOURCE="$saved_src"
+  REMOVE_ORPHANS="$saved_rm"
+  return "$rc"
+}
+
 # ---------------------------------------------------------------------------
 # Multi-select category picker
 # ---------------------------------------------------------------------------
 
-# Colour a risk word so "risky" is impossible to tick by accident.
-_risk_colored() {
-  case "$1" in
-    safe)         printf '%s%-13s%s' "$C_GREEN" "safe" "$C_RESET" ;;
-    moderate)     printf '%s%-13s%s' "$C_YELLOW" "moderate" "$C_RESET" ;;
-    risky)        printf '%s%-13s%s' "$C_RED" "risky" "$C_RESET" ;;
-    irreversible) printf '%s%-13s%s' "$C_RED" "irreversible" "$C_RESET" ;;
-    *)            printf '%-13s' "$1" ;;
-  esac
+# Per-row risk and description, looked up once per picker session rather
+# than with several subprocesses per row on every redraw.
+PICKER_RISKS=()
+PICKER_DESCS=()
+_picker_cache_rows() {
+  local i info
+  PICKER_RISKS=()
+  PICKER_DESCS=()
+  for i in "${!CATEGORY_STATE_IDS[@]}"; do
+    info="$(category_info "${CATEGORY_STATE_IDS[$i]}")"
+    PICKER_RISKS[$i]="${info%%|*}"
+    PICKER_DESCS[$i]="${info#*|*|}"
+  done
 }
 
 _picker_draw() {
-  # $1 = cursor index, $2 = viewport top index, $3 = viewport height
-  local cur="$1" top="$2" vh="$3"
-  local i id info risk desc mark line count on=0 dw
+  # $1 = cursor index, $2 = viewport top index, $3 = viewport height,
+  # $4 = terminal width (optional; measured when absent)
+  local cur="$1" top="$2" vh="$3" cols="${4:-}"
+  local i id risk desc mark line count on=0 dw
   count="${#CATEGORY_STATE_IDS[@]}"
+  [ -n "$cols" ] || cols="$(term_cols)"
+  [ "${#PICKER_RISKS[@]}" -eq "$count" ] || _picker_cache_rows
   # "❯ [x] " + 16 id + 13 risk + spacing = 39 columns before the description.
-  # A row that wraps would desync the cursor arithmetic in tui_clear_frame,
-  # so descriptions are hard-truncated to what is left.
-  dw=$(( $(term_cols) - 39 ))
+  # A row that wraps would desync the cursor arithmetic in tui_paint, so
+  # descriptions are hard-truncated to what is left.
+  dw=$(( cols - 39 ))
   [ "$dw" -lt 10 ] && dw=10
 
   for i in "${!CATEGORY_STATE_ON[@]}"; do
@@ -202,9 +275,9 @@ _picker_draw() {
   printf '%s\n' "${C_BOLD}Choose categories${C_RESET}  ${C_DIM}(${on}/${count} selected)${C_RESET}"
   # The hint line must not wrap either — a wrapped header would shift every
   # subsequent frame up by one line. Narrow terminals get the short form.
-  if [ "$(term_cols)" -ge 92 ]; then
+  if [ "$cols" -ge 92 ]; then
     printf '%s\n' "${C_DIM}  ↑/↓ move   space toggle   enter run scan   c clean   a all   x none   r reset   q back${C_RESET}"
-  elif [ "$(term_cols)" -ge 66 ]; then
+  elif [ "$cols" -ge 66 ]; then
     printf '%s\n' "${C_DIM}  ↑↓ move  space toggle  ⏎ scan  c clean  q back${C_RESET}"
   else
     printf '%s\n' "${C_DIM}  ↑↓ space ⏎scan c q${C_RESET}"
@@ -216,13 +289,19 @@ _picker_draw() {
   i="$top"
   while [ "$i" -lt "$end" ]; do
     id="${CATEGORY_STATE_IDS[$i]}"
-    info="$(category_info "$id")"
-    risk="$(printf '%s' "$info" | cut -d'|' -f1)"
-    desc="$(printf '%s' "$info" | cut -d'|' -f3)"
+    risk="${PICKER_RISKS[$i]}"
+    desc="${PICKER_DESCS[$i]}"
     if [ "${CATEGORY_STATE_ON[$i]}" = "1" ]; then mark="${C_GREEN}[x]${C_RESET}"; else mark="[ ]"; fi
     # Keep rows inside the window so a wrapped line never breaks the redraw.
-    desc="$(printf "%.${dw}s" "$desc")"
-    line="$(printf '%s %-16s %s %s' "$mark" "$id" "$(_risk_colored "$risk")" "$desc")"
+    desc="${desc:0:$dw}"
+    local rc
+    case "$risk" in
+      safe)                 rc="$C_GREEN" ;;
+      moderate)             rc="$C_YELLOW" ;;
+      risky|irreversible)   rc="$C_RED" ;;
+      *)                    rc="" ;;
+    esac
+    printf -v line '%s %-16s %s%-13s%s %s' "$mark" "$id" "$rc" "$risk" "$C_RESET" "$desc"
     if [ "$i" = "$cur" ]; then
       printf '%s\n' "${C_BOLD}${C_CYAN}❯ ${C_RESET}${C_BOLD}${line}${C_RESET}"
     else
@@ -243,13 +322,15 @@ _picker_draw() {
 interactive_choose_categories() {
   tui_available || { interactive_choose_categories_numeric; return; }
 
-  local count cur=0 top=0 vh rows drawn key i
+  local count cur=0 top=0 vh rows cols drawn key i frame
   count="${#CATEGORY_STATE_IDS[@]}"
+  _picker_cache_rows
 
   tui_begin
   drawn=0
   while true; do
     rows="$(term_rows)"
+    cols="$(term_cols)"
     vh=$((rows - 6))
     [ "$vh" -lt 5 ] && vh=5
     [ "$vh" -gt "$count" ] && vh="$count"
@@ -259,8 +340,8 @@ interactive_choose_categories() {
     [ "$cur" -ge $((top + vh)) ] && top=$((cur - vh + 1))
     [ "$top" -lt 0 ] && top=0
 
-    tui_clear_frame "$drawn"
-    _picker_draw "$cur" "$top" "$vh"
+    frame="$(_picker_draw "$cur" "$top" "$vh" "$cols")"
+    tui_paint "$drawn" "$frame"
     drawn=$((vh + 4))
 
     key="$(read_key)"
@@ -302,13 +383,12 @@ interactive_choose_categories() {
       c|C)
         tui_end
         say ""
-        MODE=clean
         ONLY_LIST="$(only_list_from_category_state)"
         SKIP_LIST=""
         if [ -z "$ONLY_LIST" ]; then
           warn "nothing selected"
         else
-          run_selected_categories
+          tui_run_clean
         fi
         interactive_pause
         tui_begin
@@ -343,7 +423,10 @@ interactive_choose_categories_numeric() {
       n|N) for i in "${!CATEGORY_STATE_IDS[@]}"; do CATEGORY_STATE_ON[$i]=0; sync_include_var "${CATEGORY_STATE_IDS[$i]}" 0; done ;;
       r|R) build_category_state ;;
       w|W) MODE=scan;  ONLY_LIST="$(only_list_from_category_state)"; SKIP_LIST=""; run_selected_categories; interactive_pause ;;
-      c|C) MODE=clean; ONLY_LIST="$(only_list_from_category_state)"; SKIP_LIST=""; run_selected_categories; interactive_pause ;;
+      c|C)
+        ONLY_LIST="$(only_list_from_category_state)"; SKIP_LIST=""
+        if [ -z "$ONLY_LIST" ]; then warn "nothing selected"; else tui_run_clean; fi
+        interactive_pause ;;
       b|B) return ;;
       [0-9]*)
         idx=$((sel - 1))
@@ -398,24 +481,25 @@ menu_select() {
     [ "$cur" -ge $((top + vh)) ] && top=$((cur - vh + 1))
     [ "$top" -lt 0 ] && top=0
 
-    tui_clear_frame "$drawn"
-    printf '%s\n' "${C_BOLD}${title}${C_RESET}"
-    printf '%s\n' "${C_DIM}  ↑/↓ move   enter select   q quit${C_RESET}"
-    local end=$((top + vh))
+    local end=$((top + vh)) mw frame label
     [ "$end" -gt "$count" ] && end="$count"
-    i="$top"
-    while [ "$i" -lt "$end" ]; do
-      local label mw
-      mw=$(( $(term_cols) - 3 ))
-      [ "$mw" -lt 10 ] && mw=10
-      label="$(printf "%.${mw}s" "${MENU_LABELS[$i]}")"
-      if [ "$i" = "$cur" ]; then
-        printf '%s\n' "${C_BOLD}${C_CYAN}❯ ${label}${C_RESET}"
-      else
-        printf '  %s\n' "$label"
-      fi
-      i=$((i + 1))
-    done
+    mw=$(( $(term_cols) - 3 ))
+    [ "$mw" -lt 10 ] && mw=10
+    frame="$(
+      printf '%s\n' "${C_BOLD}${title}${C_RESET}"
+      printf '%s\n' "${C_DIM}  ↑/↓ move   enter select   q quit${C_RESET}"
+      i="$top"
+      while [ "$i" -lt "$end" ]; do
+        label="${MENU_LABELS[$i]:0:$mw}"
+        if [ "$i" = "$cur" ]; then
+          printf '%s\n' "${C_BOLD}${C_CYAN}❯ ${label}${C_RESET}"
+        else
+          printf '  %s\n' "$label"
+        fi
+        i=$((i + 1))
+      done
+    )"
+    tui_paint "$drawn" "$frame"
     drawn=$((vh + 2))
 
     key="$(read_key)"
@@ -522,8 +606,7 @@ interactive_whitelist() {
     [ "$vh" -gt 0 ] && [ "$cur" -ge $((top + vh)) ] && top=$((cur - vh + 1))
     [ "$top" -lt 0 ] && top=0
 
-    tui_clear_frame "$drawn"
-    _whitelist_draw "$cur" "$top" "$vh" "$count"
+    tui_paint "$drawn" "$(_whitelist_draw "$cur" "$top" "$vh" "$count")"
     if [ "$count" -eq 0 ]; then drawn=4; else drawn=$((vh + 3)); fi
 
     key="$(read_key)"
@@ -658,8 +741,7 @@ interactive_settings() {
   count="${#SETTINGS_ROWS[@]}"
   tui_begin
   while true; do
-    tui_clear_frame "$drawn"
-    _settings_draw "$cur"
+    tui_paint "$drawn" "$(_settings_draw "$cur")"
     drawn=$((count + 3))
 
     row="${SETTINGS_ROWS[$cur]}"
@@ -775,11 +857,10 @@ interactive_main() {
         interactive_pause
         ;;
       1)
-        MODE=clean
         reset_all_include_vars
         ONLY_LIST="$(compute_code_default_ids)"
         SKIP_LIST=""
-        run_selected_categories
+        tui_run_clean
         interactive_pause
         ;;
       2) interactive_choose_categories ;;

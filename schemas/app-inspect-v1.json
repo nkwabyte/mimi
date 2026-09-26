@@ -1,0 +1,152 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MimiAppInspectV1",
+  "description": "Output of `mimi app inspect <target> --json` (read-only application inspection, v1). A failed resolution produces the `error` form instead.",
+  "oneOf": [
+    { "$ref": "#/definitions/report" },
+    { "$ref": "#/definitions/error" }
+  ],
+  "definitions": {
+    "stringArray": { "type": "array", "items": { "type": "string" } },
+    "report": {
+      "type": "object",
+      "required": ["schema", "target", "resolution", "inventory", "app", "remnants", "notes", "summary"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "type": "string", "const": "mimi.app-inspect/1" },
+        "target": { "type": "string" },
+        "resolution": {
+          "type": "object",
+          "required": ["method", "path"],
+          "additionalProperties": false,
+          "properties": {
+            "method": { "enum": ["path", "bundle_id", "cask", "name"] },
+            "path": { "type": "string" }
+          }
+        },
+        "inventory": {
+          "description": "Inventory completeness when the inventory was consulted (null for a path target). Same shape as apps-list-v1 inventory.",
+          "type": ["object", "null"]
+        },
+        "app": {
+          "type": "object",
+          "required": ["name", "bundle_id", "version", "executable", "path", "identity", "source",
+                       "provenance_facts", "cask", "pkg_receipts", "is_system", "eligible",
+                       "ineligible_reason", "identity_warnings", "size_kb", "architecture", "signing",
+                       "nested_helpers", "xpc_services", "extensions", "login_items",
+                       "bundled_launchd", "vendor_uninstaller"],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string" },
+            "bundle_id": { "type": "string" },
+            "version": { "type": "string" },
+            "executable": { "type": "string" },
+            "path": { "type": "string" },
+            "identity": { "type": "string" },
+            "source": { "enum": ["app", "cask", "mas", "pkg", "system"] },
+            "provenance_facts": { "$ref": "#/definitions/stringArray" },
+            "cask": {
+              "type": ["object", "null"],
+              "required": ["token", "method"],
+              "properties": {
+                "token": { "type": "string" },
+                "method": { "enum": ["metadata", "name"] }
+              }
+            },
+            "pkg_receipts": { "$ref": "#/definitions/stringArray" },
+            "is_system": { "type": "boolean" },
+            "eligible": { "type": "boolean" },
+            "ineligible_reason": { "type": ["string", "null"] },
+            "identity_warnings": { "$ref": "#/definitions/stringArray" },
+            "size_kb": { "type": "integer", "minimum": 0 },
+            "architecture": { "type": "string" },
+            "signing": {
+              "type": "object",
+              "required": ["status", "identifier", "team_id", "authority"],
+              "additionalProperties": false,
+              "properties": {
+                "status": { "enum": ["unsigned", "adhoc", "signed"] },
+                "identifier": { "type": "string" },
+                "team_id": { "type": "string" },
+                "authority": { "type": "string" }
+              }
+            },
+            "nested_helpers": { "$ref": "#/definitions/stringArray" },
+            "xpc_services": { "$ref": "#/definitions/stringArray" },
+            "extensions": { "$ref": "#/definitions/stringArray" },
+            "login_items": { "$ref": "#/definitions/stringArray" },
+            "bundled_launchd": { "$ref": "#/definitions/stringArray" },
+            "vendor_uninstaller": { "type": ["string", "null"] }
+          }
+        },
+        "remnants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "root", "kind", "confidence", "class", "selectable",
+                         "is_shared", "is_system_location", "size_kb", "reason"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "root": { "type": "string" },
+              "kind": { "enum": ["dir", "file", "symlink", "other", "missing"] },
+              "confidence": { "enum": ["authoritative", "strong", "corroborated", "weak", "conflicting", "shared"] },
+              "class": { "enum": ["attributable", "review", "retained"] },
+              "selectable": { "type": "boolean", "description": "True only for class=attributable" },
+              "is_shared": { "type": "boolean" },
+              "is_system_location": { "type": "boolean" },
+              "size_kb": { "type": "integer", "minimum": 0 },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "notes": { "$ref": "#/definitions/stringArray" },
+        "summary": {
+          "type": "object",
+          "required": ["bundle_size_kb", "attributable_size_kb", "review_size_kb", "retained_size_kb",
+                       "attributable_count", "review_count", "retained_count"],
+          "additionalProperties": false,
+          "properties": {
+            "bundle_size_kb": { "type": "integer" },
+            "attributable_size_kb": { "type": "integer" },
+            "review_size_kb": { "type": "integer" },
+            "retained_size_kb": { "type": "integer" },
+            "attributable_count": { "type": "integer" },
+            "review_count": { "type": "integer" },
+            "retained_count": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": ["schema", "target", "error"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "type": "string", "const": "mimi.app-inspect/1" },
+        "target": { "type": "string" },
+        "error": {
+          "type": "object",
+          "required": ["code", "message", "candidates"],
+          "additionalProperties": false,
+          "properties": {
+            "code": { "enum": ["not_found", "ambiguous", "not_an_app"] },
+            "message": { "type": "string" },
+            "candidates": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "bundle_id", "path"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "bundle_id": { "type": "string" },
+                  "path": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

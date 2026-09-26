@@ -102,6 +102,10 @@ run_selected_categories() {
     free_after="$(df -H / | awk 'NR==2{print $4}')"
     say "Free space before: $free_before  ->  after: $free_after"
     say "Actions: ${ACTION_OK} succeeded, ${ACTION_SKIPPED} skipped, ${ACTION_DENIED} permission-denied, ${ACTION_FAILED} failed"
+    if [ "${ACTION_PROTECTED:-0}" -gt 0 ]; then
+      say "  ${ACTION_PROTECTED} item(s) are protected by macOS (System Integrity Protection) and"
+      say "  were left alone. Nothing can remove them, including sudo; macOS manages them."
+    fi
     if [ "$ACTION_DENIED" -gt 0 ]; then
       warn "$ACTION_DENIED action(s) were refused by the system. Full Disk Access in"
       warn "System Settings > Privacy & Security is the usual reason."
@@ -247,6 +251,7 @@ run_apply() {
   ACTION_OK=0
   ACTION_SKIPPED=0
   ACTION_DENIED=0
+  ACTION_PROTECTED=0
   ACTION_FAILED=0
 
   local item act_id cat op p ident bytes risk evid
@@ -374,6 +379,9 @@ main() {
   fi
 
   case "$MODE" in
+    apps) mimi_apps_list ;;
+    app_inspect) mimi_app_inspect ;;
+    app_uninstall) mimi_app_uninstall ;;
     plan) run_plan ;;
     apply) run_apply ;;
     restore) run_restore ;;

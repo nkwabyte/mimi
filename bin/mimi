@@ -63,6 +63,51 @@ while [ $# -gt 0 ]; do
     scan) MODE="scan"; shift ;;
     clean) MODE="clean"; shift ;;
     plan) MODE="plan"; shift ;;
+    apps)
+      MODE="apps"
+      shift
+      if [ $# -gt 0 ] && [ "$1" = "list" ]; then
+        shift
+      fi
+      ;;
+    app)
+      shift
+      if [ $# -gt 0 ]; then
+        case "$1" in
+          inspect)
+            MODE="app_inspect"
+            shift
+            if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
+              APP_TARGET="$1"
+              shift
+            fi
+            ;;
+          uninstall)
+            MODE="app_uninstall"
+            shift
+            if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
+              APP_TARGET="$1"
+              shift
+            fi
+            ;;
+          list)
+            MODE="apps"
+            shift
+            ;;
+          *)
+            if [[ "$1" != -* ]]; then
+              APP_TARGET="$1"
+              MODE="app_inspect"
+              shift
+            else
+              MODE="apps"
+            fi
+            ;;
+        esac
+      else
+        MODE="apps"
+      fi
+      ;;
     apply)
       require_arg "apply" "$#" "${2-}"
       MODE="apply"
@@ -108,6 +153,31 @@ while [ $# -gt 0 ]; do
     --purge=*)
       MODE="purge"
       RUN_ID="${1#*=}"; shift ;;
+    --source)
+      require_arg "--source" "$#" "${2-}"
+      APP_SOURCE_FILTER="$2"; shift 2 ;;
+    --source=*)
+      APP_SOURCE_FILTER="${1#*=}"; shift ;;
+    --app-target)
+      require_arg "--app-target" "$#" "${2-}"
+      APP_TARGET="$2"; shift 2 ;;
+    --app-target=*)
+      APP_TARGET="${1#*=}"; shift ;;
+    # Repeatable: the first --app-root replaces the default roots, later ones
+    # are added to it.
+    --app-root)
+      require_arg "--app-root" "$#" "${2-}"
+      app_add_search_root "$2"; shift 2 ;;
+    --app-root=*)
+      app_add_search_root "${1#*=}"; shift ;;
+    --keep-data)
+      UNINSTALL_DATA_MODE="keep"; shift ;;
+    --purge-data)
+      UNINSTALL_DATA_MODE="purge"; shift ;;
+    --cask)
+      UNINSTALL_DELEGATE_CASK=1; shift ;;
+    --zap)
+      UNINSTALL_ZAP=1; shift ;;
     -i|--interactive) INTERACTIVE=1; shift ;;
     --scan) MODE="scan"; shift ;;
     --jsonl | --json) JSONL_ENABLED=1; shift ;;
@@ -237,6 +307,9 @@ while [ $# -gt 0 ]; do
     --android-stale-days=*)
       validate_int "--android-stale-days" "${1#*=}"
       ANDROID_STALE_DAYS="${1#*=}"; shift ;;
+    # Quarantine every leftover the orphan scan finds (strong and weak). Naming
+    # the action is its authorization; it also selects the orphans category.
+    --remove-orphans) REMOVE_ORPHANS=1; INCLUDE_ORPHANS=1; shift ;;
     --remove-orphans-from)
       require_arg "--remove-orphans-from" "$#" "${2-}"
       [ -r "$2" ] || die_usage "--remove-orphans-from: cannot read review file '$2'"
@@ -270,41 +343,43 @@ validate_config_values
 #
 # Any --include-X flag adds X to ONLY_LIST and opens its gate.
 # --skip always wins over any of the above.
-if [ -z "$ONLY_LIST" ]; then
-  if [ -n "$PROFILE" ]; then
-    ONLY_LIST="$(profile_category_list "$PROFILE")"
-  elif [ -n "$CONFIG_SELECTED_CATEGORIES" ]; then
-    ONLY_LIST="$CONFIG_SELECTED_CATEGORIES"
-  elif [ -n "$CONFIG_PROFILE" ]; then
-    ONLY_LIST="$(profile_category_list "$CONFIG_PROFILE")"
-  else
-    ONLY_LIST="$(profile_category_list "safe")"
+if [ "$MODE" != "apps" ] && [ "$MODE" != "app_inspect" ] && [ "$MODE" != "app_uninstall" ]; then
+  if [ -z "$ONLY_LIST" ]; then
+    if [ -n "$PROFILE" ]; then
+      ONLY_LIST="$(profile_category_list "$PROFILE")"
+    elif [ -n "$CONFIG_SELECTED_CATEGORIES" ]; then
+      ONLY_LIST="$CONFIG_SELECTED_CATEGORIES"
+    elif [ -n "$CONFIG_PROFILE" ]; then
+      ONLY_LIST="$(profile_category_list "$CONFIG_PROFILE")"
+    else
+      ONLY_LIST="$(profile_category_list "safe")"
+    fi
+    # An opt-in category named in the profile or saved selection also needs its
+    # --include-* gate opened, or it would appear in the run list and then
+    # refuse to do anything ("skipped (opt-in only)").
+    for _id in $ALL_CATEGORY_IDS; do
+      case ",$ONLY_LIST," in
+        *",$_id,"*)
+          _var="$(category_include_var "$_id")"
+          [ -n "$_var" ] && printf -v "$_var" '1'
+          ;;
+      esac
+    done
   fi
-  # An opt-in category named in the profile or saved selection also needs its
-  # --include-* gate opened, or it would appear in the run list and then
-  # refuse to do anything ("skipped (opt-in only)").
+
+  # Any --include-X flag is itself an explicit request to run that category,
+  # whether or not --only named it (or code defaults would have included it).
+  # --skip still wins (checked first in should_run_category).
   for _id in $ALL_CATEGORY_IDS; do
-    case ",$ONLY_LIST," in
-      *",$_id,"*)
-        _var="$(category_include_var "$_id")"
-        [ -n "$_var" ] && printf -v "$_var" '1'
-        ;;
-    esac
+    _var="$(category_include_var "$_id")"
+    if [ -n "$_var" ] && [ "${!_var}" = "1" ]; then
+      case ",$ONLY_LIST," in
+        *",$_id,"*) ;;
+        *) ONLY_LIST="${ONLY_LIST:+$ONLY_LIST,}$_id" ;;
+      esac
+    fi
   done
 fi
-
-# Any --include-X flag is itself an explicit request to run that category,
-# whether or not --only named it (or code defaults would have included it).
-# --skip still wins (checked first in should_run_category).
-for _id in $ALL_CATEGORY_IDS; do
-  _var="$(category_include_var "$_id")"
-  if [ -n "$_var" ] && [ "${!_var}" = "1" ]; then
-    case ",$ONLY_LIST," in
-      *",$_id,"*) ;;
-      *) ONLY_LIST="${ONLY_LIST:+$ONLY_LIST,}$_id" ;;
-    esac
-  fi
-done
 
 # ---------------------------------------------------------------------------
 # Dispatch

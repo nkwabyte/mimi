@@ -156,6 +156,44 @@ is_installed_identifier() {
   return 1
 }
 
+is_structural_orphan_name() {
+  local t="$1" x
+  for x in "${ORPHAN_STRUCTURAL_NAMES[@]}"; do
+    [ "$t" = "$x" ] && return 0
+  done
+  return 1
+}
+
+# True when the entry belongs to a command-line tool that is installed right
+# now. Tools such as mkcert, lazygit, pnpm, dotnet or watchman have no .app,
+# so the application index never claims their folders — but they are in use,
+# and mkcert's folder even holds a local certificate authority's private key.
+# Candidates tried: the name itself, the name without the "-nodejs" suffix
+# that Node's env-paths adds, and the last component of a dotted id
+# (com.github.facebook.watchman -> watchman). Only real executables on PATH
+# count (`type -P`), never shell functions or builtins.
+is_installed_cli_tool() {
+  local t c
+  t="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  local last="${t##*.}"
+  # The last component only counts when it is specific: "agent", "helper" or
+  # "updater" name a role, not a tool, and a stray executable called "agent"
+  # must not hide com.vendor.agent.
+  case "$last" in
+    agent|agents|helper|helpers|updater|update|client|service|services|daemon|\
+    launcher|app|application|cli|core|main|server|desktop|plugin|extension|\
+    widget|widgets|tool|tools|settings|config|shared|mac|macos|osx)
+      last="" ;;
+  esac
+  [ "$last" = "$t" ] && last=""
+  for c in "$t" "${t%-nodejs}" "$last"; do
+    [ "${#c}" -ge 2 ] || continue
+    case "$c" in *[!a-z0-9._-]*) continue ;; esac
+    type -P -- "$c" > /dev/null 2>&1 && return 0
+  done
+  return 1
+}
+
 get_token_for_entry() {
   local kind="$1" name="$2"
   case "$kind" in
@@ -201,7 +239,9 @@ collect_orphan_candidates() {
       is_identifier_whitelisted "$token" && continue
       is_apple_identifier "$token" && continue
       is_denylisted_identifier "$norm_token" && continue
+      is_structural_orphan_name "$norm_token" && continue
       is_installed_identifier "$norm_token" && continue
+      is_installed_cli_tool "$token" && continue
 
       case "$policy" in
         bundle-id-named) tier="strong" ;;

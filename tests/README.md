@@ -83,6 +83,11 @@ tests/
    apps the developer happens to have open. `mdfind`, `mdls` and `defaults`
    read an optional `$MOCK_APP_INDEX` file of `<app path>|<bundle id>` lines,
    so a test can describe exactly which applications Spotlight knows about.
+   `codesign` reads `$MOCK_CODESIGN_INDEX`
+   (`<path>|<identifier>|<team id>|<authority>`, authority `adhoc` for an
+   ad-hoc signature) and otherwise reports "not signed". `pkgutil` answers
+   only `--file-info`, reading `$MOCK_PKG_INDEX` (`<path>|<pkgid>`); any other
+   invocation fails, so an attempt to forget a receipt is caught.
 4. Plants sentinel files **outside** the fixture root.
 
 `teardown()` calls `verify_sentinels`, which fails the test if any sentinel
@@ -110,6 +115,18 @@ gone by the time the assertion reads it. Call the function directly when the
 global is the thing under test. The same trap bites inside the script itself:
 `x="$(path_authorize "$p")"` gets the path but loses the reason, which is why
 `path_authorize` also publishes `PATH_CANONICAL`.
+
+## Isolating application inventory tests
+
+`tests/apps.bats` and `tests/uninstall.bats` also pin every location the
+application inventory would otherwise read from the host:
+
+| Variable | Replaces |
+|---|---|
+| `MIMI_APP_SEARCH_ROOTS` | the application roots (colon-separated); also disables Spotlight |
+| `MIMI_CASKROOM_DIRS` | the Homebrew Caskroom directories (colon-separated) |
+| `MIMI_APP_SYSTEM_ROOTS` | the report-only `/Library` locations; empty means none |
+| `MIMI_RECEIPTS_DIR` | `/var/db/receipts` |
 
 ## Driving the mocks
 

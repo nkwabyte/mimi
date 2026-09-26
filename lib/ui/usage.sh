@@ -11,7 +11,7 @@ usage() {
 mimi — macOS junk cleaner (Xcode/simulator aware)
 
 USAGE:
-  mimi [scan | clean | plan | apply | restore | purge] [options]
+  mimi [scan | clean | plan | apply | restore | purge | apps | app] [options]
   mimi [--scan | --cleaner | --plan] [options]
 
 SUBCOMMANDS:
@@ -21,6 +21,21 @@ SUBCOMMANDS:
   apply <plan-file>       Validate and execute a plan using atomic quarantine.
   restore <run-id>        Restore a previously quarantined run to original paths.
   purge <run-id>          Permanently remove a quarantined run.
+  apps [list] [options]   Inventory installed applications (read-only).
+                          --source all|app|cask|mas|pkg|system   Filter by provenance.
+                          --app-root DIR  Inventory DIR instead (repeatable).
+                          --json          Emit schemas/apps-list-v1.json.
+  app inspect <target>    Inspect an app's footprint, provenance, signing, and remnants
+                          (read-only). Target resolves by exact path, bundle ID,
+                          cask token, then name; ambiguity stops with the choices.
+                          --json emits schemas/app-inspect-v1.json.
+  app uninstall <target>  Uninstall an app (bundle + optional user data) via plan/quarantine.
+                          Target: app name, bundle ID, cask token, or exact path.
+                          --keep-data   Quarantine bundle only; leave user data untouched.
+                          --purge-data  Quarantine bundle and all attributable user data.
+                          --cask        Delegate uninstall to Homebrew Cask.
+                          --zap         Delegate to Homebrew Cask with --zap (removes prefs/caches).
+                          (Default: plan is shown; ask before applying.)
 
 MODES:
   --scan                  Report reclaimable space only. Deletes nothing. (default)
@@ -87,12 +102,17 @@ OPT-IN (destructive / can remove wanted data — off unless requested):
   --include-docker        Run `docker system prune -af --volumes` (removes ALL
                           unused images/containers/volumes, not just old ones,
                           more aggressive than --include-docker-cache above).
-  --include-orphans        REPORT ONLY. Scan for leftover config/prefs/caches/
-                          containers/LaunchAgents whose names no installed
-                          application claims. This never removes anything,
-                          under any flag, in any mode: it writes a review
-                          file you edit by hand and pass back with
-                          --remove-orphans-from <file>.
+  --include-orphans       Scan for leftover config/prefs/caches/containers/
+                          LaunchAgents whose names no installed application
+                          or installed command-line tool claims. On its own
+                          it only reports (and writes a review file).
+  --remove-orphans        Move EVERY leftover the scan finds, strong and weak,
+                          to a quarantine run — no file to edit. Implies
+                          --include-orphans; use with clean:
+                            mimi clean --only orphans --remove-orphans
+                          Undo with `mimi restore orphans-<timestamp>`; free
+                          the space with `mimi purge orphans-<timestamp>`.
+                          Whitelisted paths are never moved.
                           Matching is a name/bundle-id heuristic, reported
                           at two confidence levels:
                             [strong] the folder is named by bundle id
@@ -116,7 +136,8 @@ OPT-IN (destructive / can remove wanted data — off unless requested):
                           iCloud, etc). Preview safely first with:
                             mimi --only orphans --include-orphans --scan
   --remove-orphans-from <file>
-                          Remove exactly the paths listed in a review file
+                          Remove a hand-picked subset instead: exactly the
+                          paths listed in a review file
                           produced by --include-orphans. Edit it first: delete
                           a line, or put a # in its FIRST column, for anything
                           you want to keep. A # anywhere else on the line is
