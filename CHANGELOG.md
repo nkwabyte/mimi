@@ -6,6 +6,8 @@ and a release tag must match it.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-26
+
 ### Added
 
 - `app inspect` shows what an app's Installer packages put on disk
@@ -26,8 +28,6 @@ and a release tag must match it.
   root tool; mimi uses it while it matches and says when it is out of date.
 - `scripts/release.sh`, `scripts/bump-version.sh`, `scripts/version.sh` for
   maintainers (see `scripts/README.md`).
-
-## [0.2.0]
 
 ### Added
 
