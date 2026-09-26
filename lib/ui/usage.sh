@@ -38,6 +38,15 @@ SUBCOMMANDS:
                                         without a terminal, or with --yes, keeps it.
                           --plan-only   Save the plan; apply later with `mimi apply`.
                           --cask        Hand the uninstall to Homebrew (cask apps only).
+                          --system      System LaunchDaemons, LaunchAgents, and helper
+                                        tools of the app (works after the app is gone:
+                                        pass its bundle id). Writes a request and prints
+                                        the sudo command for libexec/mimi-root-apply;
+                                        mimi itself never runs as root.
+                          --vendor-uninstaller
+                                        Launch the app's own uninstaller app, only if
+                                        signed by the app's developer (typed confirm
+                                        or --force-risky vendor-uninstaller).
                           --zap         Homebrew --zap: also its listed prefs/caches;
                                         deleted by Homebrew, not restorable by mimi.
                           A running app is asked to quit; force-quitting needs a

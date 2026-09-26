@@ -179,6 +179,12 @@ while [ $# -gt 0 ]; do
     # app uninstall: write and show the plan, apply it later with `mimi apply`.
     --plan-only)
       UNINSTALL_PLAN_ONLY=1; shift ;;
+    # app uninstall: launch the app's own uninstaller after verifying it.
+    --vendor-uninstaller)
+      UNINSTALL_VENDOR=1; shift ;;
+    # app uninstall: system LaunchDaemons/agents/helpers via the root tool.
+    --system)
+      UNINSTALL_SYSTEM=1; shift ;;
     --cask)
       UNINSTALL_DELEGATE_CASK=1; shift ;;
     --zap)

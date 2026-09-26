@@ -1,0 +1,737 @@
+#!/bin/bash
+#
+# libexec/mimi-root-apply — the ONLY part of mimi that runs as root (P5-T04/T05).
+#
+# Design and threat model: docs/PRIVILEGED_DESIGN.md (option B, DEC-061).
+# This file is deliberately standalone: it sources nothing from lib/, so the
+# code that runs as root is exactly this file and can be reviewed on its own.
+#
+# Usage:
+#   mimi-root-apply --candidates BUNDLE_ID [--tsv]  List what it would act on (no root needed)
+#   sudo mimi-root-apply REQUEST_FILE                Apply a request written by mimi
+#   sudo mimi-root-apply --restore RUN_ID            Put a run back
+#   sudo mimi-root-apply --purge RUN_ID              Delete a run for good (then
+#                                                    forget fully removed receipts)
+#   mimi-root-apply --runs                           List quarantine runs
+#   sudo mimi-root-apply --install                   Install a root-owned copy at
+#                                                    /usr/local/libexec/mimi/ (or update it)
+#   sudo mimi-root-apply --uninstall-tool            Remove that copy
+#
+# What it acts on (first slice): for ONE application bundle id,
+#   LaunchDaemons   /Library/LaunchDaemons/*.plist
+#   LaunchAgents    /Library/LaunchAgents/*.plist   (system-wide agents)
+#   Helper tools    /Library/PrivilegedHelperTools/*
+#   Package payload the top-level items an Installer package put on disk for
+#                   the app, outside those three folders, that no other
+#                   installed package also owns, inside /Applications,
+#                   /Library (not /Library/Apple), /usr/local, or /opt
+#
+# Rules it never bends:
+#   1. It re-derives the candidates itself. A request only SELECTS candidate
+#      ids; each id is a hash of kind, path, and device:inode, so a request
+#      cannot name a path, and a file replaced after the request was written
+#      no longer matches any id.
+#   2. Two independent signals per launchd plist: an owner signal (file name
+#      is the bundle id or nested under it, or AssociatedBundleIdentifiers
+#      names it) and a corroborating one (the program is a matching helper
+#      tool or inside a matching app, or both owner signals agree). The Label
+#      must equal the file name. A helper tool is selectable only when a
+#      selected plist runs it.
+#   3. Regular files owned by root only; never symlinks; never com.apple;
+#      never an item another installed package also owns; never an item
+#      associated with other bundle ids as well.
+#   4. Nothing is deleted: items move into a root-only quarantine
+#      (/Library/Application Support/mimi/quarantine, 0700) with a manifest,
+#      after launchd has stopped the job. --restore undoes it; --purge is
+#      separate and needs its own typed confirmation.
+#   5. Every apply is shown in full and confirmed by typing the bundle id on
+#      the terminal. There is no --yes.
+#
+# Test mode (tests/root_apply.bats): MIMI_ROOT_TEST=1 is honoured only when
+# NOT running as root. It lets the tests point MIMI_ROOT_PREFIX at a fixture,
+# keep the mocks on PATH, treat the current user as "root" for ownership
+# checks, and read the typed confirmation from stdin.
+
+set -uo pipefail
+
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+
+EUID_NOW="$(/usr/bin/id -u)"
+TEST_MODE=0
+if [ "${MIMI_ROOT_TEST:-0}" = 1 ]; then
+  if [ "$EUID_NOW" = 0 ]; then
+    printf 'mimi-root-apply: refusing test mode as root\n' >&2
+    exit 1
+  fi
+  TEST_MODE=1
+fi
+
+if [ "$TEST_MODE" = 1 ]; then
+  P="${MIMI_ROOT_PREFIX:?MIMI_ROOT_PREFIX is required in test mode}"
+  OWNER_UID="$EUID_NOW"
+else
+  # Real mode: a fixed environment. Nothing the caller's environment says
+  # about PATH, prefixes, or shell start-up is used.
+  unset BASH_ENV ENV CDPATH GLOBIGNORE MIMI_ROOT_PREFIX
+  PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+  export PATH
+  P=""
+  OWNER_UID=0
+fi
+IFS=$' \t\n'
+export LC_ALL=C
+umask 077
+
+LD="$P/Library/LaunchDaemons"
+LA="$P/Library/LaunchAgents"
+HT="$P/Library/PrivilegedHelperTools"
+QROOT="$P/Library/Application Support/mimi/quarantine"
+HARDENED_DIR="$P/usr/local/libexec/mimi"
+HARDENED="$HARDENED_DIR/mimi-root-apply"
+
+# Directories that are structure, not an item a package owns (kept in step
+# with lib/apps/receipts.sh, which reports the same grouping as the user).
+STRUCTURAL="Applications|Applications/Utilities|Library|Library/Application Support|Library/LaunchAgents|Library/LaunchDaemons|Library/PrivilegedHelperTools|Library/Preferences|Library/Frameworks|Library/Extensions|Library/SystemExtensions|Library/Audio|Library/Audio/Plug-Ins|Library/Audio/Plug-Ins/Components|Library/Audio/Plug-Ins/HAL|Library/Audio/Plug-Ins/VST|Library/Audio/Plug-Ins/VST3|Library/Internet Plug-Ins|Library/PreferencePanes|Library/QuickLook|Library/Spotlight|Library/Fonts|Library/Printers|Library/Filesystems|Library/Caches|Library/Logs|Library/Services|Library/Scripts|Library/Input Methods|Library/Keyboard Layouts|Library/Screen Savers|Library/ColorSync|Library/ColorSync/Profiles|Library/Components|Library/Contextual Menu Items|Library/CoreMediaIO|Library/CoreMediaIO/Plug-Ins|Library/CoreMediaIO/Plug-Ins/DAL|Library/DriverExtensions|bin|sbin|usr|usr/bin|usr/sbin|usr/lib|usr/libexec|usr/share|usr/local|usr/local/bin|usr/local/sbin|usr/local/lib|usr/local/include|usr/local/share|usr/local/share/man|usr/local/etc|opt|private|private/etc|private/var|etc|var"
+
+# Scratch space for the receipt index; root-only, removed on exit.
+WORK=""
+cleanup() { [ -n "$WORK" ] && [ -d "$WORK" ] && /bin/rm -rf -- "$WORK"; }
+trap cleanup EXIT
+work_dir() {
+  if [ -z "$WORK" ]; then
+    if [ "$TEST_MODE" = 1 ]; then
+      WORK="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/mimi-root.XXXXXX")" || die "cannot create a work directory"
+    else
+      WORK="$(/usr/bin/mktemp -d /private/tmp/mimi-root.XXXXXX)" || die "cannot create a work directory"
+    fi
+  fi
+  printf '%s' "$WORK"
+}
+REQUEST_HEADER="mimi-root-request v1"
+REQUEST_MAX_AGE=3600
+
+die()  { printf 'mimi-root-apply: %s\n' "$*" >&2; exit 1; }
+say()  { printf '%s\n' "$*"; }
+warn() { printf 'mimi-root-apply: warning: %s\n' "$*" >&2; }
+
+require_root() {
+  [ "$TEST_MODE" = 1 ] && return 0
+  [ "$EUID_NOW" = 0 ] || die "this needs root: run it with sudo"
+  [ -n "${SUDO_UID:-}" ] || die "run it through sudo, so the requesting user is known"
+  # Anything that can write to this file can run code as root through it.
+  local self owner mode
+  self="${BASH_SOURCE[0]}"
+  owner="$(/usr/bin/stat -f '%u' "$self")"
+  mode="$(/usr/bin/stat -f '%Lp' "$self")"
+  if [ "$owner" != 0 ] || [ $((8#$mode & 022)) != 0 ]; then
+    warn "this copy ($self) is writable by a non-root user. For a hardened setup:"
+    warn "  sudo install -o root -g wheel -m 0755 \"$self\" /usr/local/libexec/mimi-root-apply"
+  fi
+}
+
+# Read one line from the person at the terminal (stdin in test mode).
+read_typed() {
+  local reply=""
+  if [ "$TEST_MODE" = 1 ]; then
+    IFS= read -r reply || reply=""
+  else
+    IFS= read -r reply < /dev/tty || reply=""
+  fi
+  printf '%s' "$reply"
+}
+
+lower() { printf '%s' "$1" | /usr/bin/tr '[:upper:]' '[:lower:]'; }
+
+# exact or nested under the bundle id (com.foo.app, com.foo.app.helper)
+id_match() {
+  local n b
+  n="$(lower "$1")"; b="$(lower "$2")"
+  [ -n "$n" ] && [ -n "$b" ] || return 1
+  [ "$n" = "$b" ] && return 0
+  case "$n" in "$b".*) return 0 ;; esac
+  return 1
+}
+
+ident_of() { /usr/bin/stat -f '%d:%i' "$1" 2>/dev/null; }
+owner_of() { /usr/bin/stat -f '%u' "$1" 2>/dev/null; }
+
+cand_id() {
+  local h
+  h="$(/sbin/md5 -q -s "$1:$2:$3" 2>/dev/null || printf '%s' "$1:$2:$3" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
+  printf 'sys-%s' "${h:0:16}"
+}
+
+plist_str() { plutil -extract "$2" raw -o - "$1" 2>/dev/null; }
+
+# Other packages that own PATH (without the test prefix), comma-separated.
+pkg_owners() {
+  pkgutil --file-info "$1" 2>/dev/null | /usr/bin/sed -n 's/^pkgid: //p' | /usr/bin/paste -sd, -
+}
+
+# ---------------------------------------------------------------------------
+# Candidate derivation (the only source of truth for what may be acted on)
+# ---------------------------------------------------------------------------
+
+C_IDS=() C_KINDS=() C_PATHS=() C_IDENTS=() C_LABELS=() C_REASONS=()
+N_PATHS=() N_REASONS=()   # related but not attributable (shown, never selectable)
+
+_near() { N_PATHS+=("$1"); N_REASONS+=("$2"); }
+
+_add() {
+  local kind="$1" path="$2" label="$3" reason="$4" ident i
+  # Several attributed packages can list the same item: keep one candidate.
+  for ((i = 0; i < ${#C_PATHS[@]}; i++)); do
+    [ "${C_PATHS[$i]}" = "$path" ] && return 0
+  done
+  ident="$(ident_of "$path")"
+  C_IDS+=("$(cand_id "$kind" "$path" "$ident")")
+  C_KINDS+=("$kind"); C_PATHS+=("$path"); C_IDENTS+=("$ident")
+  C_LABELS+=("$label"); C_REASONS+=("$reason")
+}
+
+# Bundle id of the app bundle containing PATH, if any.
+_app_id_for() {
+  local p="$1" app
+  case "$p" in
+    *.app/*) app="${p%%.app/*}.app" ;;
+    *) return 1 ;;
+  esac
+  plist_str "$app/Contents/Info.plist" CFBundleIdentifier
+}
+
+# Vendor prefix: first two components (com.docker.docker -> com.docker).
+_vendor() { local b; b="$(lower "$1")"; printf '%s' "${b%%.*}.$(printf '%s' "${b#*.}" | /usr/bin/cut -d. -f1)"; }
+
+derive_candidates() {
+  _derive_launchd "$1"
+  _derive_payload "$1"
+}
+
+_derive_launchd() {
+  local bid="$1" dir kind f stem label prog assoc s_name s_assoc s_prog why owners vendor stem_l
+  C_IDS=() C_KINDS=() C_PATHS=() C_IDENTS=() C_LABELS=() C_REASONS=()
+  N_PATHS=() N_REASONS=()
+  vendor="$(_vendor "$bid")"
+  local -a daemon_progs=()
+
+  for dir in "$LD" "$LA"; do
+    [ -d "$dir" ] || continue
+    if [ "$dir" = "$LD" ]; then kind="daemon"; else kind="agent"; fi
+    for f in "$dir"/*.plist; do
+      [ -e "$f" ] || [ -L "$f" ] || continue
+      stem="$(/usr/bin/basename "$f" .plist)"
+      stem_l="$(lower "$stem")"
+      s_name=0; s_assoc=0; s_prog=0
+      id_match "$stem" "$bid" && s_name=1
+      assoc="$(plutil -extract AssociatedBundleIdentifiers json -o - "$f" 2>/dev/null || true)"
+      case "$assoc" in *"\"$bid\""*) s_assoc=1 ;; esac
+      if [ "$s_name" = 0 ] && [ "$s_assoc" = 0 ]; then
+        case "$stem_l" in "$vendor".*) _near "$f" "same vendor, but neither its name nor AssociatedBundleIdentifiers names $bid" ;; esac
+        continue
+      fi
+      if [ -L "$f" ] || [ ! -f "$f" ]; then _near "$f" "not a regular file (symlink?)"; continue; fi
+      if [ "$(owner_of "$f")" != "$OWNER_UID" ]; then _near "$f" "not owned by root"; continue; fi
+      case "$stem_l" in com.apple.*) _near "$f" "Apple job"; continue ;; esac
+      label="$(plist_str "$f" Label || true)"
+      if [ "$label" != "$stem" ]; then _near "$f" "Label ($label) differs from the file name"; continue; fi
+      # Associated with other apps as well: shared.
+      if [ -n "$assoc" ]; then
+        local others
+        others="$(printf '%s' "$assoc" | /usr/bin/tr -d '[]"' | /usr/bin/tr ',' '\n' | /usr/bin/grep -v -x -F "$bid" | /usr/bin/grep -c . || true)"
+        if [ "${others:-0}" -gt 0 ]; then _near "$f" "also associated with other apps: $assoc"; continue; fi
+      fi
+      prog="$(plist_str "$f" Program || plist_str "$f" BundleProgram || plist_str "$f" ProgramArguments.0 || true)"
+      case "$prog" in
+        "$HT"/*)
+          id_match "$(/usr/bin/basename "$prog")" "$bid" && s_prog=1
+          [ "$(/usr/bin/basename "$prog")" = "$stem" ] && [ "$s_assoc" = 1 ] && s_prog=1
+          ;;
+        *.app/*)
+          local aid
+          aid="$(_app_id_for "$prog" || true)"
+          [ -n "$aid" ] && id_match "$aid" "$bid" && s_prog=1
+          ;;
+      esac
+      if [ "$s_prog" = 0 ] && ! { [ "$s_name" = 1 ] && [ "$s_assoc" = 1 ]; }; then
+        _near "$f" "only one signal ties it to $bid (program: ${prog:-none})"
+        continue
+      fi
+      owners="$(pkg_owners "$f")"
+      case "$owners" in *,*) _near "$f" "owned by several packages: $owners"; continue ;; esac
+      why=""
+      [ "$s_name" = 1 ] && why="named after $bid"
+      [ "$s_assoc" = 1 ] && why="${why:+$why + }AssociatedBundleIdentifiers names $bid"
+      [ "$s_prog" = 1 ] && why="$why + runs $prog"
+      _add "$kind" "$f" "$label" "$why"
+      [ -n "$prog" ] && daemon_progs+=("$prog")
+    done
+  done
+
+  [ -d "$HT" ] || return 0
+  for f in "$HT"/*; do
+    [ -e "$f" ] || [ -L "$f" ] || continue
+    local base run=0 p
+    base="$(/usr/bin/basename "$f")"
+    for p in "${daemon_progs[@]:-}"; do [ "$p" = "$f" ] && run=1; done
+    if [ "$run" = 0 ]; then
+      if id_match "$base" "$bid" || case "$(lower "$base")" in "$vendor".*) true ;; *) false ;; esac; then
+        _near "$f" "no selected launchd job runs it"
+      fi
+      continue
+    fi
+    if [ -L "$f" ] || [ ! -f "$f" ]; then _near "$f" "not a regular file (symlink?)"; continue; fi
+    if [ "$(owner_of "$f")" != "$OWNER_UID" ]; then _near "$f" "not owned by root"; continue; fi
+    owners="$(pkg_owners "$f")"
+    case "$owners" in *,*) _near "$f" "owned by several packages: $owners"; continue ;; esac
+    # "-", not "": read with a tab IFS merges empty fields.
+    _add "helper" "$f" "-" "run by a selected launchd job"
+  done
+}
+
+# Payload paths may only be acted on inside these roots (test prefix aside).
+payload_allowed() {
+  local r="${1#"$P"}"
+  case "$r" in
+    /Library/Apple|/Library/Apple/*|/Library/Developer/CommandLineTools*) return 1 ;;
+    /Library/LaunchDaemons/*|/Library/LaunchAgents/*|/Library/PrivilegedHelperTools/*) return 1 ;;
+    /Applications/?*|/Library/?*|/usr/local/?*|/opt/?*) return 0 ;;
+  esac
+  return 1
+}
+
+# "<pkg>\t<absolute path>" for every third-party receipt, into FILE.
+_receipt_index() {
+  local out="$1" pkg loc
+  : > "$out"
+  while IFS= read -r pkg; do
+    [ -n "$pkg" ] || continue
+    case "$pkg" in com.apple.*) continue ;; esac
+    loc="$(pkgutil --pkg-info "$pkg" 2>/dev/null | /usr/bin/sed -n 's/^location: //p')"
+    loc="${loc#/}"; loc="${loc%/}"
+    pkgutil --files "$pkg" 2>/dev/null | /usr/bin/awk -v id="$pkg" -v b="$P${loc:+/$loc}" \
+      'NF { sub(/^\.\//, ""); print id "\t" b "/" $0 }' >> "$out"
+  done < <(pkgutil --pkgs 2>/dev/null)
+}
+
+# Top-level items under PREFIX (first non-structural path). Paths on stdin.
+_items_under() {
+  /usr/bin/awk -v pre="$1" -v structs="$STRUCTURAL" -v P="$P" '
+    BEGIN { n = split(structs, a, "|"); for (i = 1; i <= n; i++) S[P "/" a[i]] = 1 }
+    {
+      p = $0
+      if (index(p, pre "/") != 1) next
+      rest = substr(p, length(pre) + 2); cur = pre
+      while (rest != "") {
+        k = index(rest, "/")
+        if (k == 0) { comp = rest; rest = "" } else { comp = substr(rest, 1, k - 1); rest = substr(rest, k + 1) }
+        cur = cur "/" comp
+        if (!(cur in S)) { if (!(cur in seen)) { seen[cur] = 1; print cur }; break }
+      }
+    }'
+}
+
+# Packages attributed to BID: the package id is the bundle id (or nested
+# under it), or the package installed an app whose Info.plist names it.
+PKG_ATTR=()
+_pkg_attributed() {
+  local p="$1" x
+  for x in "${PKG_ATTR[@]:-}"; do [ "$x" = "$p" ] && return 0; done
+  return 1
+}
+_attributed_pkgs() {
+  local bid="$1" idx="$2" pkg app aid
+  PKG_ATTR=()
+  while IFS= read -r pkg; do
+    [ -n "$pkg" ] || continue
+    id_match "$pkg" "$bid" && PKG_ATTR+=("$pkg")
+  done < <(/usr/bin/cut -f1 "$idx" | /usr/bin/sort -u)
+  # One pass over the index for every top-level app bundle in any receipt.
+  while IFS=$'\t' read -r pkg app; do
+    _pkg_attributed "$pkg" && continue
+    [ -f "$app/Contents/Info.plist" ] || continue
+    aid="$(plist_str "$app/Contents/Info.plist" CFBundleIdentifier || true)"
+    [ -n "$aid" ] && id_match "$aid" "$bid" && PKG_ATTR+=("$pkg")
+  done < <(/usr/bin/awk -F'\t' '$2 ~ /\.app$/ && $2 !~ /\.app\/.*\.app$/ { print $1 "\t" $2 }' "$idx" | /usr/bin/sort -u)
+}
+
+_derive_payload() {
+  local bid="$1" w idx pkg loc items next owners item depth attr_list
+  w="$(work_dir)"
+  idx="$w/index"
+  _receipt_index "$idx"
+  [ -s "$idx" ] || return 0
+  _attributed_pkgs "$bid" "$idx"
+  [ "${#PKG_ATTR[@]}" -gt 0 ] || return 0
+  attr_list=",$(IFS=,; printf '%s' "${PKG_ATTR[*]}"),"
+
+  for pkg in "${PKG_ATTR[@]}"; do
+    loc="$(pkgutil --pkg-info "$pkg" 2>/dev/null | /usr/bin/sed -n 's/^location: //p')"
+    loc="${loc#/}"; loc="${loc%/}"
+    /usr/bin/awk -F'\t' -v id="$pkg" '$1 == id { print $2 }' "$idx" > "$w/paths"
+    _items_under "$P${loc:+/$loc}" < "$w/paths" > "$w/items"
+    depth=0
+    while [ -s "$w/items" ]; do
+      # Owners among packages NOT attributed to this app.
+      /usr/bin/awk -F'\t' -v items="$w/items" -v attr="$attr_list" '
+        BEGIN { while ((getline l < items) > 0) I[l] = 1 }
+        index(attr, "," $1 ",") == 0 {
+          q = $2
+          while (q != "" && q != "/") {
+            if (q in I) { k = q SUBSEP $1; if (!(k in d)) { d[k] = 1; O[q] = (q in O) ? O[q] "," $1 : $1 } }
+            sub(/\/[^\/]*$/, "", q)
+          }
+        }
+        END { for (q in O) print q "\t" O[q] }' "$idx" > "$w/owners"
+      : > "$w/next"
+      while IFS= read -r item; do
+        [ -n "$item" ] || continue
+        owners="$(/usr/bin/awk -F'\t' -v i="$item" '$1 == i { print $2; exit }' "$w/owners")"
+        if [ -n "$owners" ]; then
+          if [ "$depth" -lt 2 ] && _items_under "$item" < "$w/paths" | /usr/bin/grep -q .; then
+            _items_under "$item" < "$w/paths" >> "$w/next"
+          else
+            _near "$item" "also installed by: $owners"
+          fi
+          continue
+        fi
+        payload_allowed "$item" || { [ -e "$item" ] && _near "$item" "outside the roots mimi may change"; continue; }
+        [ -e "$item" ] || [ -L "$item" ] || continue
+        if [ -L "$item" ]; then _near "$item" "symlink"; continue; fi
+        if [ "$(owner_of "$item")" != "$OWNER_UID" ]; then _near "$item" "not owned by root"; continue; fi
+        _add "payload" "$item" "$pkg" "installed by package $pkg, owned by no other package"
+      done < "$w/items"
+      /bin/mv -f "$w/next" "$w/items"
+      depth=$((depth + 1))
+    done
+  done
+}
+
+validate_bundle_id() {
+  local b="$1"
+  case "$b" in
+    ''|*[!A-Za-z0-9.-]*|.*|*.|*..*) die "not a bundle id: $b" ;;
+    *.*) ;;
+    *) die "not a bundle id: $b" ;;
+  esac
+  case "$(lower "$b")" in com.apple.*) die "refusing Apple bundle id $b" ;; esac
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+cmd_candidates() {
+  local bid="$1" tsv="${2:-0}" i
+  validate_bundle_id "$bid"
+  derive_candidates "$bid"
+  if [ "$tsv" = 1 ]; then
+    for ((i = 0; i < ${#C_IDS[@]}; i++)); do
+      printf '%s\t%s\t%s\t%s\t%s\n' "${C_IDS[$i]}" "${C_KINDS[$i]}" "${C_PATHS[$i]}" "${C_LABELS[$i]}" "${C_REASONS[$i]}"
+    done
+    for ((i = 0; i < ${#N_PATHS[@]}; i++)); do
+      printf 'near\t-\t%s\t-\t%s\n' "${N_PATHS[$i]}" "${N_REASONS[$i]}"
+    done
+    return 0
+  fi
+  say "System items attributable to $bid:"
+  [ "${#C_IDS[@]}" -gt 0 ] || say "  (none)"
+  for ((i = 0; i < ${#C_IDS[@]}; i++)); do
+    say "  [${C_KINDS[$i]}] ${C_PATHS[$i]}"
+    say "           ${C_REASONS[$i]}"
+  done
+  if [ "${#N_PATHS[@]}" -gt 0 ]; then
+    say "Related, NOT attributable (never selected):"
+    for ((i = 0; i < ${#N_PATHS[@]}; i++)); do
+      say "  ${N_PATHS[$i]}"
+      say "           ${N_REASONS[$i]}"
+    done
+  fi
+}
+
+# Parse and check a request file. Sets REQ_BID and REQ_SELECT (array).
+REQ_BID="" REQ_SELECT=()
+read_request() {
+  local file="$1" first line now mtime owner mode
+  [ -f "$file" ] && [ ! -L "$file" ] || die "request is not a regular file: $file"
+  owner="$(owner_of "$file")"
+  if [ "$TEST_MODE" = 1 ]; then
+    [ "$owner" = "$EUID_NOW" ] || die "request is not owned by you"
+  else
+    [ "$owner" = "$SUDO_UID" ] || die "request is not owned by the user who ran sudo"
+  fi
+  mode="$(/usr/bin/stat -f '%Lp' "$file")"
+  [ $((8#$mode & 022)) = 0 ] || die "request is writable by others (mode $mode); refusing"
+  now="$(/bin/date +%s)"
+  mtime="$(/usr/bin/stat -f '%m' "$file")"
+  [ $((now - mtime)) -le "$REQUEST_MAX_AGE" ] || die "request is older than $((REQUEST_MAX_AGE / 60)) minutes; make a new one with mimi"
+  IFS= read -r first < "$file" || first=""
+  [ "$first" = "$REQUEST_HEADER" ] || die "not a mimi request (first line must be '$REQUEST_HEADER')"
+  REQ_BID="" REQ_SELECT=()
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      bundle_id=*) [ -z "$REQ_BID" ] || die "request names more than one bundle id"; REQ_BID="${line#bundle_id=}" ;;
+      select=sys-*) REQ_SELECT+=("${line#select=}") ;;
+      select=*) die "malformed selection: $line" ;;
+      "$REQUEST_HEADER"|''|'#'*|created=*) ;;
+      *) die "unexpected line in request: $line" ;;
+    esac
+  done < "$file"
+  validate_bundle_id "$REQ_BID"
+  [ "${#REQ_SELECT[@]}" -gt 0 ] || die "request selects nothing"
+}
+
+stop_job() {
+  local kind="$1" label="$2" domain
+  if [ "$kind" = daemon ]; then domain="system"; else domain="gui/${SUDO_UID:-$EUID_NOW}"; fi
+  if launchctl bootout "$domain/$label" > /dev/null 2>&1; then
+    say "  stopped $domain/$label"
+  elif launchctl print "$domain/$label" > /dev/null 2>&1; then
+    warn "could not stop $domain/$label; it stays loaded until restart"
+  fi
+}
+
+cmd_apply() {
+  local file="$1" i s j found run_id run_dir
+  require_root
+  read_request "$file"
+  derive_candidates "$REQ_BID"
+
+  # Every selection must be a candidate derived right now; otherwise nothing
+  # at all happens (forged ids, or items that changed since the request).
+  local -a sel_idx=()
+  for s in "${REQ_SELECT[@]}"; do
+    found=""
+    for ((j = 0; j < ${#C_IDS[@]}; j++)); do
+      [ "${C_IDS[$j]}" = "$s" ] && found="$j"
+    done
+    [ -n "$found" ] || die "selection $s does not match anything attributable to $REQ_BID now (changed since the request, or not attributable); nothing was done"
+    sel_idx+=("$found")
+  done
+
+  say "mimi-root-apply — system items of $REQ_BID"
+  say ""
+  say "These will be stopped and moved to a root-only quarantine (restorable):"
+  for j in "${sel_idx[@]}"; do
+    say "  [${C_KINDS[$j]}] ${C_PATHS[$j]}"
+    say "           ${C_REASONS[$j]}"
+  done
+  say ""
+  printf 'Type the bundle id (%s) to proceed, anything else to cancel: ' "$REQ_BID"
+  local typed
+  typed="$(read_typed)"
+  printf '\n'
+  [ "$typed" = "$REQ_BID" ] || die "not confirmed; nothing was done"
+
+  run_id="sys-$(/bin/date +%Y%m%d-%H%M%S)-$$"
+  run_dir="$QROOT/$run_id"
+  /bin/mkdir -p "$QROOT" || die "cannot create $QROOT"
+  /bin/chmod 0700 "$P/Library/Application Support/mimi" "$QROOT" 2>/dev/null || true
+  /bin/mkdir "$run_dir" || die "cannot create $run_dir"
+  /bin/chmod 0700 "$run_dir"
+  : > "$run_dir/manifest.tsv"
+  printf 'bundle_id\t%s\nrequested_by\t%s\n' "$REQ_BID" "${SUDO_USER:-$(/usr/bin/id -un)}" > "$run_dir/info.tsv"
+
+  # launchd jobs first, then the helper tools they ran, then package payload.
+  local ok=0 failed=0 pass k
+  for pass in job helper payload; do
+    for j in "${sel_idx[@]}"; do
+      k="${C_KINDS[$j]}"
+      case "$pass:$k" in
+        job:daemon|job:agent|helper:helper|payload:payload) ;;
+        *) continue ;;
+      esac
+      local path="${C_PATHS[$j]}" dest kind_ok=1
+      if [ "$k" = payload ]; then
+        [ -f "$path" ] || [ -d "$path" ] || kind_ok=0
+      else
+        [ -f "$path" ] || kind_ok=0
+      fi
+      # Re-check the object itself immediately before acting (TOCTOU).
+      if [ -L "$path" ] || [ "$kind_ok" = 0 ] || [ "$(ident_of "$path")" != "${C_IDENTS[$j]}" ] || [ "$(owner_of "$path")" != "$OWNER_UID" ]; then
+        warn "changed since it was listed, skipped: $path"
+        failed=$((failed + 1))
+        continue
+      fi
+      case "$k" in daemon|agent) stop_job "$k" "${C_LABELS[$j]}" ;; esac
+      dest="$run_dir/$(/usr/bin/basename "$path")__$j"
+      if /bin/mv -n "$path" "$dest" && [ ! -e "$path" ] && [ -e "$dest" ]; then
+        printf '%s\t%s\t%s\t%s\t%s\n' "${C_KINDS[$j]}" "${C_LABELS[$j]}" "$path" "$dest" "${C_IDENTS[$j]}" >> "$run_dir/manifest.tsv"
+        say "  quarantined: $path"
+        ok=$((ok + 1))
+        # A package with payload moved here is a candidate for
+        # `pkgutil --forget` at purge time — never before.
+        if [ "$k" = payload ] && ! /usr/bin/awk -F'\t' -v p="${C_LABELS[$j]}" '$1 == "pkg" && $2 == p { f = 1 } END { exit !f }' "$run_dir/info.tsv"; then
+          printf 'pkg\t%s\n' "${C_LABELS[$j]}" >> "$run_dir/info.tsv"
+        fi
+      else
+        warn "could not move: $path"
+        failed=$((failed + 1))
+      fi
+    done
+  done
+
+  say ""
+  say "$ok item(s) moved to quarantine run $run_id; $failed failed."
+  say "Undo:            sudo $0 --restore $run_id"
+  say "Delete for good: sudo $0 --purge $run_id"
+  [ "$failed" = 0 ]
+}
+
+run_dir_for() {
+  local id="$1"
+  case "$id" in sys-[0-9]*-[0-9]*-[0-9]*) ;; *) die "not a run id: $id" ;; esac
+  case "$id" in *[!A-Za-z0-9-]*) die "not a run id: $id" ;; esac
+  [ -d "$QROOT/$id" ] || die "no such run: $id"
+  printf '%s' "$QROOT/$id"
+}
+
+cmd_restore() {
+  local run_dir kind label orig q ident restored=0 failed=0 jobs=0
+  require_root
+  run_dir="$(run_dir_for "$1")"
+  while IFS=$'\t' read -r kind label orig q ident; do
+    [ -n "$orig" ] || continue
+    case "$orig" in
+      "$LD"/*|"$LA"/*|"$HT"/*) ;;
+      *) if [ "$kind" != payload ] || ! payload_allowed "$orig"; then
+           warn "manifest names an unexpected path, skipped: $orig"; failed=$((failed + 1)); continue
+         fi ;;
+    esac
+    if [ ! -e "$q" ]; then
+      if [ -e "$orig" ] && [ "$(ident_of "$orig")" = "$ident" ]; then say "  already restored: $orig"; continue; fi
+      warn "quarantined copy missing: $q"; failed=$((failed + 1)); continue
+    fi
+    if [ -e "$orig" ] || [ -L "$orig" ]; then
+      warn "not restored, something already exists at $orig (quarantined copy kept)"
+      failed=$((failed + 1)); continue
+    fi
+    if /bin/mv -n "$q" "$orig" && [ -e "$orig" ]; then
+      say "  restored: $orig"
+      restored=$((restored + 1))
+      [ "$kind" = helper ] || jobs=$((jobs + 1))
+    else
+      warn "could not restore: $orig"; failed=$((failed + 1))
+    fi
+  done < "$run_dir/manifest.tsv"
+  say "$restored restored, $failed failed."
+  if [ "$jobs" -gt 0 ]; then
+    say "Restored launchd jobs are not running. Start them now with"
+    say "  sudo launchctl bootstrap system <plist>   (LaunchDaemons)"
+    say "or restart the Mac."
+  fi
+  [ "$failed" = 0 ]
+}
+
+cmd_purge() {
+  local id="$1" run_dir typed
+  require_root
+  run_dir="$(run_dir_for "$id")"
+  say "This permanently deletes quarantine run $id:"
+  /usr/bin/cut -f3 "$run_dir/manifest.tsv" | /usr/bin/sed 's/^/  /'
+  printf 'Type "purge" to delete it for good: '
+  typed="$(read_typed)"
+  printf '\n'
+  [ "$typed" = "purge" ] || die "not confirmed; nothing was deleted"
+  # The run directory is ours: created 0700 under the root-only quarantine,
+  # and its name was validated by run_dir_for.
+  local pkgs
+  pkgs="$(/usr/bin/awk -F'\t' '$1 == "pkg" { print $2 }' "$run_dir/info.tsv" 2>/dev/null)"
+  /bin/rm -rf -- "$run_dir" || die "could not delete $run_dir"
+  [ ! -e "$run_dir" ] || die "could not delete $run_dir"
+  say "purged $id"
+
+  # Receipts: forgetting is bookkeeping, done only now that the files are
+  # gone for good, and only when every item of the package is verified absent.
+  local pkg loc w left item
+  while IFS= read -r pkg; do
+    [ -n "$pkg" ] || continue
+    pkgutil --pkg-info "$pkg" > /dev/null 2>&1 || continue
+    loc="$(pkgutil --pkg-info "$pkg" 2>/dev/null | /usr/bin/sed -n 's/^location: //p')"
+    loc="${loc#/}"; loc="${loc%/}"
+    w="$(work_dir)"
+    pkgutil --files "$pkg" 2>/dev/null | /usr/bin/awk -v b="$P${loc:+/$loc}" 'NF { sub(/^\.\//, ""); print b "/" $0 }' > "$w/paths"
+    left=0
+    while IFS= read -r item; do
+      [ -e "$item" ] || [ -L "$item" ] && left=$((left + 1))
+    done < <(_items_under "$P${loc:+/$loc}" < "$w/paths")
+    if [ "$left" -gt 0 ]; then
+      say "kept receipt $pkg: $left of its items are still installed"
+    elif pkgutil --forget "$pkg" > /dev/null 2>&1; then
+      say "forgot receipt $pkg (its files are all gone)"
+    else
+      warn "could not forget receipt $pkg"
+    fi
+  done <<< "$pkgs"
+}
+
+# ---------------------------------------------------------------------------
+# The hardened copy
+# ---------------------------------------------------------------------------
+#
+# A Homebrew or source install of this file is owned by the user, so anything
+# running as the user could change what sudo runs. --install puts a root-owned
+# copy (root:wheel 0755) in /usr/local/libexec/mimi/; mimi prefers that copy
+# while it is identical to the bundled one, and says when an upgrade made it
+# stale. --uninstall-tool removes it; quarantine runs are kept.
+
+cmd_install() {
+  require_root
+  local self tmp
+  self="${BASH_SOURCE[0]}"
+  [ "$self" != "$HARDENED" ] || die "this is already the installed copy; run --install from the new version"
+  /bin/mkdir -p "$HARDENED_DIR" || die "cannot create $HARDENED_DIR"
+  tmp="$HARDENED_DIR/.mimi-root-apply.$$"
+  if [ "$TEST_MODE" = 1 ]; then
+    /usr/bin/install -m 0755 "$self" "$tmp" || die "install failed"
+  else
+    /usr/sbin/chown root:wheel "$HARDENED_DIR" && /bin/chmod 0755 "$HARDENED_DIR" || die "cannot secure $HARDENED_DIR"
+    /usr/bin/install -o root -g wheel -m 0755 "$self" "$tmp" || die "install failed"
+  fi
+  /bin/mv -f "$tmp" "$HARDENED" || die "install failed"
+  /usr/bin/cmp -s "$self" "$HARDENED" || die "the installed copy does not match"
+  say "installed $HARDENED (owner $(/usr/bin/stat -f '%Su' "$HARDENED"), mode $(/usr/bin/stat -f '%Lp' "$HARDENED"))"
+}
+
+cmd_uninstall_tool() {
+  require_root
+  if [ ! -e "$HARDENED" ]; then
+    say "no installed copy at $HARDENED"
+  else
+    /bin/rm -f -- "$HARDENED" || die "could not remove $HARDENED"
+    /bin/rmdir "$HARDENED_DIR" 2>/dev/null || true
+    say "removed $HARDENED"
+  fi
+  if [ -d "$QROOT" ] && [ -n "$(/bin/ls -A "$QROOT" 2>/dev/null)" ]; then
+    say "Quarantine runs are kept in $QROOT:"
+    cmd_runs
+    say "Restore or purge them with the bundled copy (libexec/mimi-root-apply)."
+  fi
+}
+
+cmd_runs() {
+  local d
+  [ -d "$QROOT" ] || { say "(no quarantine runs)"; return 0; }
+  for d in "$QROOT"/sys-*; do
+    [ -d "$d" ] || continue
+    printf '%s  %s  %s item(s)\n' "$(/usr/bin/basename "$d")" \
+      "$(/usr/bin/awk -F'\t' '$1 == "bundle_id" { print $2 }' "$d/info.tsv" 2>/dev/null)" \
+      "$(/usr/bin/grep -c . "$d/manifest.tsv" 2>/dev/null || echo 0)"
+  done
+}
+
+case "${1:-}" in
+  --candidates)
+    [ -n "${2:-}" ] || die "--candidates needs a bundle id"
+    tsv=0; [ "${3:-}" = "--tsv" ] && tsv=1
+    cmd_candidates "$2" "$tsv" ;;
+  --restore) [ -n "${2:-}" ] || die "--restore needs a run id"; cmd_restore "$2" ;;
+  --purge)   [ -n "${2:-}" ] || die "--purge needs a run id"; cmd_purge "$2" ;;
+  --runs)    cmd_runs ;;
+  --install) cmd_install ;;
+  --uninstall-tool) cmd_uninstall_tool ;;
+  -h|--help|'') /usr/bin/sed -n '3,52p' "$0" | /usr/bin/sed 's/^# \{0,1\}//' ;;
+  -*) die "unknown option: $1" ;;
+  *) cmd_apply "$1" ;;
+esac

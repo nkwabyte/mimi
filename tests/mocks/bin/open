@@ -1,0 +1,24 @@
+#!/bin/sh
+# Mock: open — never launches anything in tests.
+# MOCK_CALL_LOG records the invocation; MOCK_FAIL_CMDS can fail it.
+if [ -n "${MOCK_CALL_LOG:-}" ]; then
+  printf '%s %s\n' "$(basename "$0")" "$*" >> "$MOCK_CALL_LOG"
+fi
+if [ -n "${MOCK_FAIL_CMDS:-}" ]; then
+  _mock_inv="$(basename "$0") $*"
+  _mock_rest="${MOCK_FAIL_CMDS}|"
+  while [ -n "$_mock_rest" ]; do
+    _mock_pat="${_mock_rest%%|*}"
+    _mock_rest="${_mock_rest#*|}"
+    [ -n "$_mock_pat" ] || continue
+    case "$_mock_inv" in
+      $_mock_pat) echo "open: mock failure" >&2; exit 7 ;;
+    esac
+  done
+fi
+# MOCK_OPEN_REMOVES: a path the "uninstaller" deletes when launched, so a test
+# can simulate a vendor uninstaller doing its job.
+if [ -n "${MOCK_OPEN_REMOVES:-}" ]; then
+  rm -rf "$MOCK_OPEN_REMOVES"
+fi
+exit 0

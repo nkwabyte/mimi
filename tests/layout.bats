@@ -366,3 +366,14 @@ normalise_entrypoint_output() {
   run_mimi scan --only dsstore --jsonl
   echo "$output" | head -1 | grep -q "\"engine_version\":\"$v\""
 }
+
+@test "root tool: standalone, executable, and never sourced by or sourcing the library" {
+  local tool="$REPO_ROOT/libexec/mimi-root-apply"
+  [ -x "$tool" ]
+  # The code that runs as root is exactly this file: it sources nothing.
+  ! grep -nE '^[[:space:]]*(\.|source)[[:space:]]' "$tool"
+  # It fixes its own PATH before running anything outside test mode.
+  grep -q '^  PATH="/usr/bin:/bin:/usr/sbin:/sbin"$' "$tool"
+  # And mimi never calls sudo.
+  ! grep -rnE '(^|[;&|(]|\$\()[[:space:]]*sudo[[:space:]]' "$MIMI_LIB" "$MIMI_BIN"
+}
