@@ -27,6 +27,22 @@ jobs:
           VERSION="${TAG#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.vars.outputs.tag }}
+          path: mimi-src
+
+      - name: Refuse a tag that does not match MIMI_VERSION
+        run: |
+          CODE_VERSION="$(sed -n 's/^MIMI_VERSION="\(.*\)"$/\1/p' mimi-src/lib/core/globals.sh)"
+          if [ "$CODE_VERSION" != "${{ steps.vars.outputs.version }}" ]; then
+            echo "ERROR: tag ${{ steps.vars.outputs.tag }} does not match MIMI_VERSION=\"$CODE_VERSION\" in lib/core/globals.sh." >&2
+            echo "Bump MIMI_VERSION (and CHANGELOG.md) before tagging." >&2
+            exit 1
+          fi
+          echo "MIMI_VERSION matches the tag: $CODE_VERSION"
+
       - name: Compute SHA-256 Checksum
         id: checksum
         run: |
@@ -65,7 +81,7 @@ jobs:
             end
 
             test do
-              assert_match "mimi", shell_output("#{bin}/mimi --help")
+              assert_match "mimi #{version}", shell_output("#{bin}/mimi --version")
             end
           end
           EOF

@@ -167,10 +167,13 @@ app_process_confirm_terminate() {
   fi
 
   warn "\"$app_name\" still has $proc_count running process(es):${pid_list:+ $pid_list}"
-  warn "Forcing these processes to quit may cause data loss if they have unsaved work."
+  warn "It may be showing a save dialog. Forcing it to quit discards any unsaved work."
 
-  # This is a recoverable confirmation (data is quarantined, not permanently deleted yet).
-  confirm "Force-terminate \"$app_name\" and continue uninstall?" || return $?
+  # Risky class: --yes cannot answer this. Only a person at the terminal, or
+  # an explicit --force-risky app-terminate, can decide to throw away
+  # unsaved work. Quarantine cannot bring unsaved documents back.
+  confirm_action_ok app-terminate \
+    "Force-quit \"$app_name\" and continue the uninstall? Unsaved work will be lost." || return $?
   return 0
 }
 

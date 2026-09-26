@@ -29,7 +29,7 @@ reset_all_include_vars() {
 }
 
 interactive_pause() {
-  read -r -p "Press Enter to continue..." _ </dev/tty
+  _tui_read -r -p "Press Enter to continue..." _
 }
 
 print_live_category_state() {
@@ -85,7 +85,33 @@ supports_frac_timeout() {
   [ "$_READ_FRAC_T" = 1 ]
 }
 
+# Test seam. MIMI_TUI_INPUT names a file of keystrokes that the screens read
+# instead of the terminal, so key handling can be tested without a tty (see
+# tests/tui.bats). It is opened once, on fd 9, so every read — including the
+# ones in $(read_key) subshells, which share the file offset — continues where
+# the last one stopped. Unset, nothing changes: input comes from /dev/tty.
+_TUI_INPUT_OPEN=0
+_tui_input_ready() {
+  [ -n "${MIMI_TUI_INPUT:-}" ] || return 1
+  if [ "$_TUI_INPUT_OPEN" != 1 ]; then
+    exec 9< "$MIMI_TUI_INPUT" || return 1
+    _TUI_INPUT_OPEN=1
+  fi
+  return 0
+}
+
+# `read` from the terminal, or from the test seam. Takes read's arguments.
+_tui_read() {
+  local IFS=
+  if [ "$_TUI_INPUT_OPEN" = 1 ]; then
+    read "$@" <&9
+  else
+    read "$@" </dev/tty
+  fi
+}
+
 tui_available() {
+  _tui_input_ready && return 0
   [ -t 0 ] && [ -t 1 ]
 }
 
@@ -105,7 +131,7 @@ tui_end() {
 # Read one keypress and echo a symbolic name for it.
 read_key() {
   local k rest
-  IFS= read -rsn1 k </dev/tty 2>/dev/null || { printf 'quit'; return; }
+  _tui_read -rsn1 k 2>/dev/null || { printf 'quit'; return; }
   case "$k" in
     '')   printf 'enter'; return ;;
     ' ')  printf 'space'; return ;;
@@ -114,12 +140,12 @@ read_key() {
   esac
   if [ "$k" = $'\033' ]; then
     if supports_frac_timeout; then
-      IFS= read -rsn2 -t 0.05 rest </dev/tty 2>/dev/null
+      _tui_read -rsn2 -t 0.05 rest 2>/dev/null
     else
       # bash 3.2: an arrow key always delivers its two remaining bytes
       # immediately, so a blocking read is safe. A bare Esc needs a second
       # keypress to come back — which is why every menu also accepts `q`.
-      IFS= read -rsn2 rest </dev/tty 2>/dev/null
+      _tui_read -rsn2 rest 2>/dev/null
     fi
     case "$rest" in
       '[A'|'OA') printf 'up' ;;
@@ -128,8 +154,8 @@ read_key() {
       '[D'|'OD') printf 'left' ;;
       '[H'|'OH') printf 'home' ;;
       '[F'|'OF') printf 'end' ;;
-      '[5') IFS= read -rsn1 _ </dev/tty 2>/dev/null; printf 'pgup' ;;
-      '[6') IFS= read -rsn1 _ </dev/tty 2>/dev/null; printf 'pgdn' ;;
+      '[5') _tui_read -rsn1 _ 2>/dev/null; printf 'pgup' ;;
+      '[6') _tui_read -rsn1 _ 2>/dev/null; printf 'pgdn' ;;
       '')   printf 'esc' ;;
       *)    printf 'other' ;;
     esac
@@ -546,7 +572,7 @@ tui_prompt() {
   local __p="$1" __var="$2" __val
   tui_end
   printf '\n'
-  read -r -p "$__p" __val </dev/tty
+  _tui_read -r -p "$__p" __val
   printf -v "$__var" '%s' "$__val"
   tui_begin
 }

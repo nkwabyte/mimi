@@ -26,16 +26,15 @@ Only one task should normally be `[~]` at a time. A task is not complete because
 
 ## 3. Current focus
 
-Current phase: Phase 4 — Reversible user-scope uninstall MVP
+Current phase: release hygiene batch (after Phase 4), then Phase 6 selectively
 
-Current task: none in progress — Phase 3 (Application inventory and evidence, `P3-T01` through `P3-T06`) completed 2026-09-25; audited and gaps closed 2026-09-26.
+Current task: none in progress — Phase 4 (`P4-T01` to `P4-T06`) completed 2026-09-26 on `dev`.
 
-Next tasks:
+Next tasks (agreed 2026-09-26):
 
-1. `P4-T01` — Uninstall modes and target resolution.
-2. `P4-T02` — Running process handling.
-3. `P4-T03` — User-scope uninstall plan.
-4. `P4-T04` — User-scope apply and verification.
+1. ~~Release hygiene~~ — done 2026-09-26.
+2. ~~Phase 6 selectively~~ — `P6-T05`, `P6-T07`, `P6-T11`, TUI tests done 2026-09-26. Remaining performance items are in the parking lot.
+3. Phase 5 (privileged scope) last, starting with the `P5-T03` design decision.
 
 ## 4. Baseline snapshot
 
@@ -469,9 +468,9 @@ Depends on: all Phase 0 behavior tasks.
 ### Phase 0 exit gate
 
 - [x] All `P0-*` tasks complete.
-- [x] No heuristic orphan match is automatically deleted.
+- [x] No heuristic orphan match is automatically deleted. *(Amended 2026-09-26 by DEC-059: `--remove-orphans` moves all matches to quarantine on explicit request — still never deleted, restorable until purge.)*
 - [x] No reviewed input can escape canonical allowed roots.
-- [x] `--yes` cannot approve risky/irreversible work.
+- [x] `--yes` cannot approve risky/irreversible work. *(Still true on the command line. Amended 2026-09-26 by DEC-058: in the interactive menus the category selection authorizes the selected categories.)*
 - [x] All mutations have verified results and accurate accounting.
 - [x] Test sentinels prove fixture containment.
 - [x] Bash 3.2, static checks, and CI pass.
@@ -734,49 +733,61 @@ Phase objective: remove a plain application and strongly attributable user-scope
 
 ### `P4-T01` — Uninstall modes and target resolution
 
-- [ ] Implement exact path, exact bundle ID, cask token, and unambiguous-name resolution.
-- [ ] Define `--keep-data` and `--purge-data` selections.
-- [ ] Refuse system/Apple apps and changed identities.
+Status: `[x]` complete — 2026-09-26
+
+- [x] Implement exact path, exact bundle ID, cask token, and unambiguous-name resolution. *(`resolve_app_target`, shared with `app inspect`)*
+- [x] Define `--keep-data` and `--purge-data` selections. *(together they are a usage error; the default asks once at a terminal and otherwise keeps data, saying how to include it — `--yes` does not include data)*
+- [x] Refuse system/Apple apps and changed identities. *(`uninstall_resolve_target`: eligibility from `app_inspect_bundle`, identity re-checked across inspection, and `uninstall_authorize_bundle`: real `.app` directory, not a symlink, directly in an application folder or one vendor folder down, not on `/System`)*
 
 ### `P4-T02` — Running process handling
 
-- [ ] Request normal app quit first.
-- [ ] Detect remaining main/helper processes.
-- [ ] Require explicit approval before termination.
-- [ ] Never silently discard unsaved app state.
+Status: `[x]` complete — 2026-09-26
+
+- [x] Request normal app quit first. *(AppleEvent quit, 10 s wait)*
+- [x] Detect remaining main/helper processes. *(any process whose executable lives inside the bundle)*
+- [x] Require explicit approval before termination. *(new risky action `app-terminate`: a terminal y/N or `--force-risky app-terminate`; `--yes` cannot answer it)*
+- [x] Never silently discard unsaved app state. *(the normal quit lets the app offer to save; the force prompt says unsaved work will be lost; without approval the uninstall is cancelled, exit 5)*
 
 ### `P4-T03` — User-scope uninstall plan
 
-- [ ] Plan the app bundle, attributable user data, and supported user LaunchAgents.
-- [ ] Retain weak/shared candidates.
-- [ ] Show exact evidence, recovery status, and expected bytes.
+Status: `[x]` complete — 2026-09-26
+
+- [x] Plan the app bundle, attributable user data, and supported user LaunchAgents. *(categories `uninstall-launchagent`, `uninstall-app`, `uninstall-data`; data only when included)*
+- [x] Retain weak/shared candidates. *(every non-selectable item, and kept data, becomes a `retain` action — new plan operation — so the plan records what must survive)*
+- [x] Show exact evidence, recovery status, and expected bytes. *(`uninstall_print_plan`: "moved to quarantine (restorable until purge)" vs "kept", with evidence and sizes; `--plan-only` saves it for review)*
 
 ### `P4-T04` — User-scope apply and verification
 
-- [ ] Quarantine selected targets in dependency-safe order.
-- [ ] Handle supported user LaunchAgents with current `launchctl` domains.
-- [ ] Verify app absence and retained shared resources.
-- [ ] Record failures and leftovers.
+Status: `[x]` complete — 2026-09-26
+
+- [x] Quarantine selected targets in dependency-safe order. *(LaunchAgents, then bundle, then data. The plan is saved 0600 and the SAVED FILE is preflighted by `plan_preflight` — digest, expiry, user, identity — then run by `plan_execute_loaded`, the executor shared with `mimi apply`; `uninstall-app` targets are authorized by `uninstall_authorize_bundle` instead of widening `path_authorize`)*
+- [x] Handle supported user LaunchAgents with current `launchctl` domains. *(`unload_launch_agent`: `launchctl bootout gui/<uid>/<Label>` from the plist's Label)*
+- [x] Verify app absence and retained shared resources. *(`uninstall_verify_after_apply`)*
+- [x] Record failures and leftovers. *(evidence is re-collected after apply; attributable items still present are listed as "could not be moved" or "new since the plan was made", exit 3; each uninstall appends to `~/.config/mimi/history.jsonl`)*
 
 ### `P4-T05` — Homebrew cask hand-off
 
-- [ ] Detect installed cask token exactly.
-- [ ] Distinguish ordinary uninstall from `--zap`.
-- [ ] Preview delegated actions and preserve shared-resource warnings.
-- [ ] Record external command results in common history.
+Status: `[x]` complete — 2026-09-26
+
+- [x] Detect installed cask token exactly. *(token from `app_detect_cask`, then `brew list --cask --versions <token>` must succeed; `--cask`/`--zap` on anything else is refused instead of guessed)*
+- [x] Distinguish ordinary uninstall from `--zap`.
+- [x] Preview delegated actions and preserve shared-resource warnings. *(exact command, bundle, and the zap stanza's paths from the recorded cask definition; Group Containers and whole vendor folders flagged `[shared]`; states that Homebrew deletions are not restorable by mimi)*
+- [x] Record external command results in common history. *(`history_record cask-uninstall` with command, exit status, and whether the bundle is still present; cancellations recorded too)*
 
 ### `P4-T06` — End-to-end restore
 
-- [ ] Restore app bundle and quarantined user data.
-- [ ] Handle original-path conflicts.
-- [ ] Verify restored identity and report service limitations.
+Status: `[x]` complete — 2026-09-26
+
+- [x] Restore app bundle and quarantined user data. *(`mimi restore <run-id>`; re-running is harmless: items already back as the same object are reported "already restored")*
+- [x] Handle original-path conflicts. *(never overwrites a reinstalled app or recreated data; the quarantined copy stays and the conflict is logged to `restore.jsonl`)*
+- [x] Verify restored identity and report service limitations. *(device:inode compared with the manifest; restored LaunchAgents are not running until next login — the `launchctl bootstrap` command is printed — and restored apps re-register login items when opened)*
 
 ### Phase 4 exit gate
 
-- [ ] Supported uninstall is fully plan-bound.
-- [ ] User-created documents are excluded.
-- [ ] Shared resources and installed siblings survive.
-- [ ] Restore works end to end until explicit purge.
+- [x] Supported uninstall is fully plan-bound. *(tampered and stale plans refused by test)*
+- [x] User-created documents are excluded. *(only Library evidence roots are candidates; name-only dotfolders are weak and kept; tested with `--purge-data`)*
+- [x] Shared resources and installed siblings survive. *(retain actions verified after apply)*
+- [x] Restore works end to end until explicit purge.
 
 ## 12. Phase 5 — Package provenance and privileged scope
 
@@ -831,13 +842,32 @@ Candidate task queue:
 - [ ] `P6-T02` Add age-based Xcode archives/device logs.
 - [ ] `P6-T03` Add tool-native SwiftPM cleanup/reporting.
 - [ ] `P6-T04` Add iOS backup inventory and per-backup plans.
-- [ ] `P6-T05` Add large-file reporting without deletion defaults.
+- [x] `P6-T05` Add large-file reporting without deletion defaults. *(2026-09-26: `report_large_files` in `--report`; ranked by on-disk size so evicted iCloud and hollow sparse files do not appear; sparse files show their claimed size; `--large-file-mb N`, default 500; never removes; `tests/report.bats`)*
 - [ ] `P6-T06` Add duplicate-candidate reporting without auto-delete.
-- [ ] `P6-T07` Add stale-download reporting without default deletion.
+- [x] `P6-T07` Add stale-download reporting without default deletion. *(2026-09-26: `report_stale_downloads`; judged by Spotlight `kMDItemLastUsedDate`, else `kMDItemDateAdded`, never mtime; items without dates counted, not judged; `--downloads-stale-days N`, default 90; never removes)*
 - [ ] `P6-T08` Add declarative cleaner-rule format, provenance, versioning, and fixtures.
 - [ ] `P6-T09` Cache read-only metadata with safe invalidation.
 - [ ] `P6-T10` Add bounded concurrency for discovery/sizing only.
-- [ ] `P6-T11` Benchmark small/large home-directory scans and memory usage.
+- [x] `P6-T11` Benchmark small/large home-directory scans and memory usage. *(2026-09-26: `tests/bench [small|medium|large]`. Findings and fixes below. Memory not yet measured.)*
+
+  Measured on Apple M4 Pro, macOS 27, Bash 3.2.57, mocks on PATH:
+
+  | operation | before | after |
+  |---|---|---|
+  | scan `caches`, 1,000 dirs | 69.7 s | 11.0 s |
+  | plan `caches`, 1,000 dirs | 80.2 s | 16.5 s |
+  | scan `caches`, 10,000 dirs | ~700 s (est.) | 111 s |
+  | plan `caches`, 10,000 dirs | 410 s | ~170 s (est., now linear) |
+  | `plan_compute_digest`, 5,000 actions | 23.1 s | 0.05 s |
+  | `plan_serialize`, 5,000 actions | 45.0 s | 2.1 s |
+  | orphan scan, ~1,500 / ~13,000 entries | 13.4 s / 77.9 s | unchanged |
+  | `app inspect` by bundle id, 100 apps | 6.8 s | unchanged |
+
+  Causes fixed: candidate ids computed twice per entry with `shasum` (a Perl
+  script, ~10 ms each) and recorded even for human scans; `$(path_authorize)`
+  subshells; `du | awk | tail`; `is_whitelisted` canonicalising with no path
+  whitelist; the plan digest built by quadratic string concatenation; five
+  `$(json_escape)` subshells per serialized action. Digests are byte-identical.
 
 Each new category must define:
 
@@ -862,14 +892,18 @@ Each new category must define:
 
 ### `P7-T01` — Product identity
 
-- [ ] Select a distinct project and command name after package/trademark checks.
+Status: `[~]` in progress — name done 2026-09-22
+
+- [x] Select a distinct project and command name after package/trademark checks. *(`mimi`, DEC-027/DEC-039)*
 - [ ] Define bundle/package IDs for future GUI/helper without colliding with the CLI.
 
 ### `P7-T02` — CLI installation
 
-- [ ] Support source-tree use and a documented installed layout.
-- [ ] Package completions, man page, license, changelog, and uninstall instructions.
-- [ ] Add Homebrew formula/cask as appropriate.
+Status: `[~]` in progress
+
+- [x] Support source-tree use and a documented installed layout. *(`install.sh` symlink install, `--prefix`, `--uninstall`)*
+- [~] Package completions, man page, license, changelog, and uninstall instructions. *(LICENSE, `CHANGELOG.md` (2026-09-26), README install/update/uninstall done; completions and man page not started)*
+- [x] Add Homebrew formula/cask as appropriate. *(`nkwabyte/homebrew-mimi` tap, updated by `.github/workflows/homebrew-release.yml`, which since 2026-09-26 refuses a tag that does not match `MIMI_VERSION`; formula test runs `mimi --version`)*
 
 ### `P7-T03` — Upgrade and schema compatibility
 
@@ -956,12 +990,12 @@ Destructive integration tests must run only inside a disposable fixture or VM sn
 
 ## 17. Open decisions
 
-- [ ] `D-001` Keep Bash 3.2 for the entire engine or introduce a small Swift safety/JSON helper after Phase 1?
-- [ ] `D-002` Use product-managed quarantine, macOS Trash, or both based on action type?
-- [ ] `D-003` Sign plans cryptographically or rely on private storage, digest, host/user binding, and file identity?
-- [ ] `D-004` What is the initial minimum supported macOS version?
-- [ ] `D-005` How long should legacy `clean.sh` flags remain supported?
-- [ ] `D-006` Which one low-risk category should pilot plan/apply/restore?
+- [x] `D-001` Keep Bash 3.2 for the entire engine or introduce a small Swift safety/JSON helper after Phase 1? **Resolved 2026-09-24: Bash 3.2 throughout, Bash-owned JSON** (DEC-040, DEC-041). Revisit only for the Phase 5 privileged helper.
+- [x] `D-002` Use product-managed quarantine, macOS Trash, or both based on action type? **Resolved 2026-09-24: product-managed quarantine** (DEC-048); plan/apply, uninstall, and orphan removal all use it.
+- [x] `D-003` Sign plans cryptographically or rely on private storage, digest, host/user binding, and file identity? **Resolved 2026-09-24: no signature; 0600 storage + SHA-256 digest + user binding + expiry + file identity** (DEC-046, DEC-049). Reopen with Phase 5, where a privileged helper must not trust a caller-supplied plan.
+- [x] `D-004` What is the initial minimum supported macOS version? **Resolved 2026-09-24: macOS 12+** (DEC-040).
+- [x] `D-005` How long should legacy `clean.sh` flags remain supported? **Resolved 2026-09-24: indefinitely** (DEC-043).
+- [x] `D-006` Which one low-risk category should pilot plan/apply/restore? **Resolved 2026-09-24: `caches`** (`P2-T08`).
 - [x] `D-007` What is the final project/command name? **Resolved 2026-09-22: `mimi`** (see DEC-027).
 
 Resolve decisions only when their owning phase needs them. Do not let later-phase choices block Phase 0 safety work.
@@ -1029,6 +1063,7 @@ Resolve decisions only when their owning phase needs them. Do not let later-phas
 | 2026-09-26 | DEC-057 | `apps list --json` and `app inspect --json` emit single JSON documents versioned `mimi.apps-list/1` and `mimi.app-inspect/1` (`schemas/apps-list-v1.json`, `schemas/app-inspect-v1.json`), not JSON Lines events. | They are request/response reports for the GUI, not a streamed run; a versioned document is the stable contract `P3-T06` asks for. | `P3-T01`, `P3-T06`, `schemas/` |
 | 2026-09-26 | DEC-058 | In the interactive UI, the category selection is the confirmation: a menu clean answers the whole-run gate and authorizes each selected risky/irreversible category as `--force-risky` would, and nothing unselected. CLI prompts are unchanged. | The user reviews every category and its colour-coded risk before pressing `c`; further prompts duplicated that decision. The CLI keeps its gates because a flag in a script is easy to forget, which is the rationale of DEC-029–DEC-033. | `lib/ui/tui.sh`, `lib/safety/confirm.sh`, `tests/confirmations.bats` |
 | 2026-09-26 | DEC-059 | Orphan leftovers can be removed in bulk: `--remove-orphans` (or the orphans category ticked for a menu clean) moves every candidate, strong and weak, to a quarantine run. Naming the flag is the authorization; no review file or `--force-risky`. | The review-file round trip was too inconvenient to use. Bulk removal of a heuristic list is only acceptable because it is undoable: quarantine plus `restore`, with space released only by an explicit `purge`. Obvious non-leftovers (macOS structure, installed CLI tools) are excluded first. | `P0-T06` (amended), `lib/cleaners/categories.sh`, `lib/cleaners/orphans.sh` |
+| 2026-09-26 | DEC-060 | Uninstalls are ordinary plans executed from the saved file by the shared executor (`plan_execute_loaded`). App bundles are authorized by a dedicated rule (`uninstall_authorize_bundle`) rather than by adding application folders to `path_authorize`'s roots. Plans gain a no-op `retain` operation recording what must survive. Force-quitting an app is the risky action `app-terminate`. | Widening the global allowed roots to /Applications would let every cleaner reach it; a category-scoped rule keeps the blast radius to one bundle. Recording retained items in the plan makes "shared resources survive" verifiable from the plan alone. Unsaved work is the one thing quarantine cannot restore. | `P4-T01`–`P4-T06`, `lib/apps/uninstall.sh`, `lib/core/core.sh`, `lib/transaction/plan.sh`, `schemas/plan-v1.json` |
 
 ## 19. Blocker log
 
@@ -1050,13 +1085,17 @@ Add newly discovered work here before assigning it to a phase. Do not silently e
 - [x] ~~No golden-file snapshot of `--list` yet; the category table is asserted only by spot-check (remaining `P0-T02` item).~~ Resolved 2026-09-24 in `tests/profiles.bats` (test 309).
 - [x] ~~`save_config` round-trip is untested.~~ Resolved 2026-09-22 in `tests/defects.bats`.
 - [x] ~~ShellCheck and shfmt are documented in `tests/README.md` but not yet installed or wired into `tests/run`; the definition-of-done lint gate is therefore not enforced.~~ Resolved 2026-09-24: ShellCheck wired into `tests/run` and GitHub Actions CI.
-- [ ] Interactive TUI screens (category picker, settings, whitelist) have no automated coverage; they were verified manually through a pseudo-terminal.
+- [x] ~~Interactive TUI screens have no automated coverage.~~ Resolved 2026-09-26: the `MIMI_TUI_INPUT` seam feeds keystrokes from a file; `tests/tui.bats` covers the picker (toggle, arrows, all/none, scan, clean), menus, settings, and whitelist. Rendering on a real terminal is still checked by hand.
 - [x] ~~The `CLEANMYMAC_LIB_ONLY=1` test hook only exposes helpers defined above the argument-parsing banner.~~ Resolved 2026-09-22: the hook is gone and `lib/load.sh` exposes everything.
 - [x] ~~Any `err`/`warn` before `log_init` writes to a log path whose directory does not exist yet.~~ Resolved 2026-09-22: `LOG_FILE` starts as `/dev/null` and `log_init` opens the real transcript.
 - [x] ~~`lib/core.sh` is still ~3770 lines. The confirmation helpers left in `P0-T07` (`lib/confirm.sh`); the next extraction pass (Phase 1) should take the category registry, the report and the TUI out of it.~~ Resolved 2026-09-24: reduced to 169 lines across modular files.
 - [x] ~~`mail`, `sim-stale` and `android` are gated as risky by `lib/confirm.sh` while `category_info` still carries its own `safe|moderate|risky` column.~~ Resolved 2026-09-24: `category_info` and `category_risk_facets` aligned with `confirm_class` and verified by golden tests.
-- [ ] The suite now takes roughly 80 seconds per full run (338 tests, each with a fresh fixture and several full CLI invocations). Still fine locally, but CI uses Bats with TAP output.
+- [ ] The suite takes roughly 3–4 minutes per full run (about 510 tests as of 2026-09-26, each with a fresh fixture and several full CLI invocations). Worth measuring under `P6-T11`; `bats --jobs` needs GNU parallel.
 - [ ] `path_canonicalize` walks each component in pure Bash and forks `readlink` only for real symlinks. It has not been benchmarked against a `~/Library/Caches` with tens of thousands of entries; `P6-T11` should measure it.
+- [ ] `plan_load` reads string values back without JSON-unescaping them, so a plan whose path or evidence contains `"` or `\\` fails its own digest check. Uninstall plans avoid such values (`_uninstall_path_ok`, `_uninstall_evid`); a real fix belongs with a plan schema v2 reader. Its `'}'*|'},'*` case also trips ShellCheck SC2221/SC2222.
+- [ ] Orphan scan costs ~6 ms per Library entry (about 78 s for 13,000): `normalize_token`, `is_apple_identifier`, and `is_installed_cli_tool` each fork `tr` per entry. Batch the case-folding per root with one `awk`, as `collect_app_evidence` does (`_ev_list_root`).
+- [ ] Name resolution in `app inspect`/`app uninstall` scales with installed apps (~7 s for 100): `inventory_scan_apps resolve` canonicalises and reads each Info.plist. Consider a Spotlight-first lookup by bundle id.
+- [ ] `mimi history` command: `~/.config/mimi/history.jsonl` exists (uninstalls, Homebrew hand-offs) but there is no command to read it.
 - [ ] `--report`/top-offenders code reads `~/Desktop`, `~/Documents` and friends without going through `path_authorize`. That is correct today because it never mutates, but the read paths should be routed through the API once plan/apply exists so that "what was inspected" is auditable.
 
 ## 21. Progress log
@@ -1500,6 +1539,50 @@ implemented and tested:
   and a non-generic last dotted component). Real-machine count 203 → 171.
 - Tests: 12 new in `tests/orphan_report.bats`; two wording tests updated to
   the new contract.
+
+### 2026-09-26 — Phase 4 reviewed and completed
+
+The uninstall code existed but had never been checked against its tasks. Gaps
+found and closed:
+
+- Not plan-bound: it saved a plan and then applied from memory, and bypassed
+  `path_authorize` entirely. Now the saved file is preflighted and executed by
+  `plan_execute_loaded`, shared with `mimi apply`; bundles are authorized by
+  the narrow `uninstall_authorize_bundle`; `--plan-only` + `mimi apply` works.
+- `--yes` could force-quit a running app. Force-quit is now the risky action
+  `app-terminate`.
+- The default "ask" data mode never asked. It now asks once at a terminal and
+  otherwise keeps data.
+- `--cask` guessed a token for non-cask apps and ran brew without preview or
+  record. Now refused unless brew lists the cask; zap paths previewed with
+  shared flags; results recorded in `history.jsonl`.
+- Bundle was moved before data, LaunchAgents stopped by file name, nothing was
+  verified afterwards. Now agents → bundle → data, bootout by Label, retained
+  items verified, leftovers reported (exit 3).
+- Restore failed on re-run and gave no guidance on conflicts or services.
+- Plan schema: new operation `retain` (DEC-060).
+- Tests: `tests/uninstall.bats` 37 → 61.
+
+### 2026-09-26 — Release hygiene
+
+- `mimi --version` / `-V`; `MIMI_VERSION` moved to `lib/core/globals.sh` as the
+  single source (also the JSON `engine_version`).
+- Release workflow checks out the tag and fails unless it equals
+  `v$MIMI_VERSION`; the formula test asserts `mimi --version`.
+- `CHANGELOG.md` with 0.1.0 and 0.2.0; README "Updating" section; tests pin
+  version output, the changelog entry, and the protocol version.
+- Scratchpad: D-001–D-006 closed with their decision references; Phase 0 gate
+  annotated with the DEC-058/DEC-059 amendments; parking lot refreshed.
+
+### 2026-09-26 — Phase 6 (selected): reports, TUI tests, benchmarks
+
+- `P6-T05` largest single files and `P6-T07` stale downloads added to
+  `--report` (report only), with `tests/report.bats`.
+- TUI key handling is now tested through the `MIMI_TUI_INPUT` seam
+  (`tests/tui.bats`, 11 tests).
+- `P6-T11`: `tests/bench`. It found a 6× slowdown in every scan (candidate ids
+  hashed twice with Perl `shasum`, recorded even when unused) and a quadratic
+  plan digest. Both fixed; numbers in the Phase 6 section.
 
 ## 22. Next-session handoff template
 
