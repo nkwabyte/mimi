@@ -163,7 +163,13 @@ cand_id() {
   printf 'sys-%s' "${h:0:16}"
 }
 
-plist_str() { plutil -extract "$2" raw -o - "$1" 2>/dev/null; }
+# Older plutil (macOS 14) prints "Could not extract value…" to STDOUT when a
+# key is missing, so its output is only used when it exits 0.
+plist_str() {
+  local v
+  v="$(plutil -extract "$2" raw -o - "$1" 2>/dev/null)" || return 1
+  printf '%s' "$v"
+}
 
 # Other packages that own PATH (without the test prefix), comma-separated.
 pkg_owners() {
@@ -225,7 +231,7 @@ _derive_launchd() {
       stem_l="$(lower "$stem")"
       s_name=0; s_assoc=0; s_prog=0
       id_match "$stem" "$bid" && s_name=1
-      assoc="$(plutil -extract AssociatedBundleIdentifiers json -o - "$f" 2>/dev/null || true)"
+      assoc="$(plutil -extract AssociatedBundleIdentifiers json -o - "$f" 2>/dev/null)" || assoc=""
       case "$assoc" in *"\"$bid\""*) s_assoc=1 ;; esac
       if [ "$s_name" = 0 ] && [ "$s_assoc" = 0 ]; then
         case "$stem_l" in "$vendor".*) _near "$f" "same vendor, but neither its name nor AssociatedBundleIdentifiers names $bid" ;; esac

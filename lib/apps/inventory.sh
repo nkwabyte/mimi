@@ -91,7 +91,9 @@ plist_get_value() {
 
   # 1. Try plutil (standard on macOS). Reads XML, binary, and JSON plists.
   if command -v plutil > /dev/null 2>&1; then
-    val="$(plutil -extract "$key" raw -o - "$plist_file" 2>/dev/null || true)"
+    # On failure, older plutil (macOS 14) prints its error to stdout: only
+    # trust the output when it exits 0.
+    val="$(plutil -extract "$key" raw -o - "$plist_file" 2>/dev/null)" || val=""
     if [ -n "$val" ] && [ "$val" != "(null)" ]; then
       printf '%s\n' "$val"
       return 0

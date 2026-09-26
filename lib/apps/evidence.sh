@@ -754,7 +754,7 @@ collect_app_evidence() {
     label="$(_plist_kv Label "$kv" || true)"
     prog="$(_plist_kv Program "$kv" || _plist_kv BundleProgram "$kv" || true)"
     if [ -z "$prog" ] && command -v plutil > /dev/null 2>&1; then
-      prog="$(plutil -extract ProgramArguments.0 raw -o - "$e" 2>/dev/null || true)"
+      prog="$(plutil -extract ProgramArguments.0 raw -o - "$e" 2>/dev/null)" || prog=""
     fi
 
     if _ev_idm "${EV_LC[$j]}"; then

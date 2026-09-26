@@ -6,6 +6,22 @@ and a release tag must match it.
 
 ## [Unreleased]
 
+### Fixed
+
+- `app uninstall --system` found nothing to remove on macOS 14. Its `plutil`
+  prints "Could not extract value" to standard output when a key is missing,
+  and that text was read as data. It now uses `plutil` output only when the
+  command succeeds, in the root tool and in the app evidence and inventory
+  code.
+
+### Changed
+
+- CI and the release workflow use `actions/checkout@v7` and
+  `actions/upload-artifact@v7` (Node 24), removing the Node 20 deprecation
+  warning.
+- `scripts/release.sh` waits for the release pull request's CI checks and
+  stops if they fail, before merging.
+
 ## [0.2.0] - 2026-09-26
 
 ### Added

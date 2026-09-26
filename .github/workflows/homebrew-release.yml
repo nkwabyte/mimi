@@ -28,7 +28,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check out the tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.vars.outputs.tag }}
           path: mimi-src
@@ -59,7 +59,7 @@ jobs:
           echo "url=$URL" >> "$GITHUB_OUTPUT"
 
       - name: Checkout homebrew-mimi
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: nkwabyte/homebrew-mimi
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
