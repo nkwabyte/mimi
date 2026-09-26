@@ -342,3 +342,27 @@ normalise_entrypoint_output() {
   [ "$status" -eq 0 ]
   echo "$output" | grep -q 'NOT on your PATH'
 }
+
+@test "version: --version and -V print the single MIMI_VERSION" {
+  local v
+  v="$(sed -n 's/^MIMI_VERSION="\(.*\)"$/\1/p' "$MIMI_LIB/core/globals.sh")"
+  [ -n "$v" ]
+  run_mimi --version
+  [ "$status" -eq 0 ]
+  [ "$output" = "mimi $v" ]
+  run_mimi -V
+  [ "$output" = "mimi $v" ]
+}
+
+@test "version: CHANGELOG.md has a section for the current MIMI_VERSION" {
+  local v
+  v="$(sed -n 's/^MIMI_VERSION="\(.*\)"$/\1/p' "$MIMI_LIB/core/globals.sh")"
+  grep -q "^## \[$v\]" "$REPO_ROOT/CHANGELOG.md"
+}
+
+@test "version: the JSON protocol reports the same engine version" {
+  local v
+  v="$(sed -n 's/^MIMI_VERSION="\(.*\)"$/\1/p' "$MIMI_LIB/core/globals.sh")"
+  run_mimi scan --only dsstore --jsonl
+  echo "$output" | head -1 | grep -q "\"engine_version\":\"$v\""
+}

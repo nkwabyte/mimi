@@ -5,7 +5,6 @@
 # Sourced by lib/load.sh; never executed on its own. Defines functions and
 # constants only. Emits strict JSON Lines conforming to schemas/protocol-v1.json.
 
-MIMI_VERSION="0.2.0"
 PROTOCOL_VERSION=1
 PLAN_SCHEMA_VERSION=1
 
@@ -22,6 +21,18 @@ json_escape() {
   str="${str//$'\r'/\\r}"
   str="${str//$'\t'/\\t}"
   printf '%s' "$str"
+}
+
+# json_escape_to VAR STRING — json_escape without a subshell: sets VAR.
+# For loops that escape thousands of values (plan serialization).
+json_escape_to() {
+  local __s="$2"
+  __s="${__s//\\/\\\\}"
+  __s="${__s//\"/\\\"}"
+  __s="${__s//$'\n'/\\n}"
+  __s="${__s//$'\r'/\\r}"
+  __s="${__s//$'\t'/\\t}"
+  printf -v "$1" '%s' "$__s"
 }
 
 json_now_iso() {

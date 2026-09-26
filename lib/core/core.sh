@@ -241,6 +241,35 @@ run_apply() {
     fi
   fi
 
+  plan_execute_loaded
+}
+
+# Execute the actions of an already-preflighted plan (PLAN_ACTIONS) into a
+# quarantine run named after the plan, and print the summary. Shared by
+# `mimi apply` and `mimi app uninstall`, so an uninstall goes through exactly
+# the same checked path as any other plan.
+#
+# Uninstall plans get three extra steps, all driven by the plan's own
+# actions: running processes are handled before anything moves, a
+# LaunchAgent is stopped before its plist is quarantined, and afterwards the
+# app's absence, the survival of every `retain` item, and any leftovers are
+# verified and reported.
+plan_execute_loaded() {
+  local is_uninstall=0
+  uninstall_plan_detect && is_uninstall=1
+
+  if [ "$is_uninstall" = 1 ]; then
+    local proc_rc=0
+    uninstall_handle_processes "$UNINSTALL_PLAN_BUNDLE_ID" "$UNINSTALL_PLAN_APP_PATH" "$UNINSTALL_PLAN_APP_NAME" || proc_rc=$?
+    if [ "$proc_rc" != 0 ]; then
+      if [ "${JSONL_ENABLED:-0}" = 1 ]; then
+        json_emit_phase_finished "apply" "cancelled"
+        json_emit_run_finished "cancelled" "$proc_rc" 0 0 0 0 0 0
+      fi
+      return "$proc_rc"
+    fi
+  fi
+
   quarantine_init_run "$PLAN_ID" || {
     err "failed to initialize quarantine run"
     return "$EXIT_FAILURE"
@@ -271,6 +300,9 @@ run_apply() {
 
     case "$op" in
       remove_path|clear_dir_contents|quarantine)
+        if [ "$cat" = "uninstall-launchagent" ] && [ -f "$p" ]; then
+          unload_launch_agent "$p" || true
+        fi
         if quarantine_target "$act_id" "$cat" "$p" "$ident" "$bytes"; then
           record_action ok
           TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + (bytes / 1024)))
@@ -282,11 +314,19 @@ run_apply() {
           err "failed to quarantine: $p"
         fi
         ;;
+      retain)
+        # Verified after the loop; nothing is done to it.
+        ;;
       tool_cleanup)
         record_action ok
         ;;
     esac
   done
+
+  local verify_rc=0
+  if [ "$is_uninstall" = 1 ]; then
+    uninstall_verify_after_apply || verify_rc=$?
+  fi
 
   section "Apply summary"
   say "Actions: ${ACTION_OK} succeeded, ${ACTION_SKIPPED} skipped, ${ACTION_DENIED} denied, ${ACTION_FAILED} failed"
@@ -295,14 +335,23 @@ run_apply() {
   say ""
   say "To restore this run if needed:"
   say "  ${C_BOLD}$SCRIPT_NAME restore \"$QUARANTINE_CURRENT_RUN_ID\"${C_RESET}"
+  say "To release the space for good (irreversible):"
+  say "  ${C_BOLD}$SCRIPT_NAME purge \"$QUARANTINE_CURRENT_RUN_ID\"${C_RESET}"
 
   local term_status="ok" exit_code="$EXIT_OK"
   if interrupted; then
     term_status="interrupted"
     exit_code="$EXIT_INTERRUPTED"
-  elif any_action_failed; then
+  elif any_action_failed || [ "$verify_rc" != 0 ]; then
     term_status="partial"
     exit_code="$EXIT_PARTIAL"
+  fi
+
+  if [ "$is_uninstall" = 1 ]; then
+    history_record "uninstall" "$term_status" \
+      "app=$UNINSTALL_PLAN_APP_NAME" "bundle_id=$UNINSTALL_PLAN_BUNDLE_ID" \
+      "plan_id=$PLAN_ID" "run_id=$QUARANTINE_CURRENT_RUN_ID" \
+      "quarantined=$ACTION_OK" "failed=$ACTION_FAILED" "leftovers=${UNINSTALL_LEFTOVER_COUNT:-0}"
   fi
 
   if [ "${JSONL_ENABLED:-0}" = 1 ]; then

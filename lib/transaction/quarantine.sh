@@ -7,6 +7,33 @@
 QUARANTINE_CURRENT_RUN_ID=""
 QUARANTINE_CURRENT_RUN_DIR=""
 
+# history_record TYPE STATUS [key=value ...]
+#
+# Append one line to HISTORY_FILE. Values are strings, except that a value
+# made only of digits is written as a number. The file is created 0600 and
+# only ever appended to, so an earlier record is never rewritten.
+history_record() {
+  local type="$1" status="$2" kv key val line
+  shift 2
+  line="$(printf '{"at":"%s","type":"%s","status":"%s"' \
+    "$(json_now_iso)" "$(json_escape "$type")" "$(json_escape "$status")")"
+  for kv in "$@"; do
+    key="${kv%%=*}"
+    val="${kv#*=}"
+    case "$val" in
+      '' | *[!0-9]*) line="$line$(printf ',"%s":"%s"' "$(json_escape "$key")" "$(json_escape "$val")")" ;;
+      *)             line="$line$(printf ',"%s":%s' "$(json_escape "$key")" "$val")" ;;
+    esac
+  done
+  line="$line}"
+  mkdir -p "$(dirname "$HISTORY_FILE")" 2>/dev/null || return 0
+  if [ ! -e "$HISTORY_FILE" ]; then
+    ( umask 077; : > "$HISTORY_FILE" ) 2>/dev/null || return 0
+  fi
+  printf '%s\n' "$line" >> "$HISTORY_FILE" 2>/dev/null || true
+  return 0
+}
+
 quarantine_init_run() {
   local custom_id="${1:-}"
   if [ -n "$custom_id" ]; then
@@ -147,8 +174,8 @@ quarantine_restore_run() {
     return 1
   fi
 
-  local line restored=0 failed=0
-  local act_id orig_path q_path ident
+  local line restored=0 failed=0 already=0 conflicts=0 agents=0 bundles=0
+  local act_id orig_path q_path ident now_ident
   while IFS= read -r line || [ -n "$line" ]; do
     [ -z "$line" ] && continue
     orig_path="$(printf '%s' "$line" | sed -n 's/.*"original_path":"\([^"]*\)".*/\1/p')"
@@ -160,8 +187,42 @@ quarantine_restore_run() {
       continue
     fi
 
+    # Re-running restore is safe: an item already back where it belongs, as
+    # the same object, is reported and skipped rather than counted as failed.
+    if { [ ! -e "$q_path" ] && [ ! -L "$q_path" ]; } && { [ -e "$orig_path" ] || [ -L "$orig_path" ]; }; then
+      now_ident="$(path_identity "$orig_path" 2>/dev/null || echo "")"
+      if [ -z "$ident" ] || [ "$now_ident" = "$ident" ]; then
+        info "already restored: $orig_path"
+        already=$((already + 1))
+        continue
+      fi
+    fi
+
+    # Original path taken (the app was reinstalled, or the data recreated):
+    # never overwrite it. The quarantined copy stays where it is.
+    if { [ -e "$q_path" ] || [ -L "$q_path" ]; } && { [ -e "$orig_path" ] || [ -L "$orig_path" ]; }; then
+      warn "not restored, something already exists at: $orig_path"
+      warn "  the quarantined copy is kept at: $q_path"
+      warn "  move or remove the existing item, then run restore again"
+      conflicts=$((conflicts + 1))
+      failed=$((failed + 1))
+      printf '{"action_id":"%s","status":"conflict","original_path":"%s","attempted_at":"%s"}\n' \
+        "$(json_escape "$act_id")" "$(json_escape "$orig_path")" "$(json_now_iso)" >> "$run_dir/restore.jsonl"
+      continue
+    fi
+
     if quarantine_restore_target "$q_path" "$orig_path" "$ident"; then
-      ok "restored: $orig_path"
+      now_ident="$(path_identity "$orig_path" 2>/dev/null || echo "")"
+      if [ -n "$ident" ] && [ "$ident" != "unknown" ] && [ "$now_ident" != "$ident" ]; then
+        # Expected only after a cross-volume copy back.
+        warn "restored (as a copy — file identity differs from the original): $orig_path"
+      else
+        ok "restored: $orig_path"
+      fi
+      case "$orig_path" in
+        */LaunchAgents/*.plist) agents=$((agents + 1)) ;;
+        *.app) bundles=$((bundles + 1)) ;;
+      esac
       restored=$((restored + 1))
       printf '{"action_id":"%s","status":"restored","original_path":"%s","restored_at":"%s"}\n' \
         "$(json_escape "$act_id")" \
@@ -176,7 +237,15 @@ quarantine_restore_run() {
     fi
   done < "$manifest"
 
-  say "Restore finished: $restored restored, $failed failed"
+  say "Restore finished: $restored restored, $already already in place, $failed failed"
+  if [ "$agents" -gt 0 ]; then
+    info "$agents LaunchAgent(s) are back but not running; they start at your next login,"
+    info "or now with: launchctl bootstrap gui/$(id -u) <plist>"
+  fi
+  if [ "$bundles" -gt 0 ]; then
+    info "Restored apps re-register their login items and background services the next"
+    info "time they are opened."
+  fi
   [ "$failed" -eq 0 ]
 }
 

@@ -31,11 +31,17 @@ SUBCOMMANDS:
                           --json emits schemas/app-inspect-v1.json.
   app uninstall <target>  Uninstall an app (bundle + optional user data) via plan/quarantine.
                           Target: app name, bundle ID, cask token, or exact path.
-                          --keep-data   Quarantine bundle only; leave user data untouched.
-                          --purge-data  Quarantine bundle and all attributable user data.
-                          --cask        Delegate uninstall to Homebrew Cask.
-                          --zap         Delegate to Homebrew Cask with --zap (removes prefs/caches).
-                          (Default: plan is shown; ask before applying.)
+                          Everything goes to a quarantine run (mimi restore undoes it).
+                          --keep-data   Bundle and LaunchAgents only; user data is kept.
+                          --purge-data  Also quarantine all attributable user data.
+                          (default)     Asks once whether to include user data;
+                                        without a terminal, or with --yes, keeps it.
+                          --plan-only   Save the plan; apply later with `mimi apply`.
+                          --cask        Hand the uninstall to Homebrew (cask apps only).
+                          --zap         Homebrew --zap: also its listed prefs/caches;
+                                        deleted by Homebrew, not restorable by mimi.
+                          A running app is asked to quit; force-quitting needs a
+                          terminal or --force-risky app-terminate (never --yes).
 
 MODES:
   --scan                  Report reclaimable space only. Deletes nothing. (default)
@@ -78,9 +84,15 @@ COMMON OPTIONS:
                           or 'list' to display profiles.
   --list                  Print all category ids, descriptions, risk level, then exit.
   --report                Print a breakdown of where your disk space actually
-                          went — top directories, folders over 1 GB, stale
-                          node_modules, snapshots and volume accounting —
-                          then exit. Deletes nothing. Use this to find the
+                          went — top directories, folders over 1 GB, the
+                          largest single files, downloads not opened in a
+                          while, stale node_modules, snapshots and volume
+                          accounting — then exit. Deletes nothing.
+  --large-file-mb N       --report: list files of at least N MB (default 500).
+  --downloads-stale-days N
+                          --report: list downloads not opened for N days
+                          (default 90; judged by Spotlight's last-opened
+                          date, never by modification time). Use this to find the
                           things no cleaner should delete for you (VM disks,
                           SDKs, model weights, datasets).
   --aggressive            Also enable stricter pruning (older Xcode device support,
@@ -239,6 +251,7 @@ AUTOMATION & PROTOCOL:
                           authorization is missing.
 
   -h, --help              Show this help.
+  -V, --version           Print the version (mimi X.Y.Z) and exit.
 
 CONFIRMATIONS:
   Every prompt belongs to a class, and the class decides what can answer it.

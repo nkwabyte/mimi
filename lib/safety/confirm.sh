@@ -34,7 +34,7 @@
 # --force-risky takes the same names as --only/--skip; `orphans` gates the
 # removal of a reviewed remnants file, which is the only way the orphan
 # scanner's output can ever delete anything.
-CONFIRM_GATED_IDS="docker mail trash orphans sim-stale android ml-caches ios-backups"
+CONFIRM_GATED_IDS="docker mail trash orphans sim-stale android ml-caches ios-backups app-terminate"
 
 # confirm_class <action-id> -> recoverable | risky | irreversible
 #
@@ -50,6 +50,7 @@ confirm_class() {
     mail)         printf '%s' "risky" ;;          # a POP attachment has no server copy
     sim-stale)    printf '%s' "risky" ;;          # custom devices are not recreated
     android)      printf '%s' "risky" ;;          # an AVD carries its own app data
+    app-terminate) printf '%s' "risky" ;;         # force-quitting can lose unsaved work
     ml-caches)    printf '%s' "recoverable" ;;    # weights re-download
     *)            printf '%s' "recoverable" ;;
   esac
@@ -278,6 +279,9 @@ confirm_action_ok() {
 # True when this run will actually reach <id>'s gated action.
 confirm_action_selected() {
   local id="$1" var
+  # Force-quitting an app is decided during an uninstall, not by category
+  # selection, so it never appears in the pre-flight list.
+  [ "$id" = app-terminate ] && return 1
   # The orphan scanner never deletes; the reviewed file is the gated action.
   if [ "$id" = orphans ]; then
     [ -n "$REMOVE_ORPHANS_FILE" ] && return 0
