@@ -67,7 +67,7 @@
           "category": { "type": "string" },
           "operation": {
             "type": "string",
-            "enum": ["remove_path", "clear_dir_contents", "quarantine", "tool_cleanup"]
+            "enum": ["remove_path", "clear_dir_contents", "quarantine", "tool_cleanup", "retain"]
           },
           "target_path": { "type": "string" },
           "target_identity": { "type": "string" },

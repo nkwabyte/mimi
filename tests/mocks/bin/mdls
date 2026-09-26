@@ -4,6 +4,29 @@
 # Returns "(null)" unless MOCK_APP_INDEX maps the queried app bundle to a
 # bundle identifier. The real mdls is called as:
 #   mdls -name kMDItemCFBundleIdentifier -raw <app>
+# MOCK_MDLS_DATES answers date attributes: "<path>|<attribute>|<value>" lines,
+# e.g. "/x/Downloads/a.dmg|kMDItemLastUsedDate|2024-01-02 10:00:00 +0000".
+attr=""
+prev=""
+for arg in "$@"; do
+  [ "$prev" = "-name" ] && attr="$arg"
+  prev="$arg"
+done
+case "$attr" in
+  kMDItem*Date*)
+    if [ -n "${MOCK_MDLS_DATES:-}" ] && [ -f "${MOCK_MDLS_DATES}" ]; then
+      target=""
+      for arg in "$@"; do target="$arg"; done
+      v="$(awk -F'|' -v a="$target" -v k="$attr" '$1 == a && $2 == k { print $3; exit }' "$MOCK_MDLS_DATES")"
+      if [ -n "$v" ]; then
+        printf '%s' "$v"
+        exit 0
+      fi
+    fi
+    printf '(null)'
+    exit 0
+    ;;
+esac
 if [ -n "${MOCK_APP_INDEX:-}" ] && [ -f "${MOCK_APP_INDEX}" ]; then
   app=""
   for arg in "$@"; do app="$arg"; done

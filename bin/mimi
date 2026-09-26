@@ -171,9 +171,14 @@ while [ $# -gt 0 ]; do
     --app-root=*)
       app_add_search_root "${1#*=}"; shift ;;
     --keep-data)
+      [ "$UNINSTALL_DATA_MODE" = "purge" ] && die_usage "--keep-data and --purge-data contradict each other; pick one"
       UNINSTALL_DATA_MODE="keep"; shift ;;
     --purge-data)
+      [ "$UNINSTALL_DATA_MODE" = "keep" ] && die_usage "--keep-data and --purge-data contradict each other; pick one"
       UNINSTALL_DATA_MODE="purge"; shift ;;
+    # app uninstall: write and show the plan, apply it later with `mimi apply`.
+    --plan-only)
+      UNINSTALL_PLAN_ONLY=1; shift ;;
     --cask)
       UNINSTALL_DELEGATE_CASK=1; shift ;;
     --zap)
@@ -243,6 +248,20 @@ while [ $# -gt 0 ]; do
     --include-orphans) INCLUDE_ORPHANS=1; shift ;;
     --include-whatsapp) INCLUDE_WHATSAPP=1; shift ;;
     --include-sim-stale) INCLUDE_SIM_STALE=1; shift ;;
+    --downloads-stale-days)
+      require_arg "--downloads-stale-days" "$#" "${2-}"
+      validate_int "--downloads-stale-days" "$2"
+      DOWNLOADS_STALE_DAYS="$2"; shift 2 ;;
+    --downloads-stale-days=*)
+      validate_int "--downloads-stale-days" "${1#*=}"
+      DOWNLOADS_STALE_DAYS="${1#*=}"; shift ;;
+    --large-file-mb)
+      require_arg "--large-file-mb" "$#" "${2-}"
+      validate_int "--large-file-mb" "$2"
+      REPORT_LARGE_FILE_MB="$2"; shift 2 ;;
+    --large-file-mb=*)
+      validate_int "--large-file-mb" "${1#*=}"
+      REPORT_LARGE_FILE_MB="${1#*=}"; shift ;;
     --sim-stale-days)
       require_arg "--sim-stale-days" "$#" "${2-}"
       validate_int "--sim-stale-days" "$2"
@@ -319,6 +338,7 @@ while [ $# -gt 0 ]; do
       REMOVE_ORPHANS_FILE="${1#*=}"; shift ;;
     --list) print_category_list; exit 0 ;;
     -h|--help) usage; exit 0 ;;
+    -V|--version) printf 'mimi %s\n' "$MIMI_VERSION"; exit 0 ;;
     *)
       err "unknown option: $1"
       usage

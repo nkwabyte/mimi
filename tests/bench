@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+#
+# tests/bench — P6-T11: measure the hot paths on a synthetic home directory.
+#
+# Not part of the test suite (tests/run only runs *.bats). Builds a disposable
+# fake home under $TMPDIR, times each operation with the mocks on PATH, prints
+# a table, and removes the fixture. Nothing outside the fixture is touched.
+#
+# Usage:
+#   tests/bench            # medium scale
+#   tests/bench small      # quick smoke
+#   tests/bench large      # tens of thousands of Library entries
+#
+# Numbers are wall-clock seconds on this machine, rounded to 0.01 s.
+
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
+SCALE="${1:-medium}"
+
+case "$SCALE" in
+  small)  N_CACHE=1000;  N_PREFS=300;  N_APPSUP=200;  N_APPS=20;  N_CANON=200 ;;
+  medium) N_CACHE=10000; N_PREFS=2000; N_APPSUP=1000; N_APPS=100; N_CANON=1000 ;;
+  large)  N_CACHE=40000; N_PREFS=6000; N_APPSUP=3000; N_APPS=300; N_CANON=3000 ;;
+  *) echo "usage: $0 [small|medium|large]" >&2; exit 1 ;;
+esac
+
+ROOT="$(mktemp -d "${TMPDIR:-/tmp}/mimi-bench-XXXXXX")"
+ROOT="$(cd -P "$ROOT" && pwd -P)"
+trap 'rm -rf "$ROOT"' EXIT
+H="$ROOT/home"
+L="$H/Library"
+
+now() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
+elapsed() { awk -v a="$1" -v b="$2" 'BEGIN { printf "%.2f", b - a }'; }
+
+row() { printf '  %-44s %10s\n' "$1" "$2"; }
+
+echo "==> building $SCALE fixture in $ROOT"
+t0="$(now)"
+mkdir -p "$L/Caches" "$L/Preferences" "$L/Application Support" "$L/Containers" \
+  "$L/Logs" "$L/LaunchAgents" "$H/Applications" "$H/.config/mimi" "$ROOT/tmp"
+
+# Caches: many small directories, each with a file (what cat_caches sizes).
+i=0
+while [ "$i" -lt "$N_CACHE" ]; do
+  mkdir "$L/Caches/com.bench.cache$i"
+  : > "$L/Caches/com.bench.cache$i/data"
+  i=$((i + 1))
+done
+i=0
+while [ "$i" -lt "$N_PREFS" ]; do
+  : > "$L/Preferences/com.bench.pref$i.plist"
+  i=$((i + 1))
+done
+i=0
+while [ "$i" -lt "$N_APPSUP" ]; do
+  mkdir "$L/Application Support/Bench Vendor $i"
+  i=$((i + 1))
+done
+i=0
+while [ "$i" -lt "$N_APPS" ]; do
+  a="$H/Applications/BenchApp$i.app"
+  mkdir -p "$a/Contents/MacOS"
+  printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>\n<key>CFBundleName</key><string>BenchApp%s</string>\n<key>CFBundleIdentifier</key><string>com.bench.app%s</string>\n<key>CFBundleShortVersionString</key><string>1.0</string>\n<key>CFBundleExecutable</key><string>BenchApp%s</string>\n</dict></plist>\n' \
+    "$i" "$i" "$i" > "$a/Contents/Info.plist"
+  i=$((i + 1))
+done
+build="$(elapsed "$t0" "$(now)")"
+
+export HOME="$H" TMPDIR="$ROOT/tmp"
+export PATH="$REPO_ROOT/tests/mocks/bin:$PATH"
+export MIMI_APP_SEARCH_ROOTS="$H/Applications"
+export MIMI_CASKROOM_DIRS="$ROOT/Caskroom"
+export MIMI_APP_SYSTEM_ROOTS=""
+export MIMI_RECEIPTS_DIR="$ROOT/receipts"
+MIMI="/bin/bash $REPO_ROOT/bin/mimi"
+
+echo "==> timing (entries: caches=$N_CACHE prefs=$N_PREFS appsup=$N_APPSUP apps=$N_APPS)"
+echo
+row "operation" "seconds"
+row "--------------------------------------------" "-------"
+row "build fixture" "$build"
+
+t0="$(now)"
+/bin/bash -c ". '$REPO_ROOT/lib/load.sh'
+  i=0
+  while [ \$i -lt $N_CANON ]; do
+    path_canonicalize \"$L/Caches/com.bench.cache\$i/data\" > /dev/null
+    i=\$((i + 1))
+  done"
+row "path_canonicalize x $N_CANON" "$(elapsed "$t0" "$(now)")"
+
+t0="$(now)"
+$MIMI scan --only caches --include-caches --no-log --no-color > /dev/null 2>&1
+row "scan --only caches ($N_CACHE dirs)" "$(elapsed "$t0" "$(now)")"
+
+t0="$(now)"
+$MIMI scan --only orphans --include-orphans --no-log --no-color > /dev/null 2>&1
+row "scan --only orphans" "$(elapsed "$t0" "$(now)")"
+
+t0="$(now)"
+$MIMI apps list --json > /dev/null 2>&1
+row "apps list ($N_APPS apps)" "$(elapsed "$t0" "$(now)")"
+
+t0="$(now)"
+$MIMI app inspect com.bench.app0 --json > /dev/null 2>&1
+row "app inspect by bundle id" "$(elapsed "$t0" "$(now)")"
+
+t0="$(now)"
+$MIMI app inspect "$H/Applications/BenchApp0.app" --json > /dev/null 2>&1
+row "app inspect by path" "$(elapsed "$t0" "$(now)")"
+
+t0="$(now)"
+$MIMI plan --only caches --include-caches --no-log --no-color > /dev/null 2>&1
+row "plan --only caches" "$(elapsed "$t0" "$(now)")"
+
+echo
+echo "bash: $(/bin/bash -c 'echo $BASH_VERSION')  macOS: $(sw_vers -productVersion 2>/dev/null)  cpu: $(sysctl -n machdep.cpu.brand_string 2>/dev/null)"

@@ -128,6 +128,22 @@ application inventory would otherwise read from the host:
 | `MIMI_APP_SYSTEM_ROOTS` | the report-only `/Library` locations; empty means none |
 | `MIMI_RECEIPTS_DIR` | `/var/db/receipts` |
 
+## Driving the interactive screens
+
+`tests/tui.bats` tests key handling without a terminal. Set `MIMI_TUI_INPUT`
+to a file of keystrokes and the screens read it instead of `/dev/tty`
+(opened once on fd 9, so every read continues where the last stopped).
+Arrow keys are their escape sequences (`$'\033[B'` is down), Enter is `\n`,
+and end of input leaves the screen. Unset, nothing changes.
+
+## Benchmarks
+
+`tests/bench [small|medium|large]` builds a synthetic home (thousands of
+cache folders, preferences, Application Support entries, and app bundles) in
+`$TMPDIR`, times the hot paths with the mocks on `PATH`, prints a table, and
+removes the fixture. It is not part of `tests/run`. Record results in the
+scratchpad under `P6-T11`.
+
 ## Driving the mocks
 
 Two environment variables let a test steer any mocked command:

@@ -230,11 +230,12 @@ clear_dir_contents() {
     verbose "interrupted, not started: $dir"
     return 1
   fi
-  if ! canon="$(path_authorize "$dir" no-symlink)"; then
+  if ! path_authorize "$dir" no-symlink > /dev/null; then
     record_action skipped
     warn "refusing to clear: $dir ($(path_deny_message))"
     return 1
   fi
+  canon="$PATH_CANONICAL"
   if is_whitelisted "$canon"; then
     record_action skipped
     info "whitelisted, skipped: $dir"
@@ -252,10 +253,10 @@ clear_dir_contents() {
   if [ "$MODE" = "scan" ] || [ "$MODE" = "plan" ]; then
     info "would clear contents of: $dir ($(human_kb "$before"))"
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
-    plan_candidate_add "${CURRENT_CATEGORY_ID:-unknown}" "clear_dir_contents" "$canon" "$ident" "$((before * 1024))" "safe" "$dir"
-    local cid
-    cid="$(plan_candidate_id "${CURRENT_CATEGORY_ID:-unknown}" "$canon")"
-    [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_candidate "${CURRENT_CATEGORY_ID:-unknown}" "$canon" "$before" "safe" "$cid"
+    if plan_candidates_wanted; then
+      plan_candidate_add "${CURRENT_CATEGORY_ID:-unknown}" "clear_dir_contents" "$canon" "$ident" "$((before * 1024))" "safe" "$dir"
+      [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_candidate "${CURRENT_CATEGORY_ID:-unknown}" "$canon" "$before" "safe" "$PLAN_LAST_CID"
+    fi
     return 0
   fi
 
@@ -280,11 +281,12 @@ clear_dir_contents() {
     # -L as well as -e so a broken symlink is still cleaned up rather than
     # silently left behind forever.
     [ -e "$entry" ] || [ -L "$entry" ] || continue
-    if ! entry_canon="$(path_authorize "$entry")"; then
+    if ! path_authorize "$entry" > /dev/null; then
       record_action skipped
       verbose "refused ($PATH_DENY_REASON), kept: $entry"
       continue
     fi
+    entry_canon="$PATH_CANONICAL"
     if is_whitelisted "$entry_canon"; then
       record_action skipped
       verbose "whitelisted entry, kept: $entry"
@@ -328,11 +330,14 @@ remove_path() {
     verbose "interrupted, not started: $p"
     return 1
   fi
-  if ! canon="$(path_authorize "$p")"; then
+  # path_authorize publishes its result in PATH_CANONICAL; calling it without
+  # $(...) saves a fork per entry on large scans.
+  if ! path_authorize "$p" > /dev/null; then
     record_action skipped
     warn "refusing to remove: $p ($(path_deny_message))"
     return 1
   fi
+  canon="$PATH_CANONICAL"
   if is_whitelisted "$canon"; then
     record_action skipped
     info "whitelisted, skipped: $p"
@@ -350,10 +355,10 @@ remove_path() {
   if [ "$MODE" = "scan" ] || [ "$MODE" = "plan" ]; then
     info "would remove: $p ($(human_kb "$size"))"
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + size))
-    plan_candidate_add "${CURRENT_CATEGORY_ID:-unknown}" "remove_path" "$canon" "$ident" "$((size * 1024))" "safe" "$p"
-    local cid
-    cid="$(plan_candidate_id "${CURRENT_CATEGORY_ID:-unknown}" "$canon")"
-    [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_candidate "${CURRENT_CATEGORY_ID:-unknown}" "$canon" "$size" "safe" "$cid"
+    if plan_candidates_wanted; then
+      plan_candidate_add "${CURRENT_CATEGORY_ID:-unknown}" "remove_path" "$canon" "$ident" "$((size * 1024))" "safe" "$p"
+      [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_candidate "${CURRENT_CATEGORY_ID:-unknown}" "$canon" "$size" "safe" "$PLAN_LAST_CID"
+    fi
     return 0
   fi
 

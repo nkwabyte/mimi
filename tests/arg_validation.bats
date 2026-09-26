@@ -17,7 +17,7 @@
 load 'test_helper'
 
 # Every option below consumes a following value.
-VALUE_OPTIONS="--only --skip --whitelist --whitelist-preset --keep-device-support --sim-stale-days --android-stale-days --tmp-stale-days --keep-toolchains --keep-logs --remove-orphans-from"
+VALUE_OPTIONS="--only --skip --whitelist --whitelist-preset --keep-device-support --sim-stale-days --android-stale-days --tmp-stale-days --keep-toolchains --keep-logs --remove-orphans-from --downloads-stale-days --large-file-mb"
 
 # ---------------------------------------------------------------------------
 # Missing option values

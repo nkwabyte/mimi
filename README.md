@@ -190,6 +190,24 @@ too.
 
 No install needed to try it — `./bin/mimi` works straight out of the checkout.
 
+### Updating
+
+Check what you have with `mimi --version`, and what changed in
+[CHANGELOG.md](CHANGELOG.md).
+
+```bash
+# Installed with Homebrew
+brew update
+brew upgrade nkwabyte/mimi/mimi
+
+# Installed from source (install.sh links, so pulling is enough)
+cd path/to/mimi && git pull
+```
+
+Homebrew picks up a new version once it is published as a GitHub release.
+Updating never touches your config, whitelist, plans, history, or quarantine
+in `~/.config/mimi`.
+
 ## Quick start
 
 ```bash
@@ -219,6 +237,9 @@ mimi purge <run-id>
 mimi apps list
 mimi app inspect Slack
 mimi app inspect "com.tinyspeck.slackmacgap" --json
+
+# 7. Uninstall an app into quarantine (restore undoes it until purge)
+mimi app uninstall Slack --purge-data
 ```
 
 `--scan` (or `mimi scan`, the default) **never deletes anything**. You always have to pass
@@ -339,7 +360,7 @@ and default on/off state. As of writing:
 | `sim-stale` | risky | **off** | iOS Simulator devices unused for `--sim-stale-days` (keeps recently-booted ones) |
 | `android` | risky | **off** | Unreferenced Android system images and stale AVDs |
 | `trash` | irreversible | **off** | Empties `~/.Trash` (requires confirmation or `--force-risky trash`) |
-| `orphans` | irreversible | **off** | Leftover app config/prefs/support from uninstalled apps (report-only, writes review file) |
+| `orphans` | irreversible | **off** | Possible app leftovers: reports them; with `--remove-orphans` moves them all to quarantine |
 | `ios-backups` | irreversible | **off** | Local iPhone/iPad backups in MobileSync (requires confirmation or `--force-risky ios-backups`) |
 
 ## Preset profiles

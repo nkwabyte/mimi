@@ -357,7 +357,13 @@ FORBIDDEN_EXACT=(
 # to a directory protects the directory it actually points at, and a target
 # named "Xcode2" is not protected by a whitelist entry for "Xcode".
 is_whitelisted() {
-  local target w wn
+  local target w wn any=0
+  # Most runs have no path-style whitelist entries at all; checking that
+  # first skips a canonicalisation (and a subshell) per scanned entry.
+  for w in "${WHITELIST[@]:-}"; do
+    case "$w" in /*|\~*) any=1; break ;; esac
+  done
+  [ "$any" = 1 ] || return 1
   target="$(path_canonicalize "$1" nofollow)" || return 1
   [ -n "$target" ] || return 1
   for w in "${WHITELIST[@]:-}"; do
