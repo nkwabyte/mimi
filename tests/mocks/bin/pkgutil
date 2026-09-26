@@ -1,10 +1,15 @@
 #!/bin/sh
 # Mock: pkgutil — Installer receipt database (read-only queries only).
 #
-# `pkgutil --file-info PATH` prints the volume/path header and, when
-# MOCK_PKG_INDEX maps PATH to a package id ("path|pkgid" per line), a
-# "pkgid:" line for each mapping. Every other invocation fails, so a test
-# notices if the code ever tries to forget or modify a receipt.
+# MOCK_PKG_DIR holds one receipt per package: "<id>.info" with "volume:" and
+# "location:" lines, and "<id>.files" with payload paths relative to the
+# location. --pkgs lists them, --pkg-info and --files read them.
+#
+# `--file-info PATH` prints the volume/path header and, when MOCK_PKG_INDEX
+# maps PATH to a package id ("path|pkgid" per line), a "pkgid:" line.
+#
+# Every other invocation — --forget in particular — fails, so a test notices
+# if the code ever tries to change the receipt database.
 if [ -n "${MOCK_CALL_LOG:-}" ]; then
   printf '%s %s\n' "$(basename "$0")" "$*" >> "$MOCK_CALL_LOG"
 fi
@@ -16,6 +21,37 @@ case "$1" in
       awk -F'|' -v a="$p" '$1 == a { print "\npkgid: " $2 "\npkg-version: 1.0" }' "$MOCK_PKG_INDEX"
     fi
     exit 0
+    ;;
+  --pkgs)
+    if [ -n "${MOCK_PKG_DIR:-}" ] && [ -d "${MOCK_PKG_DIR}" ]; then
+      for f in "$MOCK_PKG_DIR"/*.files; do
+        [ -f "$f" ] || continue
+        b="$(basename "$f")"
+        printf '%s\n' "${b%.files}"
+      done
+    fi
+    exit 0
+    ;;
+  --pkg-info)
+    f="${MOCK_PKG_DIR:-/nonexistent}/$2.info"
+    [ -f "$f" ] || { echo "No receipt for '$2' found at '/'." >&2; exit 1; }
+    printf 'package-id: %s\nversion: 1.0\n' "$2"
+    cat "$f"
+    exit 0
+    ;;
+  --files)
+    f="${MOCK_PKG_DIR:-/nonexistent}/$2.files"
+    [ -f "$f" ] || { echo "No receipt for '$2' found at '/'." >&2; exit 1; }
+    cat "$f"
+    exit 0
+    ;;
+  --forget)
+    # Only a test that expects forgetting may do it.
+    if [ "${MOCK_PKG_ALLOW_FORGET:-0}" = 1 ] && [ -f "${MOCK_PKG_DIR:-/nonexistent}/$2.files" ]; then
+      rm -f "$MOCK_PKG_DIR/$2.files" "$MOCK_PKG_DIR/$2.info"
+      echo "Forgot package '$2' on '/'."
+      exit 0
+    fi
     ;;
 esac
 echo "pkgutil (mock): unsupported invocation: $*" >&2

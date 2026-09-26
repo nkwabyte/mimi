@@ -16,9 +16,10 @@
 # anything decides the outcome, and a rule that matches more than one app
 # stops with the list of choices instead of guessing:
 #
-#   1. path       — TARGET contains "/" or ends in ".app". It must exist and
-#                   be an application bundle (a directory with
-#                   Contents/Info.plist). Symlinks are resolved.
+#   1. path       — TARGET contains "/", or ends in ".app" and exists. It
+#                   must be an application bundle (a directory with
+#                   Contents/Info.plist). Symlinks are resolved. A bundle id
+#                   that happens to end in ".app" (com.acme.app) is not a path.
 #   2. bundle_id  — exact CFBundleIdentifier match, then case-insensitive.
 #   3. cask       — exact installed Homebrew cask token.
 #   4. name       — normalised display name or bundle file name (case, space,
@@ -98,7 +99,8 @@ resolve_app_target() {
   # 1. Exact path
   local is_path=0
   case "$target" in
-    */*|*.app) is_path=1 ;;
+    */*) is_path=1 ;;
+    *.app) { [ -e "$target" ] || [ -L "$target" ]; } && is_path=1 ;;
   esac
   if [ "$is_path" -eq 1 ]; then
     if [ ! -e "$target" ]; then
@@ -238,6 +240,16 @@ mimi_app_inspect() {
 
   collect_app_evidence "$APP_INFO_CANONICAL_PATH" "$APP_INFO_NAME" "$APP_INFO_BUNDLE_ID" "$SIGNING_TEAM_ID" "$APP_INFO_EXECUTABLE"
 
+  # P5-T01: would the vendor uninstaller be launched on request?
+  uninstall_vendor_check "$APP_INFO_CANONICAL_PATH" "$APP_INFO_UNINSTALLER" "$SIGNING_TEAM_ID" || true
+
+  # P5-T02: what the app's installer packages put on disk, and what other
+  # packages share. Report-only; removing any of it needs administrator scope.
+  RCPT_ITEM_COUNT=0
+  if [ "${#APP_INFO_PKG_IDS[@]}" -gt 0 ]; then
+    receipt_analyze "${APP_INFO_PKG_IDS[@]}" || true
+  fi
+
   if [ "${JSONL_ENABLED:-0}" -eq 1 ]; then
     printf '{\n'
     printf '  "schema": "mimi.app-inspect/1",\n'
@@ -289,9 +301,12 @@ mimi_app_inspect() {
     printf '    "login_items": %s,\n' "$(_json_string_array "${APP_INFO_LOGIN_ITEMS[@]:-}")"
     printf '    "bundled_launchd": %s,\n' "$(_json_string_array "${APP_INFO_LAUNCHD[@]:-}")"
     if [ -n "$APP_INFO_UNINSTALLER" ]; then
-      printf '    "vendor_uninstaller": "%s"\n' "$(json_escape "$APP_INFO_UNINSTALLER")"
+      printf '    "vendor_uninstaller": "%s",\n' "$(json_escape "$APP_INFO_UNINSTALLER")"
+      printf '    "vendor_uninstaller_handoff": {"allowed": %s, "reason": "%s"}\n' \
+        "$(_json_bool "$VENDOR_UNINSTALLER_OK")" "$(json_escape "$VENDOR_UNINSTALLER_REASON")"
     else
-      printf '    "vendor_uninstaller": null\n'
+      printf '    "vendor_uninstaller": null,\n'
+      printf '    "vendor_uninstaller_handoff": null\n'
     fi
     printf '  },\n'
 
@@ -315,6 +330,22 @@ mimi_app_inspect() {
     [ "$EVIDENCE_COUNT" -gt 0 ] && printf '\n  '
     printf '],\n'
 
+    printf '  "package_payload": ['
+    local r
+    for ((r = 0; r < RCPT_ITEM_COUNT; r++)); do
+      [ "$r" -gt 0 ] && printf ','
+      local IFS_SAVE="$IFS"
+      IFS=','
+      # shellcheck disable=SC2206
+      local owners_arr=(${RCPT_ITEM_OWNERS[$r]})
+      IFS="$IFS_SAVE"
+      printf '\n    {"pkg_id": "%s", "path": "%s", "status": "%s", "other_owners": %s, "present": %s}' \
+        "$(json_escape "${RCPT_ITEM_PKGS[$r]}")" "$(json_escape "${RCPT_ITEM_PATHS[$r]}")" \
+        "${RCPT_ITEM_STATUS[$r]}" "$(_json_string_array "${owners_arr[@]:-}")" \
+        "$(_json_bool "${RCPT_ITEM_PRESENT[$r]}")"
+    done
+    [ "$RCPT_ITEM_COUNT" -gt 0 ] && printf '\n  '
+    printf '],\n'
     printf '  "notes": %s,\n' "$(_json_string_array "${EVIDENCE_NOTES[@]:-}")"
     printf '  "summary": {\n'
     printf '    "bundle_size_kb": %d,\n' "$APP_INFO_SIZE_KB"
@@ -369,6 +400,11 @@ mimi_app_inspect() {
 
   if [ -n "$APP_INFO_UNINSTALLER" ]; then
     printf '  %-20s %s%s%s (report-only)\n' "Vendor Uninstaller:" "$C_YELLOW" "$APP_INFO_UNINSTALLER" "$C_RESET"
+    if [ "$VENDOR_UNINSTALLER_OK" = 1 ]; then
+      printf '  %-20s allowed with --vendor-uninstaller (%s)\n' "" "$VENDOR_UNINSTALLER_REASON"
+    else
+      printf '  %-20s not launchable by mimi: %s\n' "" "$VENDOR_UNINSTALLER_REASON"
+    fi
   fi
 
   # Nested components
@@ -399,6 +435,21 @@ mimi_app_inspect() {
     printf '\n%sRetained / Shared Resources (Vetoed from Removal: %s, %d items):%s\n' \
       "$C_BOLD" "$(human_kb "$EVIDENCE_TOTAL_RETAINED_KB")" "$EVIDENCE_RETAINED_COUNT" "$C_RESET"
     _inspect_print_items retained
+  fi
+
+  if [ "$RCPT_ITEM_COUNT" -gt 0 ]; then
+    printf '\n%sInstaller Package Payload (report-only; removing it needs administrator scope):%s\n' "$C_BOLD" "$C_RESET"
+    local r loc_entry
+    for loc_entry in "${RCPT_LOCATIONS[@]}"; do
+      printf '  %s installed into %s\n' "${loc_entry%%|*}" "${loc_entry#*|}"
+    done
+    for ((r = 0; r < RCPT_ITEM_COUNT; r++)); do
+      local tag="${C_GREEN}[exclusive]${C_RESET}" gone=""
+      [ "${RCPT_ITEM_STATUS[$r]}" = "shared" ] && tag="${C_RED}[shared]   ${C_RESET}"
+      [ "${RCPT_ITEM_PRESENT[$r]}" = 1 ] || gone=" (no longer present)"
+      printf '  %b %s%s\n' "$tag" "${RCPT_ITEM_PATHS[$r]}" "$gone"
+      [ -n "${RCPT_ITEM_OWNERS[$r]}" ] && printf '              also installed by: %s\n' "${RCPT_ITEM_OWNERS[$r]//,/, }"
+    done
   fi
 
   local note

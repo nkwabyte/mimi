@@ -1099,3 +1099,53 @@ assert rec["type"] == "cask-uninstall" and rec["exit"] == 0 and rec["zap"] == 1,
   [ -f "$FAKE_HOME/.writer/config" ]
   [ ! -e "$FAKE_HOME/Library/Preferences/com.example.writer.plist" ]
 }
+
+# ---------------------------------------------------------------------------
+# P5-T01: vendor uninstaller hand-off
+# ---------------------------------------------------------------------------
+
+# A vendor folder with an app and its uninstaller app, both signed by TEAM2.
+vendor_fixture() {
+  local team2="${1:-ACME123456}"
+  VENDOR="$FAKE_HOME/Applications/Acme"
+  create_app "$VENDOR/Acme Studio.app" "Acme Studio" "com.acme.studio" "1.0"
+  create_app "$VENDOR/Uninstall Acme Studio.app" "Uninstall Acme Studio" "com.acme.uninstaller" "1.0"
+  printf '%s|com.acme.studio|ACME123456|Developer ID Application: Acme (ACME123456)\n%s|com.acme.uninstaller|%s|Developer ID Application: X (%s)\n' \
+    "$VENDOR/Acme Studio.app" "$VENDOR/Uninstall Acme Studio.app" "$team2" "$team2" > "$TEST_TMPDIR/cs"
+  export MOCK_CODESIGN_INDEX="$TEST_TMPDIR/cs"
+  export MOCK_CALL_LOG="$TEST_TMPDIR/calls"
+}
+
+@test "vendor: --yes alone cannot launch a vendor uninstaller" {
+  vendor_fixture
+  run /bin/bash "$MIMI_BIN" app uninstall "$VENDOR/Acme Studio.app" --vendor-uninstaller --yes
+  [ "$status" -eq "5" ]
+  ! grep -q '^open ' "$MOCK_CALL_LOG" 2>/dev/null
+  [ -d "$VENDOR/Acme Studio.app" ]
+}
+
+@test "vendor: a verified uninstaller is launched with open -W, and the result recorded" {
+  vendor_fixture
+  export MOCK_OPEN_REMOVES="$VENDOR/Acme Studio.app"
+  run /bin/bash "$MIMI_BIN" app uninstall "$VENDOR/Acme Studio.app" --vendor-uninstaller --force-risky vendor-uninstaller
+  [ "$status" -eq 0 ]
+  grep -q "^open -W -n $VENDOR/Uninstall Acme Studio.app$" "$MOCK_CALL_LOG"
+  echo "$output" | grep -q "the vendor uninstaller removed Acme Studio"
+  grep -q '"type":"vendor-uninstaller","status":"ok"' "$FAKE_HOME/.config/mimi/history.jsonl"
+}
+
+@test "vendor: an uninstaller signed by another developer is refused and not launched" {
+  vendor_fixture EVIL999999
+  run /bin/bash "$MIMI_BIN" app uninstall "$VENDOR/Acme Studio.app" --vendor-uninstaller --force-risky vendor-uninstaller
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -q "signed by Team ID EVIL999999, but the app is signed by ACME123456"
+  ! grep -q '^open ' "$MOCK_CALL_LOG" 2>/dev/null
+  grep -q '"type":"vendor-uninstaller","status":"refused"' "$FAKE_HOME/.config/mimi/history.jsonl"
+}
+
+@test "vendor: an app without an uninstaller says so" {
+  create_app "$FAKE_HOME/Applications/Plainer.app" "Plainer" "com.example.plainer" "1.0"
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Plainer.app" --vendor-uninstaller --force-risky vendor-uninstaller
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -q "no vendor uninstaller found"
+}

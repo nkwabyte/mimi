@@ -213,7 +213,7 @@ mimi app inspect "/Applications/Visual Studio Code.app"
 outcome, and a rule that matches more than one app stops with the list of
 choices (exit `1`; with `--json`, an `error` object with every candidate):
 
-1. **path**: the target contains `/` or ends in `.app`. It must be an app bundle
+1. **path**: the target contains `/`, or ends in `.app` and exists. It must be an app bundle
    (a directory with `Contents/Info.plist`); symlinks are resolved and reported.
    A bare name is never treated as a path in the current directory.
 2. **bundle ID**: exact, then case-insensitive.
@@ -323,6 +323,43 @@ path is never overwritten: the quarantined copy stays put and the run says so.
 Restored LaunchAgents start at your next login (or with
 `launchctl bootstrap gui/$(id -u) <plist>`), and a restored app re-registers
 its login items when it is next opened.
+
+**System items (`--system`).** LaunchDaemons, system-wide LaunchAgents, and
+privileged helper tools belong to root, so the normal uninstall only reports
+them. `--system` prepares their removal without mimi ever running as root:
+
+```bash
+mimi app uninstall Docker --system          # or the bundle id, once the app is gone
+sudo "/path/to/mimi/libexec/mimi-root-apply" ~/.config/mimi/system-requests/<id>.request
+sudo "/path/to/mimi/libexec/mimi-root-apply" --restore sys-<run-id>
+sudo "/path/to/mimi/libexec/mimi-root-apply" --purge   sys-<run-id>
+```
+
+It also covers what an Installer package put on disk for the app (the app
+itself if the package installed it, support folders, tools in
+`/usr/local`), as long as no other installed package shares it. The package
+receipt is forgotten (`pkgutil --forget`) only at `--purge`, once every file
+of the package is gone.
+
+Run once, so that `sudo` runs a copy only root can change:
+
+```bash
+sudo "/path/to/mimi/libexec/mimi-root-apply" --install      # root-owned copy in /usr/local/libexec/mimi/
+sudo /usr/local/libexec/mimi/mimi-root-apply --uninstall-tool # remove it again
+```
+
+mimi uses that copy while it matches the installed version and tells you
+when a `brew upgrade` made it out of date.
+
+mimi lists what is attributable and what is related but *not* attributable,
+writes a request (valid for an hour), and prints the exact `sudo` command.
+The root tool — one standalone file — works out the items again itself,
+shows them, asks you to type the bundle id, stops each job, and moves the
+files into a root-only quarantine that `--restore` undoes. An item needs two
+independent signals to be attributable (its name or its
+`AssociatedBundleIdentifiers`, plus the program it runs), and anything shared
+with another app or package is never selected. See
+[PRIVILEGED_DESIGN.md](PRIVILEGED_DESIGN.md).
 
 **Homebrew casks.** `--cask` hands the uninstall to `brew uninstall --cask`,
 and only for an app Homebrew installed and still lists. `--zap` also removes
@@ -463,7 +500,7 @@ Whitelist  (2 entries)
 | `purge <run-id>`, `--purge <id>` | Permanently deletes a quarantined run after explicit confirmation. |
 | `apps [list]` | Read-only application inventory. `--json` emits `schemas/apps-list-v1.json`. |
 | `app inspect <target>` | Read-only footprint, provenance, signing, and remnant evidence for one app. `--json` emits `schemas/app-inspect-v1.json`. |
-| `app uninstall <target>` | Move an app (and optionally its data) to quarantine through a saved, preflighted plan. `--keep-data`, `--purge-data`, `--plan-only`, `--cask`, `--zap`. See [its section](#mimi-app-uninstall-target). |
+| `app uninstall <target>` | Move an app (and optionally its data) to quarantine through a saved, preflighted plan. `--keep-data`, `--purge-data`, `--plan-only`, `--cask`, `--zap`, `--vendor-uninstaller`, `--system`. See [its section](#mimi-app-uninstall-target). |
 | `--report` | Print a full disk breakdown, then exit. Deletes nothing. |
 | `--list` | Print every category id, risk and default state, then exit. |
 | `-i`, `--interactive` | Force the menu even when other flags are present. |

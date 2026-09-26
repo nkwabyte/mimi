@@ -625,6 +625,244 @@ uninstall_cask_delegate() {
 }
 
 # ---------------------------------------------------------------------------
+# P5-T01: vendor uninstaller hand-off
+# ---------------------------------------------------------------------------
+#
+# A vendor uninstaller is third-party code that may remove system files with
+# administrator rights, outside mimi's quarantine. mimi only ever LAUNCHES
+# one, and only when every check holds:
+#
+#   * it is the uninstaller app_detect_uninstaller found for this app —
+#     inside the bundle, or beside it in the app's own vendor folder;
+#   * it is an application bundle (Contents/Info.plist). Scripts, command
+#     files, bare executables, and .pkg files are never run: they are shown
+#     so a person can read them first;
+#   * it is code-signed with the SAME developer Team ID as the app, so a
+#     dropped-in "Uninstall.app" from someone else is refused.
+#
+# It is launched with `open -W -n <path>` (its own UI, its own password
+# prompt), never through a shell string, and only after an irreversible-class
+# confirmation (typed at a terminal, or --force-risky vendor-uninstaller).
+#
+# Sets VENDOR_UNINSTALLER_OK (1/0), VENDOR_UNINSTALLER_REASON,
+# VENDOR_UNINSTALLER_TEAM.
+VENDOR_UNINSTALLER_OK=0
+VENDOR_UNINSTALLER_REASON=""
+VENDOR_UNINSTALLER_TEAM=""
+
+uninstall_vendor_check() {
+  local app_path="$1" un="$2" app_team="$3"
+  VENDOR_UNINSTALLER_OK=0
+  VENDOR_UNINSTALLER_REASON=""
+  VENDOR_UNINSTALLER_TEAM=""
+
+  if [ -z "$un" ]; then
+    VENDOR_UNINSTALLER_REASON="no vendor uninstaller found"
+    return 1
+  fi
+  local canon app_canon parent
+  canon="$(path_canonicalize "$un" nofollow 2>/dev/null || true)"
+  app_canon="$(path_canonicalize "$app_path" 2>/dev/null || true)"
+  parent="$(dirname "$app_canon")"
+  if [ -z "$canon" ] || [ -L "$canon" ]; then
+    VENDOR_UNINSTALLER_REASON="the uninstaller path is a symbolic link or unresolvable"
+    return 1
+  fi
+  if ! path_contains "$app_canon" "$canon" && [ "$(dirname "$canon")" != "$parent" ]; then
+    VENDOR_UNINSTALLER_REASON="not inside the app or its vendor folder"
+    return 1
+  fi
+  case "$canon" in
+    *.app) ;;
+    *)
+      VENDOR_UNINSTALLER_REASON="not an application bundle; mimi never runs scripts or packages — read it, then run it yourself if you trust it"
+      return 1
+      ;;
+  esac
+  if [ ! -d "$canon" ] || [ ! -f "$canon/Contents/Info.plist" ]; then
+    VENDOR_UNINSTALLER_REASON="not an application bundle (no Contents/Info.plist)"
+    return 1
+  fi
+  if [ -z "$app_team" ]; then
+    VENDOR_UNINSTALLER_REASON="the app has no developer Team ID to match the uninstaller against"
+    return 1
+  fi
+  # Signing of the uninstaller, without disturbing the app's SIGNING_* state.
+  local s_id="$SIGNING_IDENTIFIER" s_team="$SIGNING_TEAM_ID" s_auth="$SIGNING_AUTHORITY" s_status="$SIGNING_STATUS"
+  app_detect_signing "$canon"
+  VENDOR_UNINSTALLER_TEAM="$SIGNING_TEAM_ID"
+  local u_status="$SIGNING_STATUS"
+  SIGNING_IDENTIFIER="$s_id" SIGNING_TEAM_ID="$s_team" SIGNING_AUTHORITY="$s_auth" SIGNING_STATUS="$s_status"
+  if [ "$u_status" != "signed" ] || [ -z "$VENDOR_UNINSTALLER_TEAM" ]; then
+    VENDOR_UNINSTALLER_REASON="the uninstaller is not signed with a developer Team ID"
+    return 1
+  fi
+  if [ "$VENDOR_UNINSTALLER_TEAM" != "$app_team" ]; then
+    VENDOR_UNINSTALLER_REASON="signed by Team ID $VENDOR_UNINSTALLER_TEAM, but the app is signed by $app_team"
+    return 1
+  fi
+  VENDOR_UNINSTALLER_OK=1
+  VENDOR_UNINSTALLER_REASON="signed by the app's own developer (Team ID $app_team)"
+  return 0
+}
+
+uninstall_vendor_handoff() {
+  local un="$APP_INFO_UNINSTALLER"
+  section "Vendor uninstaller"
+  if ! uninstall_vendor_check "$APP_INFO_CANONICAL_PATH" "$un" "$SIGNING_TEAM_ID"; then
+    err "uninstall: will not launch the vendor uninstaller: $VENDOR_UNINSTALLER_REASON"
+    [ -n "$un" ] && info "  Found at: $un"
+    history_record "vendor-uninstaller" "refused" "app=$APP_INFO_NAME" "bundle_id=$APP_INFO_BUNDLE_ID" \
+      "uninstaller=$un" "reason=$VENDOR_UNINSTALLER_REASON"
+    return "$EXIT_USAGE"
+  fi
+
+  say "  Uninstaller: ${C_BOLD}$un${C_RESET}"
+  say "  Verified:    $VENDOR_UNINSTALLER_REASON"
+  say "  Command:     ${C_BOLD}open -W -n \"$un\"${C_RESET}"
+  warn "  This runs the vendor's own code. It may ask for your administrator password"
+  warn "  and remove system files. mimi cannot quarantine or restore what it removes."
+
+  if ! confirm_action_ok vendor-uninstaller "Launch the vendor uninstaller for \"$APP_INFO_NAME\"?"; then
+    history_record "vendor-uninstaller" "cancelled" "app=$APP_INFO_NAME" "uninstaller=$un"
+    return "$EXIT_CANCELLED"
+  fi
+
+  local rc=0
+  open -W -n "$un" >> "$LOG_FILE" 2>&1 || rc=$?
+  local present=0
+  [ -e "$APP_INFO_CANONICAL_PATH" ] && present=1
+  history_record "vendor-uninstaller" "$([ "$rc" = 0 ] && echo ok || echo failed)" \
+    "app=$APP_INFO_NAME" "bundle_id=$APP_INFO_BUNDLE_ID" "uninstaller=$un" \
+    "exit=$rc" "bundle_still_present=$present"
+  if [ "$rc" != 0 ]; then
+    err "the vendor uninstaller exited with status $rc"
+    return "$EXIT_FAILURE"
+  fi
+  if [ "$present" = 1 ]; then
+    warn "the uninstaller finished but the app is still at $APP_INFO_CANONICAL_PATH"
+    info "you can remove it with: $SCRIPT_NAME app uninstall \"$APP_INFO_CANONICAL_PATH\""
+  else
+    ok "the vendor uninstaller removed $APP_INFO_NAME"
+  fi
+  info "To review anything it left behind: $SCRIPT_NAME scan --only orphans --remove-orphans"
+  return "$EXIT_OK"
+}
+
+# ---------------------------------------------------------------------------
+# P5-T05: system scope — request for the root tool (option B, DEC-061)
+# ---------------------------------------------------------------------------
+#
+# mimi never runs as root and never calls sudo. For system items it asks
+# libexec/mimi-root-apply (as the user, read-only) which items are
+# attributable to the app, writes a request that SELECTS those candidate ids,
+# and prints the sudo command. The root tool re-derives everything itself.
+
+UNINSTALL_SYSTEM="${UNINSTALL_SYSTEM:-0}"
+SYSTEM_REQUESTS_DIR="$CONFIG_DIR/system-requests"
+
+# The copy bundled with this installation (owned by whoever installed mimi).
+mimi_root_tool_bundled() {
+  local here
+  here="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd -P)" || return 1
+  [ -x "$here/libexec/mimi-root-apply" ] || return 1
+  printf '%s/libexec/mimi-root-apply' "$here"
+}
+
+# The root-owned copy `sudo mimi-root-apply --install` puts in place.
+mimi_root_tool_hardened() {
+  local prefix=""
+  [ "${MIMI_ROOT_TEST:-0}" = 1 ] && prefix="${MIMI_ROOT_PREFIX:-}"
+  printf '%s/usr/local/libexec/mimi/mimi-root-apply' "$prefix"
+}
+
+# The copy to run: the hardened one while it is identical to the bundled
+# one, otherwise the bundled one. Sets ROOT_TOOL_NOTE to advice, if any.
+ROOT_TOOL_NOTE=""
+mimi_root_tool() {
+  local bundled hardened
+  ROOT_TOOL_NOTE=""
+  bundled="$(mimi_root_tool_bundled)" || return 1
+  hardened="$(mimi_root_tool_hardened)"
+  if [ -x "$hardened" ]; then
+    if cmp -s "$bundled" "$hardened"; then
+      printf '%s' "$hardened"
+      return 0
+    fi
+    ROOT_TOOL_NOTE="The root-owned copy at $hardened is out of date (mimi was upgraded). Update it with: sudo \"$bundled\" --install"
+  else
+    ROOT_TOOL_NOTE="This copy of the root tool is owned by your user account, so anything running as you could change what sudo runs. Once, install a root-owned copy: sudo \"$bundled\" --install"
+  fi
+  printf '%s' "$bundled"
+}
+
+# True for something shaped like a bundle id (com.vendor.app).
+_looks_like_bundle_id_target() {
+  { [ -e "$1" ] || [ -L "$1" ]; } && return 1
+  case "$1" in
+    */*|*' '*) return 1 ;;
+    *.*.*) return 0 ;;
+  esac
+  return 1
+}
+
+uninstall_system_request() {
+  local target="$1" bid="" tool listing req n=0
+  mimi_root_tool > /dev/null || { err "libexec/mimi-root-apply is missing from this installation"; return "$EXIT_FAILURE"; }
+  tool="$(mimi_root_tool)"
+
+  # The app may already be gone: a bundle id is enough for system cleanup.
+  if _looks_like_bundle_id_target "$target"; then
+    bid="$target"
+  else
+    uninstall_resolve_target "$target" || return "$EXIT_USAGE"
+    bid="$APP_INFO_BUNDLE_ID"
+  fi
+
+  section "System items for $bid"
+  "$tool" --candidates "$bid" || return "$EXIT_USAGE"
+  listing="$("$tool" --candidates "$bid" --tsv)" || return "$EXIT_USAGE"
+
+  local -a ids=()
+  local id kind path label reason
+  while IFS=$'\t' read -r id kind path label reason; do
+    case "$id" in sys-*) ids+=("$id"); n=$((n + 1)) ;; esac
+  done <<< "$listing"
+  if [ "$n" -eq 0 ]; then
+    info "Nothing in system scope is attributable to $bid; no request written."
+    return "$EXIT_OK"
+  fi
+
+  mkdir -p "$SYSTEM_REQUESTS_DIR" && chmod 0700 "$SYSTEM_REQUESTS_DIR" 2>/dev/null
+  req="$SYSTEM_REQUESTS_DIR/$(date +%Y%m%d-%H%M%S)-$$.request"
+  (
+    umask 077
+    {
+      printf 'mimi-root-request v1\n'
+      printf 'bundle_id=%s\n' "$bid"
+      printf 'created=%s\n' "$(json_now_iso)"
+      for id in "${ids[@]}"; do printf 'select=%s\n' "$id"; done
+    } > "$req"
+  ) || { err "could not write $req"; return "$EXIT_FAILURE"; }
+
+  history_record "system-request" "written" "bundle_id=$bid" "items=$n" "request=$req"
+
+  say ""
+  say "Request written: $req (valid for 1 hour)"
+  say "To stop these jobs and move the $n item(s) to a root-only quarantine, run:"
+  say ""
+  say "  ${C_BOLD}sudo \"$tool\" \"$req\"${C_RESET}"
+  say ""
+  say "It lists the items again and asks you to type ${C_BOLD}$bid${C_RESET} before it acts."
+  say "Undo later with: sudo \"$tool\" --restore <run-id>"
+  if [ -n "$ROOT_TOOL_NOTE" ]; then
+    say ""
+    warn "$ROOT_TOOL_NOTE"
+  fi
+  return "$EXIT_OK"
+}
+
+# ---------------------------------------------------------------------------
 # CLI: mimi app uninstall <target>
 # ---------------------------------------------------------------------------
 
@@ -643,6 +881,13 @@ mimi_app_uninstall() {
   say "${C_BOLD}${SCRIPT_NAME}${C_RESET} — uninstall: ${C_BOLD}$target${C_RESET}"
   say "Log: $LOG_FILE"
 
+  # --- P5-T05: system scope (writes a request for the root tool) ---
+  if [ "$UNINSTALL_SYSTEM" = 1 ]; then
+    local sys_rc=0
+    uninstall_system_request "$target" || sys_rc=$?
+    exit "$sys_rc"
+  fi
+
   # --- P4-T01: target resolution ---
   if ! uninstall_resolve_target "$target"; then
     if [ "${JSONL_ENABLED:-0}" = 1 ]; then
@@ -658,6 +903,13 @@ mimi_app_uninstall() {
   say "  Version:  $APP_INFO_VERSION"
   say "  Source:   $APP_INFO_PROVENANCE"
   [ -n "${APP_INFO_CASK_TOKEN:-}" ] && say "  Cask:     $APP_INFO_CASK_TOKEN"
+
+  # --- P5-T01: vendor uninstaller hand-off ---
+  if [ "${UNINSTALL_VENDOR:-0}" -eq 1 ]; then
+    local v_rc=0
+    uninstall_vendor_handoff || v_rc=$?
+    exit "$v_rc"
+  fi
 
   # --- P4-T05: Homebrew cask hand-off ---
   if [ "${UNINSTALL_DELEGATE_CASK:-0}" -eq 1 ] || [ "${UNINSTALL_ZAP:-0}" -eq 1 ]; then
