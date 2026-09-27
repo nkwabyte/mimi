@@ -47,6 +47,22 @@ shfmt -d -i 2 -ci clean.sh bin lib  # -d shows a diff; -w rewrites in place
 `/bin/bash` explicitly so a newer Homebrew bash on `$PATH` cannot mask a
 3.2 incompatibility.
 
+### On Linux
+
+The suite also runs on Linux (CI job "Tests (Linux, GNU tools)"), with bats,
+zsh and GNU coreutils. The engine never calls `stat -f` or `date -r`
+directly: `lib/core/platform.sh` holds the few queries whose flags differ,
+and tests use the same wrappers (`file_mode`, `file_identity`, ...) and
+`sed_i` for in-place edits. A test that needs macOS itself calls
+`require_macos` (the root helper, SIP, `/bin/bash` 3.2, `/var` being
+`/private/var`); one that needs a macOS tool with no mock calls
+`require_tool plutil`. Those skip on Linux and run on the macOS job, which
+remains the authoritative run.
+
+A test that swaps a folder to simulate a race makes the replacement before
+removing the original: Linux file systems hand a freed inode straight back,
+so a delete-then-recreate can keep the same device:inode identity.
+
 ## Layout
 
 ```text

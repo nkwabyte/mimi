@@ -147,8 +147,8 @@ quarantine_target() {
   fi
 
   local src_dev dst_dev
-  src_dev="$(stat -f '%d' "$target_path" 2>/dev/null || echo 0)"
-  dst_dev="$(stat -f '%d' "$QUARANTINE_CURRENT_RUN_DIR" 2>/dev/null || echo 0)"
+  src_dev="$(file_device "$target_path" 2>/dev/null || echo 0)"
+  dst_dev="$(file_device "$QUARANTINE_CURRENT_RUN_DIR" 2>/dev/null || echo 0)"
 
   if [ "$src_dev" = "$dst_dev" ] && [ "$src_dev" != "0" ]; then
     if ! mv "$target_path" "$dest_path" 2>>"$LOG_FILE"; then
@@ -239,8 +239,8 @@ quarantine_restore_target() {
   local orig_dir src_dev dst_dev
   orig_dir="$(dirname "$orig_path")"
   mkdir -p "$orig_dir" || return 1
-  src_dev="$(stat -f '%d' "$q_path" 2>/dev/null || echo 0)"
-  dst_dev="$(stat -f '%d' "$orig_dir" 2>/dev/null || echo 0)"
+  src_dev="$(file_device "$q_path" 2>/dev/null || echo 0)"
+  dst_dev="$(file_device "$orig_dir" 2>/dev/null || echo 0)"
 
   if [ "$src_dev" = "$dst_dev" ] && [ "$src_dev" != "0" ]; then
     mv "$q_path" "$orig_path" 2>>"$LOG_FILE" || return 1

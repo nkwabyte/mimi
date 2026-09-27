@@ -184,11 +184,15 @@ cat_device_support() {
   [ "$AGGRESSIVE" = 1 ] && keep=1
 
   # Sort by modification time, newest first; keep the newest $keep, remove the rest.
-  local -a dirs=()
-  while IFS= read -r d; do
-    dirs+=("$d")
-  done < <(find "$base" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null \
-            | xargs -0 stat -f '%m %N' 2>/dev/null | sort -rn | cut -d' ' -f2-)
+  local -a dirs=() found=()
+  while IFS= read -r -d '' d; do
+    found+=("$d")
+  done < <(find "$base" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+  if [ "${#found[@]}" -gt 0 ]; then
+    while IFS= read -r d; do
+      dirs+=("$d")
+    done < <(files_by_mtime "${found[@]}" 2>/dev/null | sort -rn | cut -d' ' -f2-)
+  fi
 
   local total="${#dirs[@]}"
   if [ "$total" -le "$keep" ]; then
@@ -1077,7 +1081,7 @@ cat_android() {
 
       mtime_src="$avd_dir/userdata-qemu.img"
       [ -e "$mtime_src" ] || mtime_src="$avd_dir"
-      last_epoch="$(stat -f '%m' "$mtime_src" 2>/dev/null || echo 0)"
+      last_epoch="$(file_mtime "$mtime_src" 2>/dev/null || echo 0)"
       days=$(( (now_epoch - last_epoch) / 86400 ))
       size_kb="$(dir_size_kb "$avd_dir")"
 
@@ -1765,7 +1769,7 @@ cat_ios_backups() {
     for b in "$base"/*/; do
       b="${b%/}"; [ -d "$b" ] || continue
       sz="$(dir_size_kb "$b")"
-      info "$(basename "$b") — $(human_kb "$sz")  (last modified $(date -r "$b" '+%Y-%m-%d' 2>/dev/null))"
+      info "$(basename "$b") — $(human_kb "$sz")  (last modified $(file_date "$b" '+%Y-%m-%d' 2>/dev/null))"
     done
     warn "not removed (opt-in: pass --include-ios-backups). These are full device"
     warn "backups — deleting one is irreversible if you have no iCloud backup."
@@ -1777,7 +1781,7 @@ cat_ios_backups() {
     sz="$(dir_size_kb "$b")"
     if [ "$MODE" = "clean" ]; then
       confirm_action_ok ios-backups \
-        "Delete backup $(basename "$b") ($(human_kb "$sz"), $(date -r "$b" '+%Y-%m-%d' 2>/dev/null))?" \
+        "Delete backup $(basename "$b") ($(human_kb "$sz"), $(file_date "$b" '+%Y-%m-%d' 2>/dev/null))?" \
         || continue
     fi
     remove_path "$b"

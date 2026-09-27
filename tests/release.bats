@@ -85,12 +85,12 @@ release() { run /bin/bash -c 'cd "$1" && shift && /bin/bash scripts/release.sh "
 }
 
 @test "bump: dates a section written ahead of time" {
-  sed -i '' 's/^## \[Unreleased\]$/## [Unreleased]\
+  sed_i 's/^## \[Unreleased\]$/## [Unreleased]\
 \
 ## [0.2.0]\
 \
 - Planned./' "$WORK/CHANGELOG.md"
-  sed -i '' '/^- A new thing\.$/d; /^### Added$/d' "$WORK/CHANGELOG.md"
+  sed_i '/^- A new thing\.$/d; /^### Added$/d' "$WORK/CHANGELOG.md"
   bump 0.2.0 --date 2026-10-02
   [ "$status" -eq 0 ]
   grep -q '^## \[0.2.0\] - 2026-10-02$' "$WORK/CHANGELOG.md"
@@ -103,7 +103,7 @@ release() { run /bin/bash -c 'cd "$1" && shift && /bin/bash scripts/release.sh "
   echo "$output" | grep -q "not newer than the last release v0.1.0"
   bump 1.2
   [ "$status" -eq 1 ]
-  sed -i '' '/^- A new thing\.$/d; /^### Added$/d' "$WORK/CHANGELOG.md"
+  sed_i '/^- A new thing\.$/d; /^### Added$/d' "$WORK/CHANGELOG.md"
   bump patch
   [ "$status" -eq 1 ]
   echo "$output" | grep -q "nothing under \[Unreleased\]"

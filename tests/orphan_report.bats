@@ -358,7 +358,7 @@ assert_not_a_candidate() {
   [ -n "$generated" ]
 
   # Comment out the keeper, exactly as the file instructs.
-  /usr/bin/sed -i '' "s|^${keep}$|#${keep}|" "$generated"
+  sed_i "s|^${keep}$|#${keep}|" "$generated"
 
   run_clean --clean --yes --force-risky orphans --only orphans --remove-orphans-from "$generated"
   [ -f "$keep/data" ]
@@ -446,6 +446,7 @@ orphan_run_id() {
 }
 
 @test "remove-orphans: a leftover LaunchAgent is stopped before it is moved" {
+  require_tool plutil
   mkdir -p "$FAKE_HOME/Library/LaunchAgents"
   printf '<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.zzqqxx9.agent</string></dict></plist>\n' \
     > "$FAKE_HOME/Library/LaunchAgents/com.zzqqxx9.agent.plist"

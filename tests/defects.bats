@@ -209,6 +209,7 @@ make_avd() {
 # ---------------------------------------------------------------------------
 
 @test "launchagent: the label is read from the plist" {
+  require_tool plutil
   source_lib
   mkdir -p "$FAKE_HOME/Library/LaunchAgents"
   local plist="$FAKE_HOME/Library/LaunchAgents/com.vendor.agent.plist"
@@ -270,7 +271,7 @@ PLIST
   CATEGORY_STATE_IDS=(caches); CATEGORY_STATE_ON=(1)
 
   save_config
-  [ "$(stat -f '%Lp' "$CONFIG_FILE")" = "600" ]
+  [ "$(file_mode "$CONFIG_FILE")" = "600" ]
 }
 
 @test "config: a failed save leaves the previous file untouched" {

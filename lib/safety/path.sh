@@ -155,7 +155,7 @@ path_kind() {
 path_identity() {
   local p="$1" id
   [ -e "$p" ] || [ -L "$p" ] || return 1
-  id="$(stat -f '%d:%i' "$p" 2>/dev/null)" || return 1
+  id="$(file_identity "$p" 2>/dev/null)" || return 1
   [ -n "$id" ] || return 1
   printf '%s' "$id"
 }
@@ -168,7 +168,7 @@ path_identity() {
 # common case. A final symlink is not followed.
 path_is_sip_protected() {
   local flags
-  flags="$(stat -f '%Sf' "$1" 2>/dev/null)" || return 1
+  flags="$(file_flags "$1" 2>/dev/null)" || return 1
   case ",$flags," in
     *,restricted,* | *,sunlnk,*) return 0 ;;
   esac
@@ -260,7 +260,7 @@ path_init_roots() {
       # Verify ownership: must be owned by the current effective UID.
       if [ -n "$tmp_canon" ]; then
         expected_uid="$(id -u 2>/dev/null || echo '')"
-        actual_uid="$(stat -f '%u' "$tmp_canon" 2>/dev/null || echo '')"
+        actual_uid="$(file_uid "$tmp_canon" 2>/dev/null || echo '')"
         if [ -z "$actual_uid" ] || [ "$actual_uid" != "$expected_uid" ]; then
           verbose "path_init_roots: TMPDIR parent not owned by current user (uid=$actual_uid vs $expected_uid); skipping"
           tmp_canon=''
@@ -268,7 +268,7 @@ path_init_roots() {
       fi
       # Reject world-writable temp parents (sticky-bit only is fine, e.g. 1700).
       if [ -n "$tmp_canon" ]; then
-        actual_mode="$(stat -f '%Lp' "$tmp_canon" 2>/dev/null || echo '')"
+        actual_mode="$(file_mode "$tmp_canon" 2>/dev/null || echo '')"
         case "${actual_mode}" in
           *[2367])
             verbose "path_init_roots: TMPDIR parent is world-writable (mode=$actual_mode); skipping"

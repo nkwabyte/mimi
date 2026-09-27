@@ -6,7 +6,8 @@
 #   ./tests/run          # run all tests
 #   ./tests/run smoke    # run only smoke.bats
 #
-# Requirements: macOS, Homebrew (for bats-core if not already installed).
+# Requirements: bats-core (installed with Homebrew on macOS if missing).
+# Runs on macOS and on Linux; see tests/README.md for what skips on Linux.
 
 set -euo pipefail
 

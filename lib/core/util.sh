@@ -65,7 +65,7 @@ dir_size_kb() {
 path_logical_kb() {
   local p="$1" bytes
   [ -f "$p" ] || { printf '0'; return; }
-  bytes="$(stat -f '%z' "$p" 2>/dev/null)" || { printf '0'; return; }
+  bytes="$(file_size "$p" 2>/dev/null)" || { printf '0'; return; }
   printf '%s' $(((bytes + 1023) / 1024))
 }
 
