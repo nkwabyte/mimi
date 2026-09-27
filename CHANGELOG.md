@@ -6,6 +6,18 @@ and a release tag must match it.
 
 ## [Unreleased]
 
+### Added
+
+- `mimi uninstall` lists the installed apps without system apps, with `○`
+  and `●` marks. Space selects (the same keys as the category picker: `a`
+  all, `x` none, `q` back), and enter uninstalls the selection after one
+  typed `uninstall`. `mimi uninstall <app>` is `mimi app uninstall <app>`.
+
+### Changed
+
+- The menu's "Uninstall applications" uses the same list, and now asks for
+  the typed word before deleting; before, one key deleted the selection.
+
 ## [0.3.0] - 2026-09-27
 
 ### Security

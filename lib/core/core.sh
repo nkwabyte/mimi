@@ -539,7 +539,15 @@ main() {
   case "$MODE" in
     apps) mimi_apps_list ;;
     app_inspect) mimi_app_inspect ;;
-    app_uninstall) mimi_app_uninstall ;;
+    app_uninstall)
+      # No app named: pick from the list (needs a terminal to pick on).
+      if [ -z "${APP_TARGET:-}" ] && [ "$UNINSTALL_SYSTEM" != 1 ] && [ "${JSONL_ENABLED:-0}" != 1 ] \
+        && { tui_available || confirm_can_prompt; }; then
+        log_init
+        interactive_uninstall_apps command
+      else
+        mimi_app_uninstall
+      fi ;;
     plan) run_plan ;;
     apply) run_apply ;;
     restore) run_restore ;;
