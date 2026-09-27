@@ -52,7 +52,7 @@ The findings below are kept as written. This table records what happened to each
 | R-01 plan runs cleanups | Fixed. `is_dry_run` guards every category; tool categories record a `tool_cleanup` action that `apply` runs |
 | R-02 apply bypasses classes, plans unauthenticated | Fixed. Per-class confirmation at apply; every action re-derived at preflight; digest covers the header; host and uid checked; risk taken from the registry; schema 3. The digest stays unkeyed on purpose: authority comes from re-derivation, not from the file |
 | R-03 uninstall permanent vs docs | Decided by the owner: uninstall deletes the app and its remnants permanently (no quarantine). Docs, schema (`wipe`), help and tests now agree; a saved uninstall plan also needs the typed confirmation |
-| R-04 runner and CI | Fixed. Runner checks shell files only; CI runs on `dev`, lints all modules and the root helper, compiles the launcher. GUI build in CI is still open (needs an Xcode that supports the project's Swift settings) |
+| R-04 runner and CI | Fixed. Runner checks shell files only; CI runs on `dev`, lints all modules and the root helper, compiles the launcher, and builds and unit-tests the GUI (O-1) |
 | R-05 cross-volume copy loss | Fixed |
 | R-06 nested whitelist | Fixed |
 | R-07 apply moves whole folders | Fixed |
@@ -60,14 +60,14 @@ The findings below are kept as written. This table records what happened to each
 | R-09 weak orphans moved | Fixed (`--include-weak`) |
 | R-10 history counters | Fixed |
 | R-11 JSON escaping | Fixed in the engine; the GUI now skips an undecodable line with a warning |
-| R-12 root helper | Fixed except a signed prebuilt launcher and stopping system LaunchAgents for every logged-in user |
+| R-12 root helper | Fixed. System LaunchAgents are stopped in every GUI session and the launcher compiles in an empty environment (O-4, O-5). A signed prebuilt launcher waits on a Developer ID |
 | R-13 run lock | Fixed (exit 7) |
-| R-14 exit codes | Exit 6 (refused plan) and 7 (busy) added. `EXIT_FAILURE` and `EXIT_PARTIAL` still share 3 |
+| R-14 exit codes | Fixed: exit 6 (refused plan), 7 (busy), and 8 for work that could not be done at all (O-6) |
 | R-15 streams and log privacy | Fixed |
 | R-16 test bypass | Narrowed to an explicit `MIMI_TEST_TMP_PARENT` naming one directory, with ownership and mode still checked |
 | R-17 plan reader | Reformatted plans are refused with an accurate message |
-| R-18 docs | Fixed links, SECURITY.md, GUI profile text, changelog. Scratchpad archiving still open |
-| R-19 GUI hygiene | `xcuserdata` untracked and ignored. Team id and Debug-only fallback still open |
+| R-18 docs | Fixed links, SECURITY.md, GUI profile text, changelog. Completed scratchpad phases archived (O-8) |
+| R-19 GUI hygiene | Fixed: `xcuserdata` untracked, team id in an untracked `Local.xcconfig`, `#filePath` fallbacks Debug-only (O-2, O-3) |
 | R-20 static analysis | ShellCheck is clean at warning level on every module; remaining notes are the `[ a ] && [ b ] \|\| continue` idiom |
 | R-21 performance | Whitelist canonicalized once per run, JSON events without per-event subshells, no `tput` at start-up, fewer forks in list checks |
 
@@ -418,7 +418,7 @@ R-02 was reproduced by building a plan with `plan_add_action` and `plan_save` fr
 
 ## 7. Recommended fixes for the open items
 
-Status: proposed, waiting for the owner's approval.
+Status: approved by the owner and implemented on 2026-09-27, except O-9 and the second step of O-5, which were optional and are not done. Decisions DEC-072 to DEC-074 in the scratchpad.
 
 These are the items the fix pass left open (see the status table at the top), plus one test-harness problem found while getting CI green. Each has a recommended fix, its size, and what it needs from the owner.
 

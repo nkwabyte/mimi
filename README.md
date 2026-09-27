@@ -788,6 +788,7 @@ mimi --list
 | `5` | Cancelled / Refused | A required interactive confirmation or `--force-risky` authorization was not given. |
 | `6` | Plan refused | `apply` refused the plan: edited, expired, from another user or Mac, or selecting more than mimi would now. |
 | `7` | Busy | Another mimi run is changing files right now. |
+| `8` | Failure | The work could not be done at all: a plan could not be saved, a quarantine run could not be created, or a hand-off to Homebrew or a vendor uninstaller failed. |
 
 
 ## Recommended order for a big cleanout
@@ -926,6 +927,7 @@ Actions: 412 succeeded, 7 skipped, 3 permission-denied, 0 failed
 | `5` | A confirmation was declined, or could not be obtained at all |
 | `6` | `apply` refused the plan |
 | `7` | Another mimi run is changing files |
+| `8` | The work could not be done at all (plan not saved, quarantine not created, Homebrew or vendor uninstaller failed) |
 
 A `3` usually means Full Disk Access is not granted. It is reported rather
 than hidden, because "the tool did not do what you asked" is something a

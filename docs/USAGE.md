@@ -361,14 +361,18 @@ sudo /usr/local/libexec/mimi/mimi-root-apply --uninstall-tool # remove it again
 
 `--install` also compiles `mimi-root-launch`, the program `sudo` actually
 runs: it finds the helper from its own resolved location (never from how it
-was invoked) and starts it with a fixed environment. mimi prints a `sudo`
+was invoked) and starts it with a fixed environment. The compile needs the
+Xcode command-line tools; it runs on a root-owned copy of the source with an
+empty environment, and `--install` names the two files it is trusting, so
+run it from a copy you have checked. mimi prints a `sudo`
 command only for that installed launcher, while the installed helper matches
 this version, and tells you when a `brew upgrade` made it out of date.
 
 mimi lists what is attributable and what is related but *not* attributable,
 writes a request (valid for an hour), and prints the exact `sudo` command.
 The root tool — one standalone file — works out the items again itself,
-shows them, asks you to type the bundle id, stops each job, and moves the
+shows them, asks you to type the bundle id, stops each job (a system-wide
+LaunchAgent in every logged-in user's session, not only yours), and moves the
 files into a root-only quarantine that `--restore` undoes. An item needs two
 independent signals to be attributable (its name or its
 `AssociatedBundleIdentifiers`, plus the program it runs), and anything shared
@@ -616,6 +620,7 @@ enough to run that category — you do not also need `--only`.
 | `5` | A required confirmation was declined, or could not be obtained at all |
 | `6` | `apply` refused the plan: edited, expired, from another user or Mac, or selecting more than mimi would now |
 | `7` | Another mimi run is changing files right now |
+| `8` | The work could not be done at all: a plan could not be saved, a quarantine run could not be created, or a hand-off to Homebrew or a vendor uninstaller failed |
 
 `2` is deliberately unused — too many tools read it as "usage", and invalid
 usage here is already `1`.
