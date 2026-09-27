@@ -6,6 +6,65 @@ and a release tag must match it.
 
 ## [Unreleased]
 
+### Security
+
+- `mimi plan` no longer runs cleanup commands. Sixteen categories treated
+  plan mode as clean mode and ran `brew cleanup`, `npm cache clean`,
+  `simctl delete`, `qlmanage -r`, and (when selected) `docker system prune`
+  and snapshot thinning while "only planning". Those categories now record a
+  `tool_cleanup` action that `apply` runs.
+- `mimi apply` asks the same confirmations `clean` asks: `--yes` no longer
+  approves a risky or irreversible category, or an uninstall plan, without
+  the typed word or `--force-risky`.
+- `mimi apply` re-derives every action and refuses anything mimi would not
+  select right now, so an edited or hand-made plan cannot widen what is
+  removed. The plan digest now covers the header too (expiry, host, user,
+  uid), and host and uid are checked. Plan files are schema version 3.
+- A whitelisted path inside a folder being cleared is kept; before, only a
+  whitelist entry one level down was honoured.
+- Root helper: restore only takes files from inside the run it names,
+  payload under a parent that is not root-owned (or is world-writable) is
+  reported instead of moved, kernel/system/driver extensions are never
+  selected, and the launcher finds the helper from its own resolved path
+  rather than `argv[0]`.
+
+### Fixed
+
+- A cross-volume quarantine whose original could not be fully removed
+  deleted the complete copy. The copy is now kept and recorded as partial,
+  and copies are compared before the original is removed.
+- Applying a plan that clears a folder moved the folder itself (for example
+  `~/.Trash`); now its contents are quarantined and the folder stays.
+- `mimi history` failed on a quarantine run with an empty manifest or a
+  restore that only hit conflicts.
+- JSON output escapes every control character, so a file name holding ESC
+  or 0x01 no longer produces invalid JSON (which ended the GUI's scan).
+- `pip` cleanup reported success without checking the command's result.
+
+### Changed
+
+- Quarantine runs live in `~/Library/Application Support/mimi/quarantine`
+  (moved from `~/.config/mimi` on first run), excluded from Time Machine and
+  Spotlight, and are released after `--quarantine-days` (default 7; `0`
+  keeps them until `mimi purge`). Summaries report quarantined and freed
+  space separately; `run_finished` gained `quarantined_kb`.
+- `--remove-orphans` moves only [strong] leftovers; `--include-weak` adds
+  the [weak] guesses.
+- One mutating run at a time: a second `clean`, `apply`, `restore`, `purge`
+  or uninstall exits 7 while another holds the lock.
+- New exit code 6 for a refused plan (was 1).
+- Warnings and errors go to stderr; logs are private (0700/0600); colours
+  honour `NO_COLOR`; warnings are also sent as JSON `warning` events.
+- CI runs on `dev`, lints every module and the root helper, and compiles the
+  launcher.
+
+### Removed
+
+- Dead code: `app_detect_cask_token`, `app_detect_provenance`,
+  `get_token_for_entry`, `is_installed_cli_tool`, `category_risk_facets`,
+  `category_capability`, `plan_candidate_count`, `plan_validate_schema`,
+  `log`, and unused globals.
+
 ### Added
 
 - `mimi history`: what mimi has done and which quarantine runs can still be

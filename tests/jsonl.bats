@@ -45,7 +45,7 @@ assert first["type"] == "hello"
 assert first["seq"] == 1
 assert first["protocol_version"] == 1
 assert "engine_version" in first
-assert first["plan_schema_version"] == 2
+assert first["plan_schema_version"] == 3
 assert "scan" in first["capabilities"]
 assert "clean" in first["capabilities"]
 ' <<< "$output"

@@ -38,6 +38,8 @@ EXIT_INTERRUPTED=4   # a signal stopped the run before it finished
 # to tell that apart from a malformed invocation (1) and from work that ran
 # and failed (3). See DEC-029.
 EXIT_CANCELLED=5     # a required confirmation was declined or unobtainable
+EXIT_PLAN_REFUSED=6  # a plan failed preflight: stale, expired, edited, or widened
+EXIT_BUSY=7          # another mimi run is changing files right now
 
 # Upper bound for every count/day setting. Generous enough that no real
 # retention policy hits it, small enough that a typo or an overflow attempt
@@ -103,11 +105,9 @@ is_known_category() {
 # possible interpretation.
 normalize_category_list() {
   local src="$1" raw="$2" out="" item
-  local oldifs="$IFS"
-  IFS=','
-  set -- $raw
-  IFS="$oldifs"
-  for item in "$@"; do
+  local -a items=()
+  IFS=',' read -r -a items <<< "$raw"
+  for item in ${items[@]+"${items[@]}"}; do
     # Strip surrounding whitespace (bash 3.2: no ${var//pattern} niceties
     # that handle this in one step reliably).
     item="${item#"${item%%[![:space:]]*}"}"

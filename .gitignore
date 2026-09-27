@@ -84,3 +84,6 @@ docs/SECURITY_REMEDIATION_PLAN.md
 # root-anchored so they never match in here to begin with.
 # ---------------------------------------------------------------------------
 !tests/fixtures/**
+
+# Per-user Xcode state
+xcuserdata/

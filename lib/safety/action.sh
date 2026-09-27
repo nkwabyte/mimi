@@ -43,6 +43,9 @@ FS_REMOVE_ERROR=""
 # down instead of being killed halfway through a tree.
 RUN_INTERRUPTED=0
 
+# Set by plan_apply_tool while a category's delegated command runs.
+APPLY_TOOL_ONLY=0
+
 record_action() {
   case "$1" in
     ok) ACTION_OK=$((ACTION_OK + 1)) ;;
@@ -249,6 +252,9 @@ interrupted() {
 clear_dir_contents() {
   local dir="$1" canon ident ident_now
 
+  # Applying a plan's tool action: the plan handles this category's paths.
+  [ "$APPLY_TOOL_ONLY" = 1 ] && return 0
+
   [ -d "$dir" ] || { verbose "skip (missing): $dir"; return 0; }
 
   if interrupted; then
@@ -262,7 +268,9 @@ clear_dir_contents() {
     return 1
   fi
   canon="$PATH_CANONICAL"
-  if is_whitelisted "$canon"; then
+  # A whitelisted path INSIDE this directory is kept by the per-entry check
+  # below; only a directory that is itself covered is skipped whole.
+  if whitelist_covers "$canon"; then
     record_action skipped
     info "whitelisted, skipped: $dir"
     return 0
@@ -276,12 +284,13 @@ clear_dir_contents() {
   local before after entry entry_canon
   before="$(dir_size_kb "$canon")"
 
-  if [ "$MODE" = "scan" ] || [ "$MODE" = "plan" ]; then
+  if is_dry_run; then
     info "would clear contents of: $dir ($(human_kb "$before"))"
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
     if plan_candidates_wanted; then
-      plan_candidate_add "${CURRENT_CATEGORY_ID:-unknown}" "clear_dir_contents" "$canon" "$ident" "$((before * 1024))" "safe" "$dir"
-      [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_candidate "${CURRENT_CATEGORY_ID:-unknown}" "$canon" "$before" "safe" "$PLAN_LAST_CID"
+      local risk="${CURRENT_CATEGORY_RISK:-safe}"
+      plan_candidate_add "${CURRENT_CATEGORY_ID:-unknown}" "clear_dir_contents" "$canon" "$ident" "$((before * 1024))" "$risk" "$dir"
+      [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_candidate "${CURRENT_CATEGORY_ID:-unknown}" "$canon" "$before" "$risk" "$PLAN_LAST_CID"
     fi
     return 0
   fi
@@ -359,6 +368,9 @@ clear_dir_contents() {
 remove_path() {
   local p="$1" canon ident ident_now
 
+  # Applying a plan's tool action: the plan handles this category's paths.
+  [ "$APPLY_TOOL_ONLY" = 1 ] && return 0
+
   [ -e "$p" ] || [ -L "$p" ] || return 0
 
   if interrupted; then
@@ -388,12 +400,13 @@ remove_path() {
   local size
   size="$(dir_size_kb "$canon")"
 
-  if [ "$MODE" = "scan" ] || [ "$MODE" = "plan" ]; then
+  if is_dry_run; then
     info "would remove: $p ($(human_kb "$size"))"
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + size))
     if plan_candidates_wanted; then
-      plan_candidate_add "${CURRENT_CATEGORY_ID:-unknown}" "remove_path" "$canon" "$ident" "$((size * 1024))" "safe" "$p"
-      [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_candidate "${CURRENT_CATEGORY_ID:-unknown}" "$canon" "$size" "safe" "$PLAN_LAST_CID"
+      local risk="${CURRENT_CATEGORY_RISK:-safe}"
+      plan_candidate_add "${CURRENT_CATEGORY_ID:-unknown}" "remove_path" "$canon" "$ident" "$((size * 1024))" "$risk" "$p"
+      [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_candidate "${CURRENT_CATEGORY_ID:-unknown}" "$canon" "$size" "$risk" "$PLAN_LAST_CID"
     fi
     return 0
   fi

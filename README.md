@@ -239,7 +239,7 @@ mimi apps list
 mimi app inspect Slack
 mimi app inspect "com.tinyspeck.slackmacgap" --json
 
-# 7. Uninstall an app into quarantine (restore undoes it until purge)
+# 7. Uninstall an app and its remnants (permanent; typed confirmation)
 mimi app uninstall Slack --purge-data
 ```
 
@@ -270,7 +270,7 @@ gui/Mimi/           # SwiftUI app. Scan only; it does not delete
 
 ## macOS app
 
-Open `gui/Mimi/Mimi.xcodeproj` in Xcode and run the Mimi scheme. The window scans with the same engine as the command-line tool and lists what it found. It does not clean, restore, purge, or uninstall. Those actions stay in Terminal until the work in [docs/SECURITY_REMEDIATION_PLAN.md](docs/SECURITY_REMEDIATION_PLAN.md) is done. Details are in [docs/guide.md](docs/guide.md).
+Open `gui/Mimi/Mimi.xcodeproj` in Xcode and run the Mimi scheme. The window scans with the same engine as the command-line tool and lists what it found. It does not clean, restore, purge, or uninstall. Those actions stay in Terminal until the work in [docs/SYSTEM_REVIEW_2026-09-27.md](docs/SYSTEM_REVIEW_2026-09-27.md) is done. Details are in [docs/guide.md](docs/guide.md).
 
 No extra Swift package is required. The app uses SwiftUI, Observation, and Swift Testing, which ship with the SDK.
 
@@ -393,11 +393,11 @@ Precedence: `--only` > `--profile` > config `SELECTED_CATEGORIES` > config `PROF
 
 To guarantee safety, predictability, and undo capability, `mimi` supports an immutable plan and quarantine workflow:
 
-1. **Plan** (`mimi plan`): Discovers cleanup targets and generates a cryptographically signed execution plan (`schemas/plan-v1.json`) with an action manifest, preflight checks, and candidate hashes. Deletes nothing.
+1. **Plan** (`mimi plan`): Discovers cleanup targets and writes an execution plan (`schemas/plan-v1.json`): every action, its evidence, and a digest over the whole file. Runs no cleanup command and deletes nothing.
    ```bash
    mimi plan --profile developer
    ```
-2. **Apply** (`mimi apply <plan-file>`): Validates plan integrity (host binding, expiration, inode identity) and moves targets into an isolated quarantine store (`~/.config/mimi/quarantine/<run-id>`) instead of immediate permanent deletion.
+2. **Apply** (`mimi apply <plan-file>`): Refuses a plan that was edited, expired, made for another user or Mac, or that selects anything mimi would not select right now (it re-derives every action), asks the same confirmations `clean` would, then moves targets into a quarantine run (`~/Library/Application Support/mimi/quarantine/<run-id>`, excluded from Time Machine). Runs older than `--quarantine-days` (default 7) are released automatically.
    ```bash
    mimi apply ~/.config/mimi/plans/plan-20260924-120000-1234.json
    ```
@@ -746,8 +746,9 @@ mimi --list
 --include-mail             Opt into clearing Mail's download cache
 --include-docker           Opt into `docker system prune -af --volumes`
 --include-orphans          Opt into reporting possible app leftovers
---remove-orphans           Move every leftover found to quarantine (use with
+--remove-orphans           Move every [strong] leftover to quarantine (use with
                            clean; undo with restore, free with purge)
+--include-weak             With --remove-orphans, move [weak] guesses too
 --remove-orphans-from FILE Remove exactly the paths listed in a reviewed
                            orphans report this tool wrote
 --include-whatsapp         Opt into WhatsApp's expired Status/Stories cache
@@ -770,6 +771,8 @@ mimi --list
 | `3` | Partial failure | The run completed, but at least one command or deletion step encountered an error. |
 | `4` | Interrupted | A signal (SIGINT / `Ctrl-C` or SIGTERM) stopped the run before completion. |
 | `5` | Cancelled / Refused | A required interactive confirmation or `--force-risky` authorization was not given. |
+| `6` | Plan refused | `apply` refused the plan: edited, expired, from another user or Mac, or selecting more than mimi would now. |
+| `7` | Busy | Another mimi run is changing files right now. |
 
 
 ## Recommended order for a big cleanout

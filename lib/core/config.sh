@@ -30,6 +30,19 @@ migrate_legacy_state() {
     fi
   fi
 
+  # Quarantine runs used to live in the config directory.
+  if [ -d "$LEGACY_QUARANTINE_DIR" ] && [ ! -e "$QUARANTINE_DIR" ]; then
+    mkdir -p "$(dirname "$QUARANTINE_DIR")"
+    if mv "$LEGACY_QUARANTINE_DIR" "$QUARANTINE_DIR" 2>/dev/null; then
+      # Moved runs start a fresh retention period instead of being released
+      # by the first run after the upgrade.
+      touch "$QUARANTINE_DIR"/*/ 2>/dev/null
+      say "moved your quarantine runs to $QUARANTINE_DIR"
+    else
+      QUARANTINE_DIR="$LEGACY_QUARANTINE_DIR"
+    fi
+  fi
+
   if [ -d "$LEGACY_LOG_DIR" ] && [ ! -e "$LOG_DIR" ]; then
     mkdir -p "$(dirname "$LOG_DIR")"
     mv "$LEGACY_LOG_DIR" "$LOG_DIR" 2>/dev/null || true
@@ -45,7 +58,7 @@ load_config() {
       ''|'#'*) continue ;;
     esac
     case "$key" in
-      SIM_STALE_DAYS|ANDROID_STALE_DAYS|KEEP_DEVICE_SUPPORT|TMP_STALE_DAYS|KEEP_TOOLCHAINS|KEEP_LOGS)
+      SIM_STALE_DAYS|ANDROID_STALE_DAYS|KEEP_DEVICE_SUPPORT|TMP_STALE_DAYS|KEEP_TOOLCHAINS|KEEP_LOGS|QUARANTINE_KEEP_DAYS)
         CONFIG_NUMERIC_SEEN="$CONFIG_NUMERIC_SEEN$key	$val
 " ;;
     esac
@@ -56,6 +69,7 @@ load_config() {
       TMP_STALE_DAYS) TMP_STALE_DAYS="$val" ;;
       KEEP_TOOLCHAINS) KEEP_TOOLCHAINS="$val" ;;
       KEEP_LOGS) KEEP_LOGS="$val" ;;
+      QUARANTINE_KEEP_DAYS) QUARANTINE_KEEP_DAYS="$val" ;;
       WHITELIST)
         local _wl
         IFS=',' read -r -a _wl <<< "$val"
@@ -100,6 +114,7 @@ save_config() {
     printf 'TMP_STALE_DAYS=%s\n' "$TMP_STALE_DAYS"
     printf 'KEEP_TOOLCHAINS=%s\n' "$KEEP_TOOLCHAINS"
     printf 'KEEP_LOGS=%s\n' "$KEEP_LOGS"
+    printf 'QUARANTINE_KEEP_DAYS=%s\n' "$QUARANTINE_KEEP_DAYS"
     printf 'WHITELIST=%s\n' "$wl_joined"
     printf 'SELECTED_CATEGORIES=%s\n' "$sel_joined"
     if [ -n "$PROFILE" ]; then

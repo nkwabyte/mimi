@@ -33,7 +33,7 @@ setup() {
     "$FAKE_HOME/Library/Saved Application State" \
     "$FAKE_HOME/Library/LaunchAgents" \
     "$FAKE_HOME/.config/mimi/plans" \
-    "$FAKE_HOME/.config/mimi/quarantine"
+    "$FAKE_HOME/Library/Application Support/mimi/quarantine"
 
   export HOME="$FAKE_HOME"
   export MIMI_APP_SEARCH_ROOTS="$FAKE_HOME/Applications"
@@ -52,7 +52,7 @@ source_lib() {
   load_lib
   LOG_FILE="$TEST_TMPDIR/test.log"
   : > "$LOG_FILE"
-  QUARANTINE_DIR="$FAKE_HOME/.config/mimi/quarantine"
+  QUARANTINE_DIR="$FAKE_HOME/Library/Application Support/mimi/quarantine"
   PLANS_DIR="$FAKE_HOME/.config/mimi/plans"
   CONFIG_DIR="$FAKE_HOME/.config/mimi"
 }
@@ -502,7 +502,7 @@ EOF
   # Apply should handle missing targets gracefully (quarantine_target returns 1).
   run uninstall_apply "/tmp/GhostApp999.app" "com.example.ghost" "GhostApp"
   # Should return partial (EXIT_PARTIAL=3) or ok, not crash.
-  [ "$status" -le 5 ]
+  [ "$status" -le "$EXIT_PLAN_REFUSED" ]
 }
 
 @test "uninstall apply: data fixture is inside test tmpdir (no escape)" {
@@ -704,7 +704,7 @@ EOF
 
   [ "$status" -eq 0 ]
   [ ! -e "$app" ]
-  [ -z "$(ls -A "$FAKE_HOME/.config/mimi/quarantine" 2>/dev/null)" ]
+  [ -z "$(ls -A "$FAKE_HOME/Library/Application Support/mimi/quarantine" 2>/dev/null)" ]
 }
 
 # ===========================================================================
@@ -843,10 +843,23 @@ run_id_from() {
   [ -f "$plan" ]
   [ "$(stat -f '%Lp' "$plan")" = "600" ]
 
-  run /bin/bash "$MIMI_BIN" apply "$plan" --yes
+  run /bin/bash "$MIMI_BIN" apply "$plan" --yes --force-risky uninstall
   [ "$status" -eq 0 ]
   [ ! -e "$app" ]
   echo "$output" | grep -q "application removed"
+}
+
+@test "plan-bound: --yes alone cannot apply a saved uninstall plan" {
+  local app="$FAKE_HOME/Applications/Gated.app"
+  create_app "$app" "Gated" "com.example.gated" "1.0"
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --plan-only
+  local plan
+  plan="$(plan_file_from "$output")"
+
+  run /bin/bash "$MIMI_BIN" apply "$plan" --yes
+  [ "$status" -eq 5 ]
+  echo "$output" | grep -q -- "--force-risky uninstall"
+  [ -d "$app" ]
 }
 
 @test "plan-bound: a plan edited after it was written is refused" {
@@ -912,7 +925,7 @@ PLIST
   plan="$(plan_file_from "$output")"
   mkdir -p "$FAKE_HOME/Library/Caches/com.example.regrow"
 
-  run /bin/bash "$MIMI_BIN" apply "$plan" --yes
+  run /bin/bash "$MIMI_BIN" apply "$plan" --yes --force-risky uninstall
   [ "$status" -eq 3 ]
   echo "$output" | grep -q "leftover still present (new since the plan was made): .*Caches/com.example.regrow"
 }

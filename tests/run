@@ -37,10 +37,8 @@ echo "==> bats-core ${BATS_VERSION}"
 
 echo "==> Syntax check: /bin/bash -n on every shell file"
 _syntax_failed=0
-for _f in "$REPO_ROOT/clean.sh" "$REPO_ROOT/bin/mimi" "$REPO_ROOT"/lib/*.sh "$REPO_ROOT"/lib/*/*.sh "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/libexec/*; do
+for _f in "$REPO_ROOT/clean.sh" "$REPO_ROOT/bin/mimi" "$REPO_ROOT/lib/load.sh" "$REPO_ROOT"/lib/*/*.sh "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT/libexec/mimi-root-apply"; do
   [ -f "$_f" ] || continue
-  # libexec/ also holds the C source of the root launcher; only shell is checked here.
-  case "$_f" in *.c) continue ;; esac
   if ! /bin/bash -n "$_f"; then
     echo "ERROR: ${_f#"$REPO_ROOT"/} failed /bin/bash -n syntax check." >&2
     _syntax_failed=1
@@ -52,8 +50,7 @@ echo "    OK"
 if command -v shellcheck >/dev/null 2>&1; then
   echo "==> Static check: shellcheck -x"
   shellcheck -x "$REPO_ROOT/clean.sh" "$REPO_ROOT/bin/mimi"
-  shellcheck -x -S warning "$REPO_ROOT"/scripts/*.sh
-  shellcheck -S warning "$REPO_ROOT"/libexec/mimi-root-apply
+  shellcheck -S warning "$REPO_ROOT"/lib/*/*.sh "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/libexec/mimi-root-apply
   echo "    OK"
 fi
 

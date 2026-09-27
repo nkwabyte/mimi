@@ -39,6 +39,7 @@ prune_old_logs() {
 # so whichever runs first wins and neither clobbers the other.
 _cleanup_on_exit() {
   tui_end 2>/dev/null
+  run_unlock
   if [ "$NO_LOG" = 1 ] && [ -n "${LOG_FILE:-}" ] && [ -f "$LOG_FILE" ]; then
     # Justified raw rm: the scratch log this process created for --no-log,
     # removed on the way out. Accounting is already finished by this point.
@@ -50,11 +51,11 @@ _cleanup_on_exit() {
 log_init() {
   TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
   if [ "$NO_LOG" = 1 ]; then
-    LOG_FILE="$(mktemp "${TMPDIR:-/tmp}/cleanmymac-XXXXXX")" || LOG_FILE="/dev/null"
+    LOG_FILE="$(mktemp "${TMPDIR:-/tmp}/mimi-XXXXXX")" || LOG_FILE="/dev/null"
   else
-    mkdir -p "$LOG_DIR"
+    # Transcripts list full paths under $HOME: private to the user.
+    ( umask 077; mkdir -p "$LOG_DIR" && : > "$LOG_DIR/clean-$TIMESTAMP.log" )
     LOG_FILE="$LOG_DIR/clean-$TIMESTAMP.log"
-    : > "$LOG_FILE"
     prune_old_logs
   fi
   # EXIT is cleanup. INT/TERM must NOT exit here: being killed partway through
@@ -64,8 +65,36 @@ log_init() {
   trap '_on_interrupt' INT TERM
 }
 
-log() {
-  printf '%s\n' "$*" | tee -a "$LOG_FILE" >/dev/null
+# One mutating run at a time per user: a GUI scan, a terminal clean, and an
+# apply must not interleave their quarantine runs and history records. The
+# lock is a directory (mkdir is atomic) holding the owner's pid; a lock whose
+# owner is gone is taken over.
+RUN_LOCK_DIR=""
+run_lock() {
+  local dir="$CONFIG_DIR/run.lock" pid
+  [ -n "$RUN_LOCK_DIR" ] && return 0
+  mkdir -p "$CONFIG_DIR" 2>/dev/null
+  if ! mkdir "$dir" 2>/dev/null; then
+    pid="$(cat "$dir/pid" 2>/dev/null)"
+    if [ -n "$pid" ] && [ "$pid" != "$$" ] && kill -0 "$pid" 2>/dev/null; then
+      err "another mimi run (pid $pid) is changing files; try again when it has finished"
+      return 1
+    fi
+    # Justified raw rm: the pid file of a lock whose owner is gone.
+    rm -f "$dir/pid"
+    rmdir "$dir" 2>/dev/null
+    mkdir "$dir" 2>/dev/null || { err "could not take the run lock: $dir"; return 1; }
+  fi
+  printf '%s\n' "$$" > "$dir/pid"
+  RUN_LOCK_DIR="$dir"
+}
+
+run_unlock() {
+  [ -n "$RUN_LOCK_DIR" ] || return 0
+  # Justified raw rm: this run's own lock pid file.
+  rm -f "$RUN_LOCK_DIR/pid"
+  rmdir "$RUN_LOCK_DIR" 2>/dev/null
+  RUN_LOCK_DIR=""
 }
 
 say() {
@@ -83,8 +112,18 @@ section() {
   say "${C_BOLD}${C_CYAN}== $* ==${C_RESET}"
 }
 
+# Diagnostics go to stderr, so `mimi scan > report.txt` keeps them visible.
+say_err() {
+  printf '%s\n' "$*" >&2
+  printf '%s\n' "$*" >> "$LOG_FILE"
+}
+
 info() { say "${C_DIM}  $*${C_RESET}"; }
 ok()   { say "${C_GREEN}  $*${C_RESET}"; }
-warn() { say "${C_YELLOW}  $*${C_RESET}"; }
-err()  { say "${C_RED}  $*${C_RESET}"; }
+warn() {
+  say_err "${C_YELLOW}  $*${C_RESET}"
+  [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_warning "" "$*"
+  return 0
+}
+err()  { say_err "${C_RED}  $*${C_RESET}"; }
 verbose() { [ "$VERBOSE" = 1 ] && say "${C_DIM}    [v] $*${C_RESET}"; return 0; }

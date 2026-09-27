@@ -699,6 +699,7 @@ real() {
   mkdir -p "$parent/T"
   chmod 700 "$parent"
   TMPDIR="$parent/T/"
+  MIMI_TEST_TMP_PARENT="$parent"
   _PATH_ROOTS_READY=0
   path_init_roots
   canon="$(path_canonicalize "$parent")"

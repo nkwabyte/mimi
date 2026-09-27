@@ -93,8 +93,9 @@ cat_dsstore() {
   done < <(find "$HOME_DIR" -xdev -name '.DS_Store' -not -path '*/.Trash/*' -print0 2>/dev/null)
 
   TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + found_kb))
-  if [ "$MODE" = "scan" ]; then
+  if is_dry_run; then
     info "found $found .DS_Store files ($(human_kb "$found_kb"))"
+    plan_tool_candidate "$found_kb"
     return 0
   fi
 
@@ -109,8 +110,9 @@ cat_dsstore() {
 
 cat_quicklook() {
   section "QuickLook thumbnail cache"
-  if [ "$MODE" = "scan" ]; then
+  if is_dry_run; then
     info "would reset QuickLook thumbnail cache (qlmanage -r cache)"
+    plan_tool_candidate 0
     return
   fi
   if command -v qlmanage > /dev/null 2>&1; then
@@ -160,8 +162,9 @@ cat_sim_unavailable() {
   fi
   local before after reclaimed
   before="$(dir_size_kb "$sim_root")"
-  if [ "$MODE" = "scan" ]; then
+  if is_dry_run; then
     info "would run: xcrun simctl delete unavailable (devices dir currently: $(human_kb "$before"))"
+    plan_tool_candidate 0
     return
   fi
   tool_cleanup "deleted unavailable simulator devices" "$sim_root" \
@@ -213,9 +216,10 @@ cat_homebrew() {
   local before=0
   [ -n "$cache_dir" ] && before="$(dir_size_kb "$cache_dir")"
 
-  if [ "$MODE" = "scan" ]; then
+  if is_dry_run; then
     info "would run: brew cleanup -s --prune=all  (cache: $(human_kb "$before") at $cache_dir)"
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
+    plan_tool_candidate "$before"
     return
   fi
 
@@ -237,7 +241,8 @@ cat_homebrew_old() {
   cellar_dir="$(brew --cellar 2>/dev/null)"
   [ -n "$cellar_dir" ] && [ -d "$cellar_dir" ] && cellar_before="$(dir_size_kb "$cellar_dir")"
 
-  if [ "$MODE" = "scan" ]; then
+  if is_dry_run; then
+    plan_tool_candidate 0
     info "would run: brew autoremove   (unused dependencies, listed below)"
     local line orphan_count=0
     while IFS= read -r line; do
@@ -275,7 +280,8 @@ cat_npm() {
   fi
   local before after reclaimed
   before="$(dir_size_kb "$cache_dir")"
-  if [ "$MODE" = "scan" ]; then
+  if is_dry_run; then
+    plan_tool_candidate "$before"
     info "would run: npm cache clean --force ($(human_kb "$before") at $cache_dir)"
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
     return
@@ -311,7 +317,8 @@ cat_yarn() {
   fi
   local before after reclaimed
   before="$(dir_size_kb "$cache_dir")"
-  if [ "$MODE" = "scan" ]; then
+  if is_dry_run; then
+    plan_tool_candidate "$before"
     info "would run: yarn cache clean ($(human_kb "$before") at $cache_dir)"
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
     return
@@ -333,7 +340,8 @@ cat_pnpm() {
   fi
   local before after reclaimed
   before="$(dir_size_kb "$store_dir")"
-  if [ "$MODE" = "scan" ]; then
+  if is_dry_run; then
+    plan_tool_candidate "$before"
     info "would run: pnpm store prune ($(human_kb "$before") at $store_dir)"
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
     return
@@ -367,18 +375,13 @@ cat_pip() {
   fi
   local before after reclaimed
   before="$(dir_size_kb "$cache_dir")"
-  if [ "$MODE" = "scan" ]; then
+  if is_dry_run; then
+    plan_tool_candidate "$before"
     info "would run: $pipbin cache purge ($(human_kb "$before") at $cache_dir)"
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
     return
   fi
-  "$pipbin" cache purge >>"$LOG_FILE" 2>&1
-  after="$(dir_size_kb "$cache_dir")"
-  reclaimed=$((before - after))
-  [ "$reclaimed" -lt 0 ] && reclaimed=0
-  TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + before))
-  TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + reclaimed))
-  ok "pip cache purged (freed $(human_kb "$reclaimed"))"
+  tool_cleanup "pip cache purged" "$cache_dir" "$pipbin" cache purge
 }
 
 cat_timemachine() {
@@ -395,7 +398,8 @@ cat_timemachine() {
   fi
   local count
   count="$(printf '%s\n' "$snapshots" | wc -l | tr -d ' ')"
-  if [ "$MODE" = "scan" ]; then
+  if is_dry_run; then
+    plan_tool_candidate 0
     info "found $count local snapshot(s) (thinning reclaims purgeable space, not shown in du totals)"
     return
   fi
@@ -421,7 +425,8 @@ cat_docker() {
     warn "Docker daemon not responding (not running, or still starting) — skipped"
     return
   fi
-  if [ "$MODE" = "scan" ]; then
+  if is_dry_run; then
+    plan_tool_candidate 0
     info "would run: docker system prune -af --volumes"
     return
   fi
@@ -455,7 +460,8 @@ cat_docker_cache() {
   local before=0
   [ -e "$raw_disk" ] && before="$(dir_size_kb "$raw_disk")"
 
-  if [ "$MODE" = "scan" ]; then
+  if is_dry_run; then
+    plan_tool_candidate 0
     info "would run: docker builder prune -f && docker image prune -f (dangling only)"
     local line
     run_with_timeout 15 docker system df 2>/dev/null | while IFS= read -r line; do info "  $line"; done
@@ -509,8 +515,9 @@ cat_mail() {
 #
 # By default the category reports and writes a review file. With
 # --remove-orphans on a clean (or the orphans category ticked for a clean in
-# the menus) every candidate, strong and weak, is MOVED TO QUARANTINE rather
-# than deleted: because the list is a guess, the removal has to be undoable.
+# the menus) the [strong] candidates are MOVED TO QUARANTINE rather than
+# deleted; [weak] guesses also need --include-weak. Because the list is a
+# guess, the removal has to be undoable.
 # `mimi restore <run-id>` puts everything back; `mimi purge <run-id>` frees
 # the space for good. The review file and --remove-orphans-from remain for
 # removing a hand-picked subset.
@@ -605,7 +612,13 @@ orphans_quarantine_all() {
   local run_id="orphans-$TIMESTAMP" i p canon ident size moved=0 moved_kb=0
 
   say ""
-  info "Moving $n leftover(s) ($(human_kb "$total_kb")) to quarantine run $run_id ..."
+  if [ "$INCLUDE_WEAK_ORPHANS" != 1 ]; then
+    info "Moving the [strong] leftovers to quarantine run $run_id; [weak] guesses stay"
+    info "(add --include-weak to move those too, or pick them in the review file)."
+  else
+    info "Moving $n leftover(s) ($(human_kb "$total_kb")) to quarantine run $run_id ..."
+  fi
+  quarantine_expire_runs
   if ! quarantine_init_run "$run_id"; then
     err "could not create the quarantine run; nothing was moved"
     record_action failed
@@ -616,6 +629,10 @@ orphans_quarantine_all() {
     p="${ORPHAN_CANDIDATE_PATHS[$i]}"
     if interrupted; then
       record_action skipped
+      continue
+    fi
+    if [ "${ORPHAN_CANDIDATE_TIERS[$i]}" != "strong" ] && [ "$INCLUDE_WEAK_ORPHANS" != 1 ]; then
+      verbose "weak guess, left in place: $p"
       continue
     fi
     if ! validate_orphan_target "$p"; then
@@ -641,6 +658,7 @@ orphans_quarantine_all() {
       record_action ok
       moved=$((moved + 1))
       moved_kb=$((moved_kb + size))
+      TOTAL_QUARANTINED_KB=$((TOTAL_QUARANTINED_KB + size))
       ok "quarantined: $canon  ($(human_kb "$size"))"
       [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "quarantined" "$canon" "$((size * 1024))"
     else
@@ -883,8 +901,9 @@ for runtime, devs in d["devices"].items():
     info "  ${del_labels[$i]}"
   done
 
-  if [ "$MODE" = "scan" ]; then
+  if is_dry_run; then
     TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + total_kb))
+    plan_tool_candidate "$total_kb"
     return
   fi
 
@@ -1068,8 +1087,9 @@ cat_android() {
       fi
 
       info "unused for $days days: $name ($(human_kb "$size_kb"))"
-      if [ "$MODE" = "scan" ]; then
+      if is_dry_run; then
         TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + size_kb))
+        plan_tool_candidate 0
         continue
       fi
       if ! confirm_action_ok android \
@@ -1504,6 +1524,18 @@ cat_electron() {
 # alone on purpose.
 # ---------------------------------------------------------------------------
 
+# `go env GOCACHE` is authoritative for where Go's cache lives and it is not
+# predictable from $HOME, so it is registered as an explicit allowed root
+# rather than being exempted from authorization. Also called by plan
+# preflight, which authorizes a saved plan's paths in a fresh process.
+DEV_GO_CACHE=""
+dev_caches_register_roots() {
+  command -v go > /dev/null 2>&1 || return 1
+  DEV_GO_CACHE="$(go env GOCACHE 2>/dev/null)"
+  [ -n "$DEV_GO_CACHE" ] && [ -d "$DEV_GO_CACHE" ] || return 1
+  path_register_allowed_root "$DEV_GO_CACHE"
+}
+
 cat_dev_caches() {
   section "Developer tool caches"
 
@@ -1516,7 +1548,8 @@ cat_dev_caches() {
     local uv_before uv_cmd
     uv_before="$(dir_size_kb "$HOME_DIR/.cache/uv")"
     if [ "$AGGRESSIVE" = 1 ]; then uv_cmd="clean"; else uv_cmd="prune"; fi
-    if [ "$MODE" = "scan" ]; then
+    if is_dry_run; then
+      plan_tool_candidate 0
       info "would run: uv cache $uv_cmd  (~/.cache/uv is $(human_kb "$uv_before"))"
       if [ "$uv_cmd" = "clean" ]; then
         TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + uv_before))
@@ -1531,22 +1564,7 @@ cat_dev_caches() {
     fi
   fi
 
-  if command -v go >/dev/null 2>&1; then
-    local go_cache
-    go_cache="$(go env GOCACHE 2>/dev/null)"
-    if [ -n "$go_cache" ] && [ -d "$go_cache" ]; then
-      # `go env GOCACHE` is authoritative for where Go's cache lives and it is
-      # not predictable from $HOME, so it is registered as an explicit allowed
-      # root rather than being exempted from authorization.
-      path_register_allowed_root "$go_cache"
-      if [ "$MODE" = "scan" ]; then
-        info "would run: go clean -cache  ($(human_kb "$(dir_size_kb "$go_cache")") at $go_cache)"
-        TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + $(dir_size_kb "$go_cache")))
-      else
-        clear_dir_contents "$go_cache"
-      fi
-    fi
-  fi
+  dev_caches_register_roots && clear_dir_contents "$DEV_GO_CACHE"
 
   # Plain directory caches. Each one is regenerated automatically.
   local d
@@ -1658,6 +1676,7 @@ cat_ide_stale() {
 
     for family in $families; do
       # Version sort; the last entry is the newest and is always kept.
+      # shellcheck disable=SC2012  # directory names only; sort -V needs a list
       newest="$(ls -1d "$root/$family"*/ 2>/dev/null | sed 's:/$::' | sort -V | tail -1)"
       [ -n "$newest" ] || continue
       for dir in "$root/$family"*/; do
@@ -1693,8 +1712,11 @@ cat_ml_caches() {
       any=1
       info "$d — $(human_kb "$sz")"
     done
-    [ "$any" = 1 ] && warn "not removed (opt-in: pass --include-ml-caches)" \
-                   || info "no ML model caches found"
+    if [ "$any" = 1 ]; then
+      warn "not removed (opt-in: pass --include-ml-caches)"
+    else
+      info "no ML model caches found"
+    fi
     return
   fi
 
@@ -1900,8 +1922,11 @@ cat_toolchains() {
       any=1
       info "$d — $(human_kb "$sz")"
     done
-    [ "$any" = 1 ] && warn "not removed (opt-in: pass --include-toolchains)" \
-                   || info "no versioned toolchains found"
+    if [ "$any" = 1 ]; then
+      warn "not removed (opt-in: pass --include-toolchains)"
+    else
+      info "no versioned toolchains found"
+    fi
     return
   fi
 
