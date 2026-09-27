@@ -33,7 +33,7 @@ Operations are classified into four distinct confirmation classes:
 
 ### 6. Privilege Model
 - Everyday cleaning runs as the current user. It does not call `sudo`.
-- System-scope uninstall is separate. `mimi app uninstall <app> --system` only writes a request and prints a `sudo` command for `libexec/mimi-root-apply`. That helper is not safe to treat as finished: it can still be pointed at a user-writable copy. The fix order is [docs/SECURITY_REMEDIATION_PLAN.md](docs/SECURITY_REMEDIATION_PLAN.md). Until that plan's first phases land, do not build a GUI button that runs it.
+- System-scope uninstall is separate. `mimi app uninstall <app> --system` only writes a request and prints a `sudo` command for `libexec/mimi-root-apply`. sudo runs only the root-owned copy that `--install` puts in `/usr/local/libexec/mimi/`, through a launcher that finds the helper from its own resolved path and a fixed environment. The helper re-derives its candidates, refuses items under a parent that is not root-owned or is world-writable, and restores only files inside the run it names. The GUI does not offer system scope; see [docs/SYSTEM_REVIEW_2026-09-27.md](docs/SYSTEM_REVIEW_2026-09-27.md) for the remaining gates.
 
 ## Reporting a Vulnerability
 

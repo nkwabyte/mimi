@@ -50,6 +50,7 @@ _PATH_ROOTS_READY=0
 path_absolute() {
   local p="$1"
   [ -n "$p" ] || return 1
+  # shellcheck disable=SC2088  # a literal "~" is being recognized, not expanded
   case "$p" in
     "~") p="$HOME_DIR" ;;
     "~/"*) p="$HOME_DIR/${p#\~/}" ;;
@@ -244,11 +245,13 @@ path_init_roots() {
     if [ -n "$tmp_parent" ] && [ "$tmp_parent" != "/" ] && [ "$tmp_parent" != "." ] && [ -d "$tmp_parent" ] && [ ! -L "$tmp_parent" ]; then
       tmp_canon="$(path_canonicalize "$tmp_parent")" || tmp_canon=''
       # macOS per-user temp lives under /private/var/folders or /var/folders.
-      # In the test harness, TMPDIR is sandboxed under TEST_TMPDIR or BATS_TEST_DIRNAME.
+      # The test harness names its sandboxed parent explicitly; that only
+      # admits that one directory, and the ownership and mode checks below
+      # still apply to it.
       case "${tmp_canon}" in
         /private/var/folders/*|/var/folders/*) ;;
         *)
-          if [ -z "${TEST_TMPDIR:-}" ] && [ -z "${BATS_TEST_DIRNAME:-}" ]; then
+          if [ -z "${MIMI_TEST_TMP_PARENT:-}" ] || [ "$tmp_canon" != "$(path_canonicalize "$MIMI_TEST_TMP_PARENT")" ]; then
             verbose "path_init_roots: TMPDIR parent '$tmp_canon' does not look like a macOS per-user folder; skipping temp root"
             tmp_canon=''
           fi
@@ -322,6 +325,7 @@ path_authorize() {
     PATH_DENY_REASON="empty"
     return 1
   fi
+  # shellcheck disable=SC2088  # a literal "~" is being recognized, not expanded
   case "$raw" in
     /* | "~" | "~/"*) ;;
     *)
@@ -389,26 +393,47 @@ FORBIDDEN_EXACT=(
   "/private" "/Users" "$HOME_DIR"
 )
 
-# A path is whitelisted when it is, or lives under, a whitelisted path entry.
-# Both sides are canonicalized first, so a whitelist entry that is a symlink
-# to a directory protects the directory it actually points at, and a target
-# named "Xcode2" is not protected by a whitelist entry for "Xcode".
-is_whitelisted() {
-  local target w wn any=0
-  # Most runs have no path-style whitelist entries at all; checking that
-  # first skips a canonicalisation (and a subshell) per scanned entry.
-  for w in "${WHITELIST[@]:-}"; do
-    case "$w" in /*|\~*) any=1; break ;; esac
+# Canonical form of every path-style whitelist entry, rebuilt only when
+# WHITELIST changes. Identifier-style entries (no leading / or ~) are orphan
+# name patterns and are not paths.
+WHITELIST_CANON=()
+_WHITELIST_KEY="unset"
+_whitelist_canon() {
+  local key="${WHITELIST[*]:-}" w c
+  [ "$key" = "$_WHITELIST_KEY" ] && return 0
+  WHITELIST_CANON=()
+  for w in ${WHITELIST[@]+"${WHITELIST[@]}"}; do
+    case "$w" in /*|\~*) ;; *) continue ;; esac
+    c="$(path_canonicalize "$w")" || continue
+    [ -n "$c" ] && WHITELIST_CANON+=("$c")
   done
-  [ "$any" = 1 ] || return 1
+  _WHITELIST_KEY="$key"
+}
+
+# True when TARGET is, or lives under, a whitelisted path. Both sides are
+# canonical, so a whitelist entry that is a symlink protects what it points
+# at, and "Xcode2" is not protected by an entry for "Xcode".
+whitelist_covers() {
+  local target w
+  _whitelist_canon
+  [ "${#WHITELIST_CANON[@]}" -gt 0 ] || return 1
   target="$(path_canonicalize "$1" nofollow)" || return 1
-  [ -n "$target" ] || return 1
-  for w in "${WHITELIST[@]:-}"; do
-    [ -z "$w" ] && continue
-    case "$w" in /*|\~*) ;; *) continue ;; esac   # skip identifier-style entries here
-    wn="$(path_canonicalize "$w")" || continue
-    [ -n "$wn" ] || continue
-    path_contains "$wn" "$target" && return 0
+  for w in "${WHITELIST_CANON[@]}"; do
+    path_contains "$w" "$target" && return 0
+  done
+  return 1
+}
+
+# True when removing TARGET would remove something whitelisted: it is inside
+# a whitelisted path, or a whitelisted path lies inside it.
+is_whitelisted() {
+  local target w
+  _whitelist_canon
+  [ "${#WHITELIST_CANON[@]}" -gt 0 ] || return 1
+  target="$(path_canonicalize "$1" nofollow)" || return 1
+  for w in "${WHITELIST_CANON[@]}"; do
+    path_contains "$w" "$target" && return 0
+    path_contains "$target" "$w" && return 0
   done
   return 1
 }

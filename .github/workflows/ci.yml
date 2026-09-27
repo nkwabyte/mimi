@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "dev" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "dev" ]
 
 jobs:
   test-macos:
@@ -25,9 +25,13 @@ jobs:
 
       - name: Syntax check
         run: |
-          for f in clean.sh bin/mimi lib/*.sh lib/*/*.sh; do
+          for f in clean.sh bin/mimi lib/load.sh lib/*/*.sh libexec/mimi-root-apply scripts/*.sh; do
             /bin/bash -n "$f"
           done
+
+      - name: Compile the root launcher
+        run: |
+          cc -Wall -Wextra -Werror -o "$RUNNER_TEMP/mimi-root-launch" libexec/mimi-root-launch.c
 
       - name: Run Bats test suite
         run: |
@@ -56,6 +60,7 @@ jobs:
       - name: Run ShellCheck
         run: |
           shellcheck -x clean.sh bin/mimi
+          shellcheck -S warning lib/*/*.sh libexec/mimi-root-apply scripts/*.sh install.sh
 
       - name: Check documentation trailing whitespace
         run: |

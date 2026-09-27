@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "MimiPlanV1",
-  "description": "Schema for Mimi transactional execution plans. schema_version 2 is the current file. The JSON fields are unchanged from version 1; version 2 is refused by older tools and version 1 is refused now, because the in-memory action encoding no longer splits on '::'.",
+  "description": "Schema for Mimi execution plans. schema_version 3 is the current file: its digest covers the header (expiry, host, user, uid) and the actions, and apply re-derives every action before acting. Older versions are refused.",
   "type": "object",
   "required": [
     "schema_version",
@@ -16,7 +16,7 @@
   "properties": {
     "schema_version": {
       "type": "integer",
-      "const": 2
+      "const": 3
     },
     "plan_id": {
       "type": "string"
@@ -29,7 +29,7 @@
     },
     "host_binding": {
       "type": "object",
-      "required": ["hostname", "user"],
+      "required": ["hostname", "user", "uid"],
       "properties": {
         "hostname": { "type": "string" },
         "user": { "type": "string" },
@@ -67,7 +67,7 @@
           "category": { "type": "string" },
           "operation": {
             "type": "string",
-            "enum": ["remove_path", "clear_dir_contents", "quarantine", "tool_cleanup", "retain"]
+            "enum": ["remove_path", "clear_dir_contents", "quarantine", "wipe", "tool_cleanup", "retain"]
           },
           "target_path": { "type": "string" },
           "target_identity": { "type": "string" },

@@ -6,6 +6,13 @@
 # global state only, so load order matters solely for the few assignments that
 # interpolate $HOME_DIR (set in globals.sh, loaded first).
 
+# True in the modes that must not change anything: a scan reports, a plan
+# records. Every "act or just describe" decision in a category uses this, so a
+# new mode cannot silently fall into the cleaning branch.
+is_dry_run() {
+  [ "$MODE" = "scan" ] || [ "$MODE" = "plan" ]
+}
+
 human_kb() {
   # $1 = size in KB (integer) -> "12.3M". Pure Bash: this runs once per listed
   # item, and forking awk for it dominated large reports. Integer arithmetic

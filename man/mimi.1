@@ -139,8 +139,8 @@ Retain application support data during uninstall.
 .B \-\-keep\-device\-support \fICOUNT\fR
 Number of recent DeviceSupport symbol versions to keep.
 .TP
-.B \-\-keep\-logs \fIDAYS\fR
-Days of application logs to retain.
+.B \-\-keep\-logs \fICOUNT\fR
+Number of past run logs to keep (default 5, 0 keeps none).
 .TP
 .B \-\-keep\-toolchains \fICOUNT\fR
 Number of toolchains to keep.
@@ -182,10 +182,17 @@ Run preset profile (safe, developer, aggressive).
 Purge quarantine run by ID.
 .TP
 .B \-\-purge\-data
-Quarantine application support data during uninstall.
+Delete the app's attributable data with it during uninstall (the default).
 .TP
 .B \-\-remove\-orphans
-Quarantine all uninstalled app remnants.
+Move every [strong] app leftover to a quarantine run.
+.TP
+.B \-\-include\-weak
+With \-\-remove\-orphans, move the [weak] guesses too.
+.TP
+.B \-\-quarantine\-days \fIDAYS\fR
+Release quarantine runs older than DAYS at the start of the next run that
+quarantines (default 7, 0 keeps them until purged).
 .TP
 .B \-\-remove\-orphans\-from \fIFILE\fR
 Remove remnant paths listed in a reviewed file.
@@ -237,5 +244,27 @@ Automatically confirm safe and recoverable actions.
 .TP
 .B \-\-zap
 Remove all cask preferences and data with brew.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Usage error.
+.TP
+.B 3
+At least one selected action failed.
+.TP
+.B 4
+Interrupted by a signal.
+.TP
+.B 5
+A required confirmation was declined or could not be obtained.
+.TP
+.B 6
+A plan was refused: stale, expired, edited, or selecting more than mimi would.
+.TP
+.B 7
+Another mimi run is changing files.
 .SH AUTHORS
 NkwaByte

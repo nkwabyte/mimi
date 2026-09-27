@@ -46,6 +46,7 @@ _arguments -C -s \
   '--tmp-stale-days[temp file age threshold]:days:' \
   '--keep-toolchains[toolchain versions to keep]:number:' \
   '--keep-logs[run logs to keep]:number:' \
+  '--quarantine-days[days before quarantine runs are released]:number:' \
   '--request-id[protocol correlation id]:id:' \
   '(--clean --cleaner)'{--clean,--cleaner}'[actually delete]' \
   '--scan[report only (default)]' \
@@ -69,7 +70,8 @@ _arguments -C -s \
   '--zap[app uninstall: Homebrew --zap]' \
   '--vendor-uninstaller[app uninstall: launch the verified vendor uninstaller]' \
   '--system[app uninstall: system items via the root tool]' \
-  '--remove-orphans[quarantine every leftover found]' \
+  '--remove-orphans[quarantine every strong leftover found]' \
+  '--include-weak[with --remove-orphans, move weak guesses too]' \
   '--app-target[application target]:app:_files' \
   '--apply[apply a plan]:plan:_files' \
   '--restore[restore a run]:run:_mimi_runs' \

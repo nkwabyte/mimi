@@ -11,6 +11,7 @@ is_identifier_whitelisted() {
   for w in "${WHITELIST[@]:-}"; do
     [ -z "$w" ] && continue
     case "$w" in /*|\~*) continue ;; esac
+    # shellcheck disable=SC2053  # $w is a user glob pattern, matched on purpose
     if [[ "$token" == $w ]]; then
       matched=0
       break
@@ -175,11 +176,7 @@ is_structural_orphan_name() {
 # that Node's env-paths adds, and the last component of a dotted id
 # (com.github.facebook.watchman -> watchman). Only real executables on PATH
 # count (`type -P`), never shell functions or builtins.
-is_installed_cli_tool() {
-  is_installed_cli_tool_lc "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
-}
-
-# Same test for an already-lowercased name, without a subshell.
+# The name must already be lowercase.
 is_installed_cli_tool_lc() {
   local t="$1" c
   local last="${t##*.}"
@@ -199,21 +196,6 @@ is_installed_cli_tool_lc() {
     type -P -- "$c" > /dev/null 2>&1 && return 0
   done
   return 1
-}
-
-get_token_for_entry() {
-  local kind="$1" name="$2"
-  case "$kind" in
-    plist) name="${name%.plist}" ;;
-    plist-byhost)
-      name="${name%.plist}"
-      name="$(printf '%s' "$name" | sed -E 's/\.[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}$//')"
-      ;;
-    savedstate) name="${name%.savedState}" ;;
-    binarycookies) name="${name%.binarycookies}" ;;
-    plain) ;;
-  esac
-  printf '%s' "$name"
 }
 
 # Parallel arrays, one entry per detected orphan candidate.
@@ -240,7 +222,7 @@ collect_orphan_candidates() {
     policy="${spec##*::}"
     [ -d "$root" ] || continue
 
-    # Pass 1, pure Bash: entries and their tokens (get_token_for_entry's
+    # Pass 1, pure Bash: entries and their tokens (the
     # rules, without a subshell per entry).
     local -a entries=() tokens=()
     for entry in "$root"/*; do

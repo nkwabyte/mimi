@@ -26,7 +26,7 @@ load 'test_helper'
   /usr/bin/python3 -c '
 import sys, json
 data = json.loads(sys.stdin.read())
-assert data["schema_version"] == 2
+assert data["schema_version"] == 3
 assert data["plan_id"] == "test-plan-001"
 assert data["summary"]["total_candidates"] == 2
 assert data["summary"]["total_bytes"] == 3072
@@ -89,7 +89,7 @@ assert data["plan_id"] == "test-plan-save"
   load_lib
   plan_candidate_add "caches" "clear_dir_contents" "$FAKE_HOME/Library/Caches/app1" "ident-1" 1024 "safe" "evidence 1"
   plan_candidate_add "caches" "clear_dir_contents" "$FAKE_HOME/Library/Caches/app2" "ident-2" 2048 "safe" "evidence 2"
-  [ "$(plan_candidate_count)" -eq 2 ]
+  [ "${#PLAN_CANDIDATES[@]}" -eq 2 ]
 
   local cid1 cid2
   cid1="$(plan_candidate_id "caches" "$FAKE_HOME/Library/Caches/app1")"
@@ -140,7 +140,7 @@ assert data["plan_id"] == "test-plan-save"
 
   plan_load "$plan_file"
   [ "$PLAN_ID" = "plan-roundtrip" ]
-  [ "$PLAN_SCHEMA_VERSION" = "2" ]
+  [ "$PLAN_SCHEMA_VERSION" = "3" ]
   [ "${#PLAN_ACTIONS[@]}" -eq 1 ]
   [ -n "$PLAN_DIGEST" ]
 }
@@ -280,7 +280,7 @@ assert data["plan_id"] == "test-plan-save"
   # purge is irreversible; --yes cannot authorize it (F-03). Use --force-risky.
   run_clean --purge "$plan2_id" --force-risky purge
   [ "$status" -eq 0 ]
-  [ ! -d "$FAKE_HOME/.config/mimi/quarantine/$plan2_id" ]
+  [ ! -d "$FAKE_HOME/Library/Application Support/mimi/quarantine/$plan2_id" ]
 }
 
 @test "plan: a path containing a quote or backslash survives save and preflight" {

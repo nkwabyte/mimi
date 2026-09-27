@@ -78,6 +78,8 @@ setup() {
   # Override TMPDIR so any tmp-category work stays sandboxed.
   export TMPDIR="$TEST_TMPDIR/tmp"
   mkdir -p "$TMPDIR"
+  # Admit this sandbox as the per-user temp parent (see path_init_roots).
+  export MIMI_TEST_TMP_PARENT="$TEST_TMPDIR"
 
   # Prepend mock stubs so real macOS tools are never called.
   export PATH="$MOCKS_BIN:$PATH"

@@ -3,14 +3,10 @@
 # lib/cleaners/registry.sh lib/registry.sh — category registry, risk facets, and lifecycle definitions.
 #
 
+# in_list "needle" "comma,separated,list"
 in_list() {
-  # in_list "needle" "comma,separated,list"
-  local needle="$1" list="$2" item
-  [ -z "$list" ] && return 1
-  IFS=',' read -r -a arr <<< "$list"
-  for item in "${arr[@]}"; do
-    [ "$item" = "$needle" ] && return 0
-  done
+  [ -n "$1" ] || return 1
+  case ",$2," in *",$1,"*) return 0 ;; esac
   return 1
 }
 
@@ -101,55 +97,12 @@ category_info() {
   esac
 }
 
-# ---------------------------------------------------------------------------
-# Risk facets: recoverability | data_loss_risk | rebuild_cost | system_impact
-#
-#   recoverability: auto | re-fetch | rebuild | manual | none
-#   data_loss_risk: none | low | medium | high
-#   rebuild_cost:   none | low | medium | high
-#   system_impact:  none | low | medium | high
-# ---------------------------------------------------------------------------
-
-category_risk_facets() {
-  case "$1" in
-    dsstore)          echo "auto|none|none|none" ;;
-    diagnostics)      echo "none|low|none|none" ;;
-    quicklook)        echo "auto|none|none|low" ;;
-    tmp)              echo "auto|none|none|low" ;;
-    browsers)         echo "re-fetch|none|low|none" ;;
-    electron)         echo "re-fetch|none|low|none" ;;
-    dev-caches)       echo "re-fetch|none|low|none" ;;
-    caches)           echo "auto|none|low|none" ;;
-    logs)             echo "auto|low|none|none" ;;
-    xcode-derived)    echo "rebuild|none|medium|none" ;;
-    sim-caches)       echo "auto|none|low|none" ;;
-    sim-unavailable)  echo "auto|none|none|low" ;;
-    homebrew)         echo "re-fetch|none|low|none" ;;
-    homebrew-old)     echo "re-fetch|low|medium|medium" ;;
-    npm)              echo "re-fetch|none|low|none" ;;
-    yarn)             echo "re-fetch|none|low|none" ;;
-    pnpm)             echo "re-fetch|none|low|none" ;;
-    cocoapods)        echo "re-fetch|none|low|none" ;;
-    gradle)           echo "re-fetch|none|low|none" ;;
-    pip)              echo "re-fetch|none|low|none" ;;
-    claude-cache)     echo "re-fetch|none|low|none" ;;
-    docker-cache)     echo "rebuild|none|medium|low" ;;
-    xcode-archives)   echo "manual|medium|high|none" ;;
-    device-support)   echo "manual|none|high|low" ;;
-    timemachine)      echo "manual|medium|high|high" ;;
-    whatsapp)         echo "re-fetch|low|low|none" ;;
-    ide-stale)        echo "manual|low|low|none" ;;
-    ml-caches)        echo "re-fetch|low|medium|none" ;;
-    toolchains)       echo "re-fetch|low|medium|none" ;;
-    sim-stale)        echo "rebuild|medium|medium|low" ;;
-    android)          echo "re-fetch|medium|medium|low" ;;
-    docker)           echo "rebuild|medium|medium|high" ;;
-    mail)             echo "re-fetch|medium|medium|none" ;;
-    trash)            echo "none|high|none|none" ;;
-    orphans)          echo "none|high|none|none" ;;
-    ios-backups)      echo "none|high|high|none" ;;
-    *) echo "unknown|unknown|unknown|unknown" ;;
-  esac
+# The risk column of category_info. Plans record it, but apply always asks the
+# registry again: a plan file does not get to say how risky it is.
+category_risk() {
+  local info
+  info="$(category_info "$1")"
+  printf '%s' "${info%%|*}"
 }
 
 # ---------------------------------------------------------------------------
@@ -195,16 +148,6 @@ category_handler() {
     ios-backups)     echo "cat_ios_backups" ;;
     toolchains)      echo "cat_toolchains" ;;
     *) echo "" ;;
-  esac
-}
-
-category_capability() {
-  case "$1" in
-    homebrew|homebrew-old) command -v brew >/dev/null 2>&1 ;;
-    docker|docker-cache)   docker_daemon_ready ;;
-    quicklook)             command -v qlmanage >/dev/null 2>&1 ;;
-    timemachine)           command -v tmutil >/dev/null 2>&1 ;;
-    *)                     return 0 ;;
   esac
 }
 
