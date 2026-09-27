@@ -132,3 +132,85 @@ UP=$'\033[A'
   run interactive_choose_categories
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# App picker (`mimi uninstall`). The inventory and the uninstall itself are
+# stubbed: these tests are about the screen, not about removing files.
+# ---------------------------------------------------------------------------
+
+# Three apps plus one system app, which the picker must not list.
+fake_inventory() {
+  inventory_scan_apps() {
+    APP_INV_NAMES=("Alpha" "Beta" "Safari" "Gamma")
+    APP_INV_PATHS=("/Applications/Alpha.app" "/Applications/Beta.app" "/Applications/Safari.app" "$HOME/Applications/Gamma.app")
+    APP_INV_SOURCES=("app" "cask" "system" "app")
+    APP_INV_SYSTEM=(0 0 1 0)
+    APP_INV_ELIGIBLE=(1 1 0 1)
+    APP_INV_COUNT=4
+  }
+  mimi_app_uninstall() {
+    printf '%s|%s|%s\n' "$APP_TARGET" "$UNINSTALL_DATA_MODE" "$FORCE_RISKY_LIST" >> "$TEST_TMPDIR/uninstalled"
+  }
+}
+
+@test "apps picker: system apps are not listed, and rows use circles" {
+  source_lib
+  fake_inventory
+  keys ' q'
+  interactive_uninstall_apps command > "$TEST_TMPDIR/out" 2>&1
+  ! grep -q "Safari" "$TEST_TMPDIR/out"
+  grep -q "Alpha" "$TEST_TMPDIR/out"
+  grep -q "Gamma" "$TEST_TMPDIR/out"
+  grep -q "●" "$TEST_TMPDIR/out"
+  grep -q "○" "$TEST_TMPDIR/out"
+  [ ! -e "$TEST_TMPDIR/uninstalled" ]
+}
+
+@test "apps picker: space selects, enter and the typed word uninstall exactly the selection" {
+  source_lib
+  fake_inventory
+  # Select Alpha, skip Beta, select Gamma, then enter and confirm.
+  keys ' jj \nuninstall\n'
+  run interactive_uninstall_apps command
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TEST_TMPDIR/uninstalled")" = "/Applications/Alpha.app|purge|uninstall
+$HOME/Applications/Gamma.app|purge|uninstall" ]
+}
+
+@test "apps picker: anything but the typed word deletes nothing" {
+  source_lib
+  fake_inventory
+  keys ' \nyes\n'
+  run interactive_uninstall_apps command
+  [ "$status" -eq 5 ]
+  [ ! -e "$TEST_TMPDIR/uninstalled" ]
+  echo "$output" | grep -q "Nothing was deleted"
+}
+
+@test "apps picker: enter with nothing selected stays on the list" {
+  source_lib
+  fake_inventory
+  keys '\nq'
+  run interactive_uninstall_apps command
+  [ "$status" -eq 0 ]
+  [ ! -e "$TEST_TMPDIR/uninstalled" ]
+  echo "$output" | grep -q "Nothing selected"
+}
+
+@test "apps picker: a selects all, x clears, and --keep-data is honoured" {
+  source_lib
+  fake_inventory
+  UNINSTALL_DATA_MODE=keep
+  keys 'axa\nuninstall\n'
+  run interactive_uninstall_apps command
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$TEST_TMPDIR/uninstalled" | tr -d ' ')" = 3 ]
+  ! grep -q "Safari" "$TEST_TMPDIR/uninstalled"
+  ! grep -qv "|keep|" "$TEST_TMPDIR/uninstalled"
+}
+
+@test "mimi uninstall: without a terminal it asks for a target instead of listing" {
+  run /bin/bash "$MIMI_BIN" uninstall < /dev/null
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -q "mimi uninstall' in a terminal"
+}
