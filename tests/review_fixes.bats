@@ -211,3 +211,16 @@ assert any("\x01" in p and "\x1b" in p for p in paths), paths
   [ "$status" -eq 4 ]
   [ "$(echo "$output" | grep -c 'prior-ran rc=4')" -eq 1 ]
 }
+
+@test "O-7: a subshell never runs the parent's exit trap" {
+  run /bin/bash -c '
+    trap "echo parent-trap-ran" EXIT
+    . "$1/load.sh"
+    LOG_DIR="$2/logs"
+    ( log_init; tui_begin; exit 3 )
+    echo "subshell=$?"
+    trap - EXIT
+  ' _ "$MIMI_LIB" "$TEST_TMPDIR"
+  [ "$status" -eq 0 ]
+  [ "$output" = "subshell=3" ]
+}
