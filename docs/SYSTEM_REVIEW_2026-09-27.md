@@ -21,6 +21,7 @@ Environment limits, stated plainly:
 - The review ran in a Linux container as root, not on macOS. The engine is written for BSD tools, so a small shim translated `stat -f` and `date -r` to their GNU forms. The shim is only for this review and is not part of the repository.
 - With the shim, 493 of 597 tests passed. The failures inspected were caused by the environment: permission tests cannot fail as root, the root helper calls `/usr/bin/stat` and `/sbin/md5` by absolute path, `plutil` and `sed -i ''` do not exist on Linux, and tmpfs reuses inode numbers. Rerunning `uninstall.bats` and `plan.bats` with a `date` shim left 3 failures, all environment related. No claim is made here about the suite's status on macOS.
 - Every reproduction in section 3 uses code paths that do not depend on those differences, or was rerun with the shim in place.
+- Update: after the runner fix described in R-04 (commit `5691d41`), the full suite passed on the macOS CI runner (Bash 3.2).
 
 ## 2. Summary
 
@@ -39,7 +40,7 @@ Environment limits, stated plainly:
 1. `mimi plan` is not read-only. It runs real cleanup commands (section 3, R-01).
 2. `mimi apply` bypasses the confirmation classes, and plan files are not authenticated. A plan file plus `--yes` can permanently delete any path under `HOME` (R-02).
 3. App uninstall became permanent deletion in the latest commit, but the README, module header, schema and tests still describe quarantine (R-03).
-4. The test runner fails before running any test, so CI on `main` is red once this branch merges (R-04).
+4. The test runner failed before running any test (R-04). The runner part is fixed in `5691d41`; the CI coverage gaps remain.
 5. Several data-loss edge cases in quarantine, whitelisting and plan apply (R-05 to R-08).
 
 ## 3. Findings
@@ -123,6 +124,8 @@ This is a product decision, but it reverses the core safety property of the orig
 Recommendation: make quarantine the default again, and offer permanent deletion as an explicit `--permanent` option in the `irreversible` class. Restore the one-time data prompt. If the team keeps permanent deletion, then update the README, the header, the schema, the test names and `SECURITY.md` in the same change, and record the decision in the scratchpad's decision log.
 
 ### R-04 (P0) The test runner fails before any test runs, and CI coverage is narrow
+
+Status: the runner half is fixed in `5691d41` (`tests/run` now skips `.c` files in the bash syntax check), and the macOS suite passes. The CI gaps listed below are still open.
 
 `tests/run` syntax-checks every file in `libexec/` with `/bin/bash -n`. The new `libexec/mimi-root-launch.c` is C, so the runner exits 1 at the syntax step. CI runs `./tests/run` on macOS, so the macOS job will fail as soon as this branch reaches `main`.
 
@@ -282,7 +285,7 @@ Each phase is one or a few small pull requests. A phase is done when its accepta
 
 | Task | Finding | Acceptance |
 |---|---|---|
-| A1. Syntax-check only shell files, compile the launcher separately | R-04 | `./tests/run` reaches the Bats stage on macOS |
+| A1. Syntax-check only shell files (done in `5691d41`), compile the launcher separately | R-04 | `./tests/run` reaches the Bats stage on macOS (met) |
 | A2. Run CI on `dev` and PRs to `dev`, ShellCheck all shell files at warning level | R-04 | CI runs on this branch, lint covers `lib/` and `libexec/` |
 | A3. `is_dry_run` predicate, replace the 16 scan-only checks, add a CI grep guard | R-01 | Plan for every profile produces only allowlisted read-only mock calls |
 | A4. Apply gates each action by its category's confirmation class; `wipe` is irreversible | R-02 | `apply --yes` on a Trash plan or an uninstall plan exits 5 without a typed word or `--force-risky` |
