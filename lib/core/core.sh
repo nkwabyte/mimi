@@ -270,10 +270,19 @@ plan_execute_loaded() {
     fi
   fi
 
-  quarantine_init_run "$PLAN_ID" || {
-    err "failed to initialize quarantine run"
-    return "$EXIT_FAILURE"
-  }
+  local needs_quarantine=0 item_probe
+  for item_probe in "${PLAN_ACTIONS[@]}"; do
+    plan_read_record "$item_probe" || continue
+    case "$PLAN_F_OP" in
+      quarantine|remove_path|clear_dir_contents) needs_quarantine=1 ;;
+    esac
+  done
+  if [ "$needs_quarantine" = 1 ]; then
+    quarantine_init_run "$PLAN_ID" || {
+      err "failed to initialize quarantine run"
+      return "$EXIT_FAILURE"
+    }
+  fi
 
   TOTAL_BEFORE_KB=0
   TOTAL_RECLAIMED_KB=0
@@ -289,17 +298,33 @@ plan_execute_loaded() {
       warn "interrupted — stopping apply"
       break
     fi
-    act_id="${item%%::*}"
-    cat="${item#*::}"; cat="${cat%%::*}"
-    op="${item#*::*::}"; op="${op%%::*}"
-    p="${item#*::*::*::}"; p="${p%%::*}"
-    ident="${item#*::*::*::*::}"; ident="${ident%%::*}"
-    bytes="${item#*::*::*::*::*::}"; bytes="${bytes%%::*}"
+    plan_read_record "$item" || continue
+    act_id="$PLAN_F_ID"
+    cat="$PLAN_F_CAT"
+    op="$PLAN_F_OP"
+    p="$PLAN_F_PATH"
+    ident="$PLAN_F_IDENT"
+    bytes="$PLAN_F_BYTES"
     case "$bytes" in *[!0-9]*|"") bytes=0 ;; esac
-    risk="${item#*::*::*::*::*::*::}"; risk="${risk%%::*}"
-    evid="${item##*::}"
+    risk="$PLAN_F_RISK"
+    evid="$PLAN_F_EVID"
 
     case "$op" in
+      wipe)
+        if [ "$cat" = "uninstall-launchagent" ] && [ -f "$p" ]; then
+          unload_launch_agent "$p" || true
+        fi
+        if plan_wipe_target "$cat" "$p" "$ident"; then
+          record_action ok
+          TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + (bytes / 1024)))
+          [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "ok" "$p" "$bytes"
+          ok "removed: $p"
+        else
+          record_action failed
+          [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "failed" "$p" 0
+          err "failed to remove: $p"
+        fi
+        ;;
       remove_path|clear_dir_contents|quarantine)
         if [ "$cat" = "uninstall-launchagent" ] && [ -f "$p" ]; then
           unload_launch_agent "$p" || true
@@ -331,13 +356,17 @@ plan_execute_loaded() {
 
   section "Apply summary"
   say "Actions: ${ACTION_OK} succeeded, ${ACTION_SKIPPED} skipped, ${ACTION_DENIED} denied, ${ACTION_FAILED} failed"
-  say "Quarantine run ID: ${C_BOLD}$QUARANTINE_CURRENT_RUN_ID${C_RESET}"
-  say "Quarantine directory: $QUARANTINE_CURRENT_RUN_DIR"
-  say ""
-  say "To restore this run if needed:"
-  say "  ${C_BOLD}$SCRIPT_NAME restore \"$QUARANTINE_CURRENT_RUN_ID\"${C_RESET}"
-  say "To release the space for good (irreversible):"
-  say "  ${C_BOLD}$SCRIPT_NAME purge \"$QUARANTINE_CURRENT_RUN_ID\"${C_RESET}"
+  if [ "$needs_quarantine" = 1 ]; then
+    say "Quarantine run ID: ${C_BOLD}$QUARANTINE_CURRENT_RUN_ID${C_RESET}"
+    say "Quarantine directory: $QUARANTINE_CURRENT_RUN_DIR"
+    say ""
+    say "To restore this run if needed:"
+    say "  ${C_BOLD}$SCRIPT_NAME restore \"$QUARANTINE_CURRENT_RUN_ID\"${C_RESET}"
+    say "To release the space for good (irreversible):"
+    say "  ${C_BOLD}$SCRIPT_NAME purge \"$QUARANTINE_CURRENT_RUN_ID\"${C_RESET}"
+  elif [ "$is_uninstall" = 1 ]; then
+    say "Uninstall is permanent. Nothing was moved to quarantine."
+  fi
 
   local term_status="ok" exit_code="$EXIT_OK"
   if interrupted; then
@@ -351,8 +380,8 @@ plan_execute_loaded() {
   if [ "$is_uninstall" = 1 ]; then
     history_record "uninstall" "$term_status" \
       "app=$UNINSTALL_PLAN_APP_NAME" "bundle_id=$UNINSTALL_PLAN_BUNDLE_ID" \
-      "plan_id=$PLAN_ID" "run_id=$QUARANTINE_CURRENT_RUN_ID" \
-      "quarantined=$ACTION_OK" "failed=$ACTION_FAILED" "leftovers=${UNINSTALL_LEFTOVER_COUNT:-0}"
+      "plan_id=$PLAN_ID" "removed=$ACTION_OK" \
+      "failed=$ACTION_FAILED" "leftovers=${UNINSTALL_LEFTOVER_COUNT:-0}"
   fi
 
   if [ "${JSONL_ENABLED:-0}" = 1 ]; then

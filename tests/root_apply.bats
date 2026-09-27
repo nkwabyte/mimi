@@ -325,8 +325,11 @@ acme_pkg() {
   setup_root; acme_pkg
   run candidates com.acme.app
   [ "$status" -eq 0 ]
+  # Payload paths are the physical ones. $R may sit under the /var -> /private/var symlink.
+  local rp
+  rp="$(cd -P "$R" && pwd -P)"
   [ "$(echo "$output" | awk -F'\t' '$2 == "payload" {print $3}' | sort | tr '\n' '|')" = \
-    "$R/Applications/Acme.app|$R/Library/Application Support/Acme/Core|" ]
+    "$rp/Applications/Acme.app|$rp/Library/Application Support/Acme/Core|" ]
   echo "$output" | grep -q "near	-	$R/Library/Application Support/Acme/Shared/license.dat	-	also installed by: com.acme.extras"
   echo "$output" | grep -q "near	-	$R/usr/bin/acmectl	-	outside the roots mimi may change"
 }
@@ -337,7 +340,9 @@ acme_pkg() {
   receipt com.gone.app.pkg "" "Library/Application Support/Gone/data"
   printf 'x\n' > "$R/Library/Application Support/Gone/data"
   run candidates com.gone.app
-  echo "$output" | grep -q "	payload	$R/Library/Application Support/Gone	com.gone.app.pkg	"
+  local rp
+  rp="$(cd -P "$R" && pwd -P)"
+  echo "$output" | grep -q "	payload	$rp/Library/Application Support/Gone	com.gone.app.pkg	"
 }
 
 @test "payload: another app's package is never attributed" {
@@ -447,7 +452,7 @@ acme_pkg() {
   chmod 0755 "$R" "$R/usr" "$R/usr/local" "$R/usr/local/libexec" "$R/usr/local/libexec/mimi"
   run /bin/bash "$MIMI_BIN" app uninstall com.acme.app --system
   [ "$status" -eq 0 ]
-  echo "$output" | grep -q "sudo \"$R/usr/local/libexec/mimi/mimi-root-apply\" \".*system-requests/.*\.request\""
+  echo "$output" | grep -q "sudo \"$R/usr/local/libexec/mimi/mimi-root-launch\" \".*system-requests/.*\.request\""
   ! echo "$output" | grep -q "No sudo command was printed"
 
   # A same-user edit of the hardened copy must not stay on the sudo line.
@@ -466,6 +471,19 @@ acme_pkg() {
   ! echo "$output" | grep -q "sudo \".*\" \".*system-requests/"
 }
 
+@test "launcher: BASH_ENV does not run before the helper" {
+  setup_root
+  chmod 0755 "$R"
+  run "$TOOL" --install
+  [ "$status" -eq 0 ]
+  [ -x "$R/usr/local/libexec/mimi/mimi-root-launch" ]
+  printf 'echo PWNED > "%s/pwned"\n' "$R" > "$R/evil.sh"
+  chmod 0755 "$R" "$R/usr" "$R/usr/local" "$R/usr/local/libexec" "$R/usr/local/libexec/mimi"
+  run env BASH_ENV="$R/evil.sh" SHELLOPTS=verbose "$R/usr/local/libexec/mimi/mimi-root-launch" --runs
+  [ "$status" -eq 0 ]
+  [ ! -f "$R/pwned" ]
+}
+
 @test "require_root: a group-writable copy is refused when trust is enforced" {
   setup_root
   local copy="$R/bin/mimi-root-apply"
@@ -482,6 +500,50 @@ acme_pkg() {
   [ "$status" -eq 0 ]
 }
 
+@test "payload: a receipt entry that spells .. is not a candidate" {
+  setup_root
+  mkdir -p "$R/etc"
+  printf 'secret\n' > "$R/etc/passwd"
+  receipt com.evil.app "" "usr/local/../../etc/passwd"
+  run candidates com.evil.app
+  [ "$status" -eq 0 ]
+  ! echo "$output" | grep -q $'\tpayload\t'
+  ! echo "$output" | grep -q "passwd"
+  [ -f "$R/etc/passwd" ]
+}
+
+@test "payload: an intermediate symlink out of the allow-list is not a candidate" {
+  setup_root
+  mkdir -p "$R/etc" "$R/usr/local"
+  printf 'secret\n' > "$R/etc/passwd"
+  ln -s "$R/etc" "$R/usr/local/escape"
+  receipt com.evil.app "" "usr/local/escape/passwd"
+  run candidates com.evil.app
+  [ "$status" -eq 0 ]
+  ! echo "$output" | grep -q $'\tpayload\t'
+  ! echo "$output" | grep -q "/etc/passwd"
+  [ -f "$R/etc/passwd" ]
+}
+
+@test "payload: a file replaced after the request is not moved" {
+  setup_root
+  mkdir -p "$R/Library/Application Support/Swap"
+  printf 'old\n' > "$R/Library/Application Support/Swap/data"
+  receipt com.swap.app "" "Library/Application Support/Swap/data"
+  request com.swap.app
+  # The candidate is the Swap directory, so the directory itself has to change inode.
+  rm -rf "$R/Library/Application Support/Swap"
+  mkdir -p "$R/Library/Application Support/Swap"
+  printf 'new\n' > "$R/Library/Application Support/Swap/data"
+  apply com.swap.app
+  [ "$status" -ne 0 ]
+  # The candidate id includes the inode, so a replaced directory matches nothing
+  # and the whole request is refused before any move.
+  echo "$output" | grep -q "nothing was done"
+  [ -f "$R/Library/Application Support/Swap/data" ]
+  [ "$(cat "$R/Library/Application Support/Swap/data")" = "new" ]
+}
+
 @test "payload: an item listed by two of the app's own packages is one candidate" {
   setup_root
   mkdir -p "$R/Library/Application Support/Dup/data"
@@ -491,7 +553,9 @@ acme_pkg() {
   printf 'x\n' > "$R/Library/Application Support/Dup/data/b"
   run candidates com.dup.app
   [ "$(echo "$output" | awk -F'\t' '$1 ~ /^sys-/' | wc -l | tr -d ' ')" = 1 ]
-  echo "$output" | grep -q "	payload	$R/Library/Application Support/Dup	"
+  local rp
+  rp="$(cd -P "$R" && pwd -P)"
+  echo "$output" | grep -q "	payload	$rp/Library/Application Support/Dup	"
 }
 
 @test "root: works with a plutil that prints its errors to stdout (macOS 14)" {

@@ -61,12 +61,10 @@ Do not add a control that papers over an open engine bug.
 
 | Topic | App rule |
 |---|---|
-| Root helper can still be a user-writable script | No system-uninstall UI |
-| Receipt paths are matched as text | No system-uninstall UI |
-| Bash starts before the helper can clear `BASH_ENV` | No `sudo` from the app |
-| `purge .` deletes the quarantine directory, and restore trusts manifest paths | No restore or purge UI |
-| Temp-directory mode check rejects normal `0700` folders | Scan still runs; `tmp` may authorize nothing until phase 5 |
-| `clear_dir_contents` is still a pathname race | No clean button |
-| Plan fields are joined with `::` | The app does not write plan files |
+| Root helper, receipt paths, and `BASH_ENV` | Fixed in the engine. The app still does not offer system uninstall |
+| `purge .` and restore containment | Fixed in the engine. The app still does not restore or purge |
+| Temp-directory mode bit | A `0700` parent is allowed; a world-writable parent is not |
+| `clear_dir_contents` | The child is re-checked immediately before `rm`. A swap inside `rm` itself is still possible, so the app still does not clean |
+| Plan fields | Actions are length-prefixed. A path containing `::` no longer shifts the inode. Plan files are schema version 2 |
 
 The phased fix is [SECURITY_REMEDIATION_PLAN.md](SECURITY_REMEDIATION_PLAN.md). The architecture that this window is growing into is [GUI_WRAPPER_PLAN.md](GUI_WRAPPER_PLAN.md).
