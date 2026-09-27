@@ -69,21 +69,28 @@ log_init() {
 # Install the exit handler without dropping one that was already there (a
 # test harness loading the engine into its own shell relies on its trap to
 # report the result). The earlier handler runs afterwards with the original
-# exit status.
+# exit status. Only the shell that loaded the engine can have one: in a
+# subshell `trap -p` still prints the parent's traps although none is
+# active, and running the parent's handler there would run it twice.
 _PRIOR_EXIT_TRAP=""
+_MIMI_LOAD_LEVEL="$BASH_SUBSHELL"
 install_exit_trap() {
   local current
-  current="$(trap -p EXIT)"
-  case "$current" in *_mimi_on_exit*) return 0 ;; esac
-  # `trap -p` prints `trap -- '<command>' EXIT`; the command is word three.
-  [ -n "$current" ] && eval "_keep_prior_trap $current"
+  if [ "$BASH_SUBSHELL" = "$_MIMI_LOAD_LEVEL" ]; then
+    current="$(trap -p EXIT)"
+    case "$current" in
+      *_mimi_on_exit*) return 0 ;;
+      # `trap -p` prints `trap -- '<command>' EXIT`; the command is word three.
+      ?*) eval "_keep_prior_trap $current" ;;
+    esac
+  fi
   trap '_mimi_on_exit' EXIT
 }
 _keep_prior_trap() { _PRIOR_EXIT_TRAP="$3"; }
 _mimi_on_exit() {
   local rc=$?
   _cleanup_on_exit
-  [ -n "$_PRIOR_EXIT_TRAP" ] || return "$rc"
+  [ -n "$_PRIOR_EXIT_TRAP" ] && [ "$BASH_SUBSHELL" = "$_MIMI_LOAD_LEVEL" ] || return "$rc"
   (exit "$rc")
   eval "$_PRIOR_EXIT_TRAP"
 }
