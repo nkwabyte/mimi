@@ -841,7 +841,7 @@ run_id_from() {
   local plan
   plan="$(plan_file_from "$output")"
   [ -f "$plan" ]
-  [ "$(stat -f '%Lp' "$plan")" = "600" ]
+  [ "$(file_mode "$plan")" = "600" ]
 
   run /bin/bash "$MIMI_BIN" apply "$plan" --yes --force-risky uninstall
   [ "$status" -eq 0 ]
@@ -868,7 +868,7 @@ run_id_from() {
   run /bin/bash "$MIMI_BIN" app uninstall "$app" --plan-only
   local plan
   plan="$(plan_file_from "$output")"
-  sed -i '' 's#"target_path": ".*Edited.app"#"target_path": "'"$FAKE_HOME"'/Documents"#' "$plan"
+  sed_i 's#"target_path": ".*Edited.app"#"target_path": "'"$FAKE_HOME"'/Documents"#' "$plan"
 
   run /bin/bash "$MIMI_BIN" apply "$plan" --yes
   [ "$status" -ne 0 ]

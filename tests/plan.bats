@@ -64,7 +64,7 @@ assert data["actions"][1]["action_id"] == "act-2"
 
   # Check permissions: 0600 (-rw-------)
   local mode
-  mode="$(stat -f "%Lp" "$target" 2>/dev/null || stat -c "%a" "$target" 2>/dev/null)"
+  mode="$(file_mode "$target" 2>/dev/null)"
   [ "$mode" = "600" ]
 
   /usr/bin/python3 -c '
@@ -290,7 +290,7 @@ assert data["plan_id"] == "test-plan-save"
   mkdir -p "$odd"
   plan_init
   PLAN_CANDIDATES=()
-  plan_candidate_add caches remove_path "$odd" "$(stat -f '%d:%i' "$odd")" 4096 safe "evidence with \"quotes\""
+  plan_candidate_add caches remove_path "$odd" "$(file_identity "$odd")" 4096 safe "evidence with \"quotes\""
   plan_build ""
   plan_save "$TEST_TMPDIR/odd.json"
   plan_preflight "$TEST_TMPDIR/odd.json"
@@ -335,7 +335,7 @@ assert data["plan_id"] == "test-plan-save"
   mkdir -p "$QUARANTINE_DIR/run-ok" "$FAKE_HOME/Library/Caches"
   printf 'secret\n' > "$FAKE_HOME/secret"
   local ident
-  ident="$(stat -f '%d:%i' "$FAKE_HOME/secret")"
+  ident="$(file_identity "$FAKE_HOME/secret")"
   printf '{"action_id":"a","category":"caches","original_path":"%s","quarantine_path":"%s","identity":"%s","bytes":1,"quarantined_at":"t"}\n' \
     "$FAKE_HOME/Library/Caches/landed" "$FAKE_HOME/secret" "$ident" \
     > "$QUARANTINE_DIR/run-ok/manifest.jsonl"

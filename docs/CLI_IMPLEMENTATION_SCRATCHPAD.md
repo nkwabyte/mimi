@@ -28,7 +28,7 @@ Only one task should normally be `[~]` at a time. A task is not complete because
 
 ## 3. Current focus
 
-Phases 0 to 4 are complete; Phase 5 option B and the selected Phase 6 items are done (details in the archive). The independent review ([SYSTEM_REVIEW_2026-09-27.md](SYSTEM_REVIEW_2026-09-27.md)) and its fix pass are done; its open items O-1 to O-8 were implemented on 2026-09-27 (DEC-072 to DEC-074). O-9 (Linux CI) and the signed prebuilt launcher (O-5, second step) wait on the owner.
+Phases 0 to 4 are complete; Phase 5 option B and the selected Phase 6 items are done (details in the archive). The independent review ([SYSTEM_REVIEW_2026-09-27.md](SYSTEM_REVIEW_2026-09-27.md)) and its fix pass are done; its open items O-1 to O-9 were implemented on 2026-09-27 (DEC-072 to DEC-075). The signed prebuilt launcher (O-5, second step) waits until the owner has an Apple Developer account.
 
 Current task: none in progress.
 
@@ -197,6 +197,7 @@ Resolve decisions only when their owning phase needs them. Do not let later-phas
 | 2026-09-27 | DEC-072 | `EXIT_FAILURE` is 8, separate from a partial run (3). Supersedes the code chosen in DEC-063; the layout test stays. | A script must tell "some items failed" from "the work could not be done at all" (review O-6, approved by the owner). | `lib/core/validate.sh`, help, man page, README, USAGE |
 | 2026-09-27 | DEC-073 | The root helper stops a system-wide LaunchAgent in every GUI session (users found by their `loginwindow` process) and compiles the launcher from a root-owned copy of its source with an empty environment. A signed, notarized prebuilt launcher waits on a Developer ID. | One user's `bootout` left the agent running for everyone else; the compile trusted inherited compiler settings (review O-4, O-5). | `libexec/mimi-root-apply`, `tests/root_apply.bats` |
 | 2026-09-27 | DEC-074 | The GUI is built and unit-tested in CI with code signing off; its signing team lives in an untracked `Local.xcconfig`; `#filePath` fallbacks are Debug-only. The engine's exit handler chains any exit trap already installed. Completed phases moved to `docs/archive/`. | Review O-1, O-2, O-3, O-7, O-8. | `.github/workflows/ci.yml`, `gui/Mimi/Config/`, `lib/ui/log.sh` |
+| 2026-09-27 | DEC-075 | The test suite also runs on Linux CI. BSD-only `stat` and `date` flags live in `lib/core/platform.sh` only; tests needing macOS itself or an unmocked macOS tool skip there via `require_macos` / `require_tool`. The macOS job stays authoritative. | A faster second run on different tools; it already found that plan expiry used `date -u -r`, which GNU reads as a file (review O-9, approved by the owner). | `lib/core/platform.sh`, `tests/test_helper.bash`, `.github/workflows/ci.yml` |
 
 ## 9. Blocker log
 

@@ -541,7 +541,7 @@ _derive_payload() {
         index(attr, "," $1 ",") == 0 {
           q = $2
           while (q != "" && q != "/") {
-            if (q in I) { k = q SUBSEP $1; if (!(k in d)) { d[k] = 1; O[q] = (q in O) ? O[q] "," $1 : $1 } }
+            if (q in I) { k = q SUBSEP $1; if (!(k in d)) { d[k] = 1; if (q in O) O[q] = O[q] "," $1; else O[q] = $1 } }
             sub(/\/[^\/]*$/, "", q)
           }
         }

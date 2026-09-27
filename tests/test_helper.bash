@@ -34,6 +34,26 @@ MIMI_BIN="$REPO_ROOT/bin/mimi"
 MIMI_LIB="$REPO_ROOT/lib"
 MOCKS_BIN="$REPO_ROOT/tests/mocks/bin"
 
+# file_mode, file_identity, file_mtime, ...: the engine's own wrappers over
+# the stat and date flags that differ between macOS and GNU (Linux CI).
+# shellcheck source=/dev/null
+. "$MIMI_LIB/core/platform.sh"
+
+# The suite also runs on Linux CI. A test that needs macOS itself (SIP,
+# /bin/bash 3.2, the root helper) or a macOS tool with no mock (plutil)
+# skips there; the macOS job still runs every test.
+require_macos() {
+  [ "$(uname -s)" = Darwin ] || skip "needs macOS"
+}
+require_tool() {
+  command -v "$1" > /dev/null 2>&1 || skip "needs $1"
+}
+
+# sed_i SCRIPT FILE — in-place edit that works with BSD and GNU sed.
+sed_i() {
+  sed -i.sed-bak "$1" "$2" && rm -f "$2.sed-bak"
+}
+
 # ---------------------------------------------------------------------------
 # Per-test setup — called automatically by bats before each test
 # ---------------------------------------------------------------------------

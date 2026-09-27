@@ -829,8 +829,8 @@ _root_tool_expected_owner() {
 _root_tool_node_ok() {
   local node="$1" expected="$2" owner mode
   [ -e "$node" ] && [ ! -L "$node" ] || return 1
-  owner="$(stat -f '%u' "$node" 2>/dev/null)" || return 1
-  mode="$(stat -f '%Lp' "$node" 2>/dev/null)" || return 1
+  owner="$(file_uid "$node" 2>/dev/null)" || return 1
+  mode="$(file_mode "$node" 2>/dev/null)" || return 1
   [ "$owner" = "$expected" ] || return 1
   [ $((8#$mode & 022)) -eq 0 ] || return 1
 }

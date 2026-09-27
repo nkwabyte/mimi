@@ -52,7 +52,7 @@ The findings below are kept as written. This table records what happened to each
 | R-01 plan runs cleanups | Fixed. `is_dry_run` guards every category; tool categories record a `tool_cleanup` action that `apply` runs |
 | R-02 apply bypasses classes, plans unauthenticated | Fixed. Per-class confirmation at apply; every action re-derived at preflight; digest covers the header; host and uid checked; risk taken from the registry; schema 3. The digest stays unkeyed on purpose: authority comes from re-derivation, not from the file |
 | R-03 uninstall permanent vs docs | Decided by the owner: uninstall deletes the app and its remnants permanently (no quarantine). Docs, schema (`wipe`), help and tests now agree; a saved uninstall plan also needs the typed confirmation |
-| R-04 runner and CI | Fixed. Runner checks shell files only; CI runs on `dev`, lints all modules and the root helper, compiles the launcher, and builds and unit-tests the GUI (O-1) |
+| R-04 runner and CI | Fixed. Runner checks shell files only; CI runs on `dev`, lints all modules and the root helper, compiles the launcher, builds and unit-tests the GUI (O-1), and runs the suite on Linux as well (O-9) |
 | R-05 cross-volume copy loss | Fixed |
 | R-06 nested whitelist | Fixed |
 | R-07 apply moves whole folders | Fixed |
@@ -418,7 +418,7 @@ R-02 was reproduced by building a plan with `plan_add_action` and `plan_save` fr
 
 ## 7. Recommended fixes for the open items
 
-Status: approved by the owner and implemented on 2026-09-27, except O-9 and the second step of O-5, which were optional and are not done. Decisions DEC-072 to DEC-074 in the scratchpad.
+Status: approved by the owner and implemented on 2026-09-27, O-9 included (DEC-075). The second step of O-5 (a signed prebuilt launcher) waits until the owner has an Apple Developer account. Decisions DEC-072 to DEC-075 in the scratchpad.
 
 These are the items the fix pass left open (see the status table at the top), plus one test-harness problem found while getting CI green. Each has a recommended fix, its size, and what it needs from the owner.
 
