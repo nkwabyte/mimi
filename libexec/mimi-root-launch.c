@@ -8,6 +8,11 @@
  */
 #include <errno.h>
 #include <libgen.h>
+#include <limits.h>
+#include <stdint.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +24,32 @@ static void die(const char *msg) {
     exit(1);
 }
 
+/* The real path of this executable. argv[0] is chosen by the caller (a
+ * symlink, exec -a), so it is never used to find the helper. */
+static void self_path(char *out) {
+    char raw[PATH_MAX];
+#ifdef __APPLE__
+    uint32_t size = sizeof raw;
+    if (_NSGetExecutablePath(raw, &size) != 0) {
+        die("cannot find this executable");
+    }
+#else
+    ssize_t n = readlink("/proc/self/exe", raw, sizeof raw - 1);
+    if (n <= 0) {
+        die("cannot find this executable");
+    }
+    raw[n] = '\0';
+#endif
+    if (realpath(raw, out) == NULL) {
+        die("cannot resolve this executable");
+    }
+}
+
+/* Root-owned and not writable by group or others. */
+static int trusted(const struct stat *st) {
+    return st->st_uid == 0 && (st->st_mode & 022) == 0;
+}
+
 int main(int argc, char **argv) {
     const char *test_flag = getenv("MIMI_ROOT_TEST");
     int testing = test_flag != NULL && strcmp(test_flag, "1") == 0;
@@ -26,12 +57,14 @@ int main(int argc, char **argv) {
         die("this needs root: run it with sudo");
     }
 
-    char *owned = strdup(argv[0] != NULL ? argv[0] : "");
-    if (owned == NULL) {
-        die("out of memory");
+    char self[PATH_MAX];
+    self_path(self);
+    char *dir = dirname(self);
+    struct stat dst;
+    if (stat(dir, &dst) != 0 || (!testing && !trusted(&dst))) {
+        die("the launcher's directory is not root-owned and closed to others");
     }
-    char *dir = dirname(owned);
-    char script[4096];
+    char script[PATH_MAX];
     int n = snprintf(script, sizeof script, "%s/mimi-root-apply", dir);
     if (n < 0 || (size_t)n >= sizeof script) {
         die("helper path is too long");
@@ -41,7 +74,7 @@ int main(int argc, char **argv) {
     if (lstat(script, &st) != 0 || S_ISLNK(st.st_mode) || !S_ISREG(st.st_mode)) {
         die("mimi-root-apply next to this launcher is missing or is a symlink");
     }
-    if (!testing && (st.st_uid != 0 || (st.st_mode & 022) != 0)) {
+    if (!testing && !trusted(&st)) {
         die("mimi-root-apply is not a root-owned, non-writable file");
     }
 

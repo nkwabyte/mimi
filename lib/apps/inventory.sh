@@ -278,12 +278,6 @@ app_detect_cask() {
   return 1
 }
 
-# Print the cask token for an app bundle (subshell-friendly wrapper).
-app_detect_cask_token() {
-  app_detect_cask "$1" || return 1
-  printf '%s\n' "$APP_CASK_TOKEN"
-}
-
 # Installer package receipts that reference an app bundle. Report-only: the
 # receipts are never forgotten (`pkgutil --forget`) or modified.
 # Sets APP_PKG_IDS.
@@ -330,30 +324,6 @@ app_detect_pkg_receipts() {
   fi
 
   [ "${#APP_PKG_IDS[@]}" -gt 0 ]
-}
-
-# Primary provenance, by precedence: system > mas > cask > pkg > app.
-# Kept as a subshell-friendly function for callers that only need the label.
-app_detect_provenance() {
-  local app_path="$1" bundle_id="${2-}" is_system="${3:-0}"
-
-  if [ "$is_system" -eq 1 ]; then
-    printf 'system\n'
-    return 0
-  fi
-  if [ -f "$app_path/Contents/_MASReceipt/receipt" ]; then
-    printf 'mas\n'
-    return 0
-  fi
-  if app_detect_cask "$app_path"; then
-    printf 'cask\n'
-    return 0
-  fi
-  if app_detect_pkg_receipts "$app_path" "$bundle_id"; then
-    printf 'pkg\n'
-    return 0
-  fi
-  printf 'app\n'
 }
 
 # ---------------------------------------------------------------------------

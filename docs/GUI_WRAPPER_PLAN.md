@@ -1,6 +1,6 @@
 # Future macOS GUI wrapper plan
 
-Status: in progress. The Xcode app at `gui/Mimi/Mimi.xcodeproj` scans through the JSONL engine and does not clean, restore, or touch system scope. How to open it, and what it refuses to do, is in [guide.md](guide.md). Fixes still required before those actions can appear are in [SECURITY_REMEDIATION_PLAN.md](SECURITY_REMEDIATION_PLAN.md).
+Status: in progress. The Xcode app at `gui/Mimi/Mimi.xcodeproj` scans through the JSONL engine and does not clean, restore, or touch system scope. How to open it, and what it refuses to do, is in [guide.md](guide.md). Fixes still required before those actions can appear are in [SYSTEM_REVIEW_2026-09-27.md](SYSTEM_REVIEW_2026-09-27.md).
 
 Reviewed: 2026-09-14. App scaffold updated 2026-09-27.
 

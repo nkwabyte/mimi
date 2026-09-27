@@ -44,7 +44,6 @@ VERBOSE=0
 AGGRESSIVE=0
 PROFILE=""
 KEEP_DEVICE_SUPPORT=3
-KEEP_SIM_LOGS_DAYS=7
 
 INCLUDE_TRASH=0
 INCLUDE_MAIL=0
@@ -88,7 +87,13 @@ CONFIG_FILE="$CONFIG_DIR/config.conf"
 CONFIG_SELECTED_CATEGORIES=""
 CONFIG_PROFILE=""
 PLANS_DIR="$CONFIG_DIR/plans"
-QUARANTINE_DIR="$CONFIG_DIR/quarantine"
+# Quarantined items are data, not configuration, so they live with the
+# per-user application data (excluded from Time Machine when created).
+QUARANTINE_DIR="$HOME_DIR/Library/Application Support/mimi/quarantine"
+LEGACY_QUARANTINE_DIR="$CONFIG_DIR/quarantine"
+# Runs older than this many days are released at the start of the next run
+# that quarantines. 0 keeps every run until `mimi purge`.
+QUARANTINE_KEEP_DAYS=7
 # Append-only record of uninstalls and delegated (Homebrew) actions: one JSON
 # object per line. Never rewritten; restore/purge results live per run.
 HISTORY_FILE="$CONFIG_DIR/history.jsonl"
@@ -192,6 +197,8 @@ REMOVE_ORPHANS_FILE=""
 # quarantine run instead of writing a review file. Set by the flag, or by the
 # interactive UI when the orphans category is ticked for a clean.
 REMOVE_ORPHANS=0
+# --include-weak: --remove-orphans also moves [weak] guesses.
+INCLUDE_WEAK_ORPHANS=0
 
 ONLY_LIST=""
 SKIP_LIST=""
@@ -199,13 +206,15 @@ WHITELIST=()
 
 TOTAL_BEFORE_KB=0
 TOTAL_RECLAIMED_KB=0
-RAN_ANY=0
+# Bytes moved into quarantine this run: not free yet, so never reclaimed.
+TOTAL_QUARANTINED_KB=0
 
-# Colors (disabled if not a tty)
-if [ -t 1 ]; then
-  C_RESET="$(tput sgr0)"; C_BOLD="$(tput bold)"; C_DIM="$(tput dim)"
-  C_RED="$(tput setaf 1)"; C_GREEN="$(tput setaf 2)"; C_YELLOW="$(tput setaf 3)"
-  C_BLUE="$(tput setaf 4)"; C_CYAN="$(tput setaf 6)"
+# Colors: only on a terminal, and never when NO_COLOR is set (no-color.org).
+# Plain ANSI codes, so starting up does not cost seven tput processes.
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'
+  C_RED=$'\033[31m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
+  C_BLUE=$'\033[34m'; C_CYAN=$'\033[36m'
 else
   C_RESET=""; C_BOLD=""; C_DIM=""; C_RED=""; C_GREEN=""; C_YELLOW=""; C_BLUE=""; C_CYAN=""
 fi

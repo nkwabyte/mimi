@@ -46,8 +46,9 @@ print_live_category_state() {
 }
 
 view_last_log() {
-  local f
-  f="$(ls -t "$LOG_DIR"/clean-*.log 2>/dev/null | head -1)"
+  # Log names carry a sortable timestamp: the glob's last match is the newest.
+  local f="" l
+  for l in "$LOG_DIR"/clean-*.log; do f="$l"; done
   if [ -z "$f" ]; then
     info "no log files yet"
     return
@@ -76,7 +77,7 @@ view_last_log() {
 _READ_FRAC_T=-1
 supports_frac_timeout() {
   if [ "$_READ_FRAC_T" = -1 ]; then
-    if [ -z "$( { read -t 0.01 _ </dev/null; } 2>&1 )" ]; then
+    if [ -z "$( { read -r -t 0.01 _ </dev/null; } 2>&1 )" ]; then
       _READ_FRAC_T=1
     else
       _READ_FRAC_T=0
@@ -104,9 +105,9 @@ _tui_input_ready() {
 _tui_read() {
   local IFS=
   if [ "$_TUI_INPUT_OPEN" = 1 ]; then
-    read "$@" <&9
+    read -r "$@" <&9
   else
-    read "$@" </dev/tty
+    read -r "$@" </dev/tty
   fi
 }
 

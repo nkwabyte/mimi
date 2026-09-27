@@ -66,6 +66,22 @@ quarantine_run_dir() {
   printf '%s' "$dir"
 }
 
+# Create the quarantine root once: private, and kept out of Time Machine and
+# Spotlight. Quarantined caches are not worth backing up a second time.
+quarantine_root_init() {
+  # The marker also covers a root moved here from the old location.
+  [ -f "$QUARANTINE_DIR/.metadata_never_index" ] && return 0
+  ( umask 077; mkdir -p "$QUARANTINE_DIR" ) || return 1
+  chmod 0700 "$QUARANTINE_DIR" 2>/dev/null || true
+  : > "$QUARANTINE_DIR/.metadata_never_index" 2>/dev/null || true
+  if command -v tmutil > /dev/null 2>&1; then
+    tmutil addexclusion "$QUARANTINE_DIR" > /dev/null 2>&1 || true
+  fi
+  return 0
+}
+
+# quarantine_init_run [RUN_ID]   (callers in other modules pass the id)
+# shellcheck disable=SC2120
 quarantine_init_run() {
   local custom_id="${1:-}"
   if [ -n "$custom_id" ]; then
@@ -77,17 +93,34 @@ quarantine_init_run() {
   else
     QUARANTINE_CURRENT_RUN_ID="run-$(date +%Y%m%d-%H%M%S)-$$"
   fi
+  quarantine_root_init || return 1
   QUARANTINE_CURRENT_RUN_DIR="$QUARANTINE_DIR/$QUARANTINE_CURRENT_RUN_ID"
-  mkdir -p "$QUARANTINE_CURRENT_RUN_DIR" || return 1
-  chmod 0700 "$QUARANTINE_CURRENT_RUN_DIR" 2>/dev/null || true
-  touch "$QUARANTINE_CURRENT_RUN_DIR/manifest.jsonl" || return 1
-  chmod 0600 "$QUARANTINE_CURRENT_RUN_DIR/manifest.jsonl" 2>/dev/null || true
+  ( umask 077; mkdir -p "$QUARANTINE_CURRENT_RUN_DIR" && : >> "$QUARANTINE_CURRENT_RUN_DIR/manifest.jsonl" ) || return 1
   return 0
 }
 
+_quarantine_manifest_line() {
+  local act_id="$1" cat="$2" orig="$3" dest="$4" ident="$5" bytes="$6" status="${7:-}"
+  printf '{"action_id":"%s","category":"%s","original_path":"%s","quarantine_path":"%s","identity":"%s","bytes":%d,"quarantined_at":"%s"%s}\n' \
+    "$(json_escape "$act_id")" "$(json_escape "$cat")" "$(json_escape "$orig")" \
+    "$(json_escape "$dest")" "$(json_escape "$ident")" "$bytes" "$(json_now_iso)" \
+    "${status:+,\"status\":\"$status\"}" >> "$QUARANTINE_CURRENT_RUN_DIR/manifest.jsonl"
+}
+
+# Entries and allocated KB of a tree, as "count kb". Used to check a
+# cross-volume copy before the original is removed.
+_tree_signature() {
+  printf '%s %s' "$(find "$1" 2>/dev/null | wc -l | tr -d ' ')" "$(dir_size_kb "$1")"
+}
+
+# Move one target into the current run. Same volume: one atomic rename.
+# Another volume: copy, compare, then remove the original. If the original
+# cannot be fully removed, the complete copy is KEPT and recorded as partial;
+# it is never thrown away to "undo" the attempt.
 quarantine_target() {
   local act_id="$1" cat="$2" target_path="$3" expected_ident="${4:-}" expected_bytes="${5:-0}"
   if [ -z "$QUARANTINE_CURRENT_RUN_DIR" ]; then
+    # shellcheck disable=SC2119
     quarantine_init_run || return 1
   fi
 
@@ -95,9 +128,8 @@ quarantine_target() {
     verbose "quarantine: target missing: $target_path"
     return 1
   fi
-
   if is_whitelisted "$target_path"; then
-    warn "quarantine: target is whitelisted, skipping: $target_path"
+    warn "quarantine: whitelisted (or holds a whitelisted path), skipped: $target_path"
     return 1
   fi
 
@@ -108,57 +140,78 @@ quarantine_target() {
     return 1
   fi
 
-  local base dest_name dest_path
-  base="$(basename "$target_path")"
-  dest_name="${base}__${act_id}"
-  dest_path="$QUARANTINE_CURRENT_RUN_DIR/$dest_name"
+  local dest_path="$QUARANTINE_CURRENT_RUN_DIR/${target_path##*/}__${act_id}"
+  if [ -e "$dest_path" ] || [ -L "$dest_path" ]; then
+    err "quarantine: destination already exists: $dest_path"
+    return 1
+  fi
 
-  # Same volume check for atomic mv
   local src_dev dst_dev
-  src_dev="$(stat -f "%d" "$target_path" 2>/dev/null || echo 0)"
-  dst_dev="$(stat -f "%d" "$QUARANTINE_CURRENT_RUN_DIR" 2>/dev/null || echo 0)"
+  src_dev="$(stat -f '%d' "$target_path" 2>/dev/null || echo 0)"
+  dst_dev="$(stat -f '%d' "$QUARANTINE_CURRENT_RUN_DIR" 2>/dev/null || echo 0)"
 
   if [ "$src_dev" = "$dst_dev" ] && [ "$src_dev" != "0" ]; then
-    if ! mv -f "$target_path" "$dest_path" 2>>"$LOG_FILE"; then
-      err "quarantine: move failed: $target_path -> $dest_path"
+    if ! mv "$target_path" "$dest_path" 2>>"$LOG_FILE"; then
+      err "quarantine: move failed: $target_path"
       return 1
     fi
   else
-    # Cross-volume: copy with attributes, verify destination, then fs_remove original
-    if ! cp -pPR "$target_path" "$dest_path" 2>>"$LOG_FILE"; then
-      err "quarantine: cross-volume copy failed: $target_path -> $dest_path"
-      return 1
-    fi
-    if [ ! -e "$dest_path" ] && [ ! -L "$dest_path" ]; then
-      err "quarantine: cross-volume copy destination missing: $dest_path"
-      return 1
-    fi
-    if ! fs_remove "$target_path"; then
-      err "quarantine: cross-volume removal of original failed: $target_path"
+    if ! cp -pPR "$target_path" "$dest_path" 2>>"$LOG_FILE" ||
+       [ "$(_tree_signature "$target_path")" != "$(_tree_signature "$dest_path")" ]; then
+      err "quarantine: copy to the quarantine volume did not match; original left in place: $target_path"
       fs_remove "$dest_path"
       return 1
     fi
+    if ! fs_remove "$target_path"; then
+      _quarantine_manifest_line "$act_id" "$cat" "$target_path" "$dest_path" "$cur_ident" "$expected_bytes" "partial"
+      err "quarantine: the original could not be fully removed; a complete copy is kept at $dest_path"
+      return 1
+    fi
   fi
 
-  # Postcondition verification
   if [ ! -e "$target_path" ] && [ ! -L "$target_path" ] && { [ -e "$dest_path" ] || [ -L "$dest_path" ]; }; then
-    local now_iso
-    now_iso="$(json_now_iso)"
-    printf '{"action_id":"%s","category":"%s","original_path":"%s","quarantine_path":"%s","identity":"%s","bytes":%d,"quarantined_at":"%s"}\n' \
-      "$(json_escape "$act_id")" \
-      "$(json_escape "$cat")" \
-      "$(json_escape "$target_path")" \
-      "$(json_escape "$dest_path")" \
-      "$(json_escape "$cur_ident")" \
-      "$expected_bytes" \
-      "$(json_escape "$now_iso")" >> "$QUARANTINE_CURRENT_RUN_DIR/manifest.jsonl"
+    _quarantine_manifest_line "$act_id" "$cat" "$target_path" "$dest_path" "$cur_ident" "$expected_bytes"
     return 0
   fi
-
   err "quarantine: postcondition failed for $target_path"
   return 1
 }
 
+# Quarantine the CONTENTS of a planned directory, never the directory itself:
+# it may carry ACLs or flags, an app may hold it open, and something like
+# ~/.Trash has to stay where Finder expects it. Each child gets the checks
+# clear_dir_contents applies. Returns non-zero when any child failed.
+QUARANTINE_DIR_KB=0
+quarantine_dir_contents() {
+  local act_id="$1" cat="$2" dir="$3" expected_ident="${4:-}"
+  local entry n=0 failed=0 kb
+  QUARANTINE_DIR_KB=0
+  if [ -n "$expected_ident" ] && [ "$expected_ident" != "unknown" ] &&
+     [ "$(path_identity "$dir" 2>/dev/null)" != "$expected_ident" ]; then
+    warn "quarantine: directory changed since it was planned, skipped: $dir"
+    return 1
+  fi
+  for entry in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    interrupted && return 1
+    if ! path_authorize "$entry" > /dev/null; then
+      verbose "refused ($PATH_DENY_REASON), kept: $entry"
+      continue
+    fi
+    is_whitelisted "$PATH_CANONICAL" && { verbose "whitelisted, kept: $entry"; continue; }
+    n=$((n + 1))
+    kb="$(dir_size_kb "$entry")"
+    if quarantine_target "$act_id-$n" "$cat" "$entry" "" "$((kb * 1024))"; then
+      QUARANTINE_DIR_KB=$((QUARANTINE_DIR_KB + kb))
+    else
+      failed=$((failed + 1))
+    fi
+  done
+  [ "$failed" = 0 ]
+}
+
+# Put one quarantined object back. The source is always a direct child of its
+# run directory, whatever path the manifest spells.
 quarantine_restore_target() {
   local q_path="$1" orig_path="$2" expected_ident="${3:-}"
 
@@ -166,19 +219,12 @@ quarantine_restore_target() {
     err "quarantine restore: quarantined file missing: $q_path"
     return 1
   fi
-
   if [ -e "$orig_path" ] || [ -L "$orig_path" ]; then
     warn "quarantine restore: original path already occupied: $orig_path"
     return 1
   fi
-
-  local auth_ok=0
-  if path_authorize "$orig_path" >/dev/null 2>&1; then
-    auth_ok=1
-  elif type uninstall_authorize_bundle >/dev/null 2>&1 && uninstall_authorize_bundle "$orig_path" >/dev/null 2>&1; then
-    auth_ok=1
-  fi
-  if [ "$auth_ok" -eq 0 ]; then
+  if ! path_authorize "$orig_path" > /dev/null 2>&1 &&
+     ! uninstall_authorize_bundle "$orig_path" > /dev/null 2>&1; then
     err "quarantine restore: destination outside authorized roots: $orig_path"
     return 1
   fi
@@ -190,48 +236,47 @@ quarantine_restore_target() {
     return 1
   fi
 
-  local orig_dir
+  local orig_dir src_dev dst_dev
   orig_dir="$(dirname "$orig_path")"
   mkdir -p "$orig_dir" || return 1
-
-  local src_dev dst_dev
-  src_dev="$(stat -f "%d" "$q_path" 2>/dev/null || echo 0)"
-  dst_dev="$(stat -f "%d" "$orig_dir" 2>/dev/null || echo 0)"
+  src_dev="$(stat -f '%d' "$q_path" 2>/dev/null || echo 0)"
+  dst_dev="$(stat -f '%d' "$orig_dir" 2>/dev/null || echo 0)"
 
   if [ "$src_dev" = "$dst_dev" ] && [ "$src_dev" != "0" ]; then
-    mv -f "$q_path" "$orig_path" 2>>"$LOG_FILE" || return 1
+    mv "$q_path" "$orig_path" 2>>"$LOG_FILE" || return 1
   else
-    cp -pPR "$q_path" "$orig_path" 2>>"$LOG_FILE" || return 1
-    fs_remove "$q_path" || return 1
+    if ! cp -pPR "$q_path" "$orig_path" 2>>"$LOG_FILE" ||
+       [ "$(_tree_signature "$q_path")" != "$(_tree_signature "$orig_path")" ]; then
+      fs_remove "$orig_path"
+      return 1
+    fi
+    fs_remove "$q_path" || warn "restored, but the quarantined copy could not be removed: $q_path"
   fi
-
-  if [ -e "$orig_path" ] || [ -L "$orig_path" ]; then
-    return 0
-  fi
-  return 1
+  [ -e "$orig_path" ] || [ -L "$orig_path" ]
 }
 
-# One JSON string field. Handles \" and \\. Prints the value, or fails
-# when the key is absent. Used for quarantine manifests, which are written
-# by us and must not be split on the first raw quote.
+# One JSON string field of a manifest line written by us, unescaped. Fails
+# when the key is absent.
 _manifest_field() {
-  local line="$1" key="$2" rest val ch esc=0
+  local line="$1" key="$2" rest raw="" ch esc=0
   rest="${line#*\""${key}"\":\"}"
   [ "$rest" != "$line" ] || return 1
-  val=""
   while [ -n "$rest" ]; do
     ch="${rest:0:1}"
     rest="${rest:1}"
     if [ "$esc" = 1 ]; then
-      val="${val}${ch}"
+      raw="$raw$ch"
       esc=0
-      continue
+    elif [ "$ch" = "\\" ]; then
+      raw="$raw$ch"
+      esc=1
+    elif [ "$ch" = '"' ]; then
+      json_unescape_to raw "$raw"
+      printf '%s' "$raw"
+      return 0
+    else
+      raw="$raw$ch"
     fi
-    case "$ch" in
-      \\) esc=1 ;;
-      '"') printf '%s' "$val"; return 0 ;;
-      *) val="${val}${ch}" ;;
-    esac
   done
   return 1
 }
@@ -264,20 +309,14 @@ quarantine_restore_run() {
       failed=$((failed + 1))
       continue
     fi
-    # The quarantined object must be a direct child of this run. A manifest
-    # that names some other file is not a restore.
-    local q_base
-    case "$q_path" in
-      "$run_dir"/*) q_base="${q_path#"$run_dir"/}" ;;
-      *)
-        warn "quarantine restore: source is not inside this run: $q_path"
-        failed=$((failed + 1))
-        continue
-        ;;
-    esac
-    case "$q_base" in
-      */*|.|..)
-        warn "quarantine restore: source is not a direct child of this run: $q_path"
+    # The source is the direct child of this run with the manifest's file
+    # name, wherever the manifest says it was: a manifest cannot point a
+    # restore at any other file, and a run moved with the quarantine root
+    # still restores.
+    q_path="$run_dir/${q_path##*/}"
+    case "${q_path##*/}" in
+      "" | . | ..)
+        warn "quarantine restore: manifest line names no quarantined file; skipped"
         failed=$((failed + 1))
         continue
         ;;
@@ -361,6 +400,27 @@ quarantine_purge_run() {
   return 0
 }
 
+# Release runs older than QUARANTINE_KEEP_DAYS (0 keeps them forever). Called
+# at the start of every run that quarantines, so the quarantine behaves like a
+# trash with a retention period instead of growing until someone purges it.
+quarantine_expire_runs() {
+  local days="${QUARANTINE_KEEP_DAYS:-7}" d n=0 kb=0 k
+  [ "$days" -gt 0 ] 2>/dev/null || return 0
+  [ -d "$QUARANTINE_DIR" ] || return 0
+  while IFS= read -r d; do
+    [ -n "$d" ] && [ -d "$d" ] && [ ! -L "$d" ] || continue
+    mimi_id_ok "${d##*/}" || continue
+    k="$(dir_size_kb "$d")"
+    if fs_remove "$d"; then
+      n=$((n + 1))
+      kb=$((kb + k))
+      history_record "expire" "ok" "run_id=${d##*/}" "size_kb=$k"
+    fi
+  done < <(find "$QUARANTINE_DIR" -mindepth 1 -maxdepth 1 -type d -mtime +"$days" 2>/dev/null)
+  [ "$n" -gt 0 ] && info "released $n quarantine run(s) older than $days day(s) ($(human_kb "$kb"))"
+  return 0
+}
+
 # ---------------------------------------------------------------------------
 # mimi history
 # ---------------------------------------------------------------------------
@@ -396,13 +456,13 @@ mimi_history() {
     for d in "$QUARANTINE_DIR"/*/; do
       [ -d "$d" ] || continue
       d="${d%/}"
-      items="$(grep -c . "$d/manifest.jsonl" 2>/dev/null || echo 0)"
-      restored="$(grep -c '"status":"restored"' "$d/restore.jsonl" 2>/dev/null || echo 0)"
+      items="$(grep -c . "$d/manifest.jsonl" 2>/dev/null)"
+      restored="$(grep -c '"status":"restored"' "$d/restore.jsonl" 2>/dev/null)"
       kb="$(dir_size_kb "$d")"
       [ "$first" = 1 ] || printf ','
       first=0
       printf '\n    {"run_id": "%s", "items": %d, "restored": %d, "size_kb": %d}' \
-        "$(json_escape "$(basename "$d")")" "$items" "$restored" "${kb:-0}"
+        "$(json_escape "$(basename "$d")")" "${items:-0}" "${restored:-0}" "${kb:-0}"
     done
     [ "$first" = 1 ] || printf '\n  '
     printf ']\n}\n'
@@ -435,10 +495,10 @@ mimi_history() {
     [ -d "$d" ] || continue
     d="${d%/}"
     n=$((n + 1))
-    items="$(grep -c . "$d/manifest.jsonl" 2>/dev/null || echo 0)"
-    restored="$(grep -c '"status":"restored"' "$d/restore.jsonl" 2>/dev/null || echo 0)"
-    printf '  %-40s  %4d item(s)  %9s' "$(basename "$d")" "$items" "$(human_kb "$(dir_size_kb "$d")")"
-    [ "$restored" -gt 0 ] && printf '  (%d restored)' "$restored"
+    items="$(grep -c . "$d/manifest.jsonl" 2>/dev/null)"
+    restored="$(grep -c '"status":"restored"' "$d/restore.jsonl" 2>/dev/null)"
+    printf '  %-40s  %4d item(s)  %9s' "$(basename "$d")" "${items:-0}" "$(human_kb "$(dir_size_kb "$d")")"
+    [ "${restored:-0}" -gt 0 ] && printf '  (%d restored)' "$restored"
     printf '\n'
   done
   [ "$n" -gt 0 ] || say "  (none)"

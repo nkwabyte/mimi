@@ -237,10 +237,23 @@ nonisolated final class ProcessEngineClient: EngineClientProtocol, @unchecked Se
         _ lineData: Data,
         to continuation: AsyncThrowingStream<(String, EngineEvent), Error>.Continuation
     ) throws -> EmitResult? {
-        guard !lineData.isEmpty, var line = String(data: lineData, encoding: .utf8) else { return nil }
+        guard !lineData.isEmpty else { return nil }
+        guard var line = String(data: lineData, encoding: .utf8) else {
+            // One unreadable line is reported, not allowed to end the run.
+            continuation.yield(("", .warning(code: "undecodable_event", message: "The engine sent a line that is not UTF-8.")))
+            return nil
+        }
         if line.hasSuffix("\r") { line.removeLast() }
         guard !line.isEmpty else { return nil }
-        let decoded = try EngineEventDecoder.decode(line: line)
+        let decoded: (String, EngineEvent)
+        do {
+            decoded = try EngineEventDecoder.decode(line: line)
+        } catch let error as EngineError {
+            throw error
+        } catch {
+            continuation.yield((line, .warning(code: "undecodable_event", message: "The engine sent a line that could not be decoded.")))
+            return nil
+        }
         continuation.yield(decoded)
         var result = EmitResult()
         if case .runFinished = decoded.1 { result.finished = true }

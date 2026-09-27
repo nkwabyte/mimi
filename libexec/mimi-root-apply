@@ -201,6 +201,23 @@ id_match() {
 }
 
 ident_of() { /usr/bin/stat -f '%d:%i' "$1" 2>/dev/null; }
+
+# True when every directory above PATH (up to the test prefix, or /) is owned
+# by root and not world-writable, so nobody else can swap a parent between
+# the checks and the move.
+_parents_trusted() {
+  local dir owner mode stop="${P:-/}"
+  dir="$(/usr/bin/dirname "$1")"
+  while [ -n "$dir" ] && [ "$dir" != "/" ] && [ "$dir" != "$stop" ]; do
+    [ ! -L "$dir" ] || return 1
+    owner="$(owner_of "$dir")" || return 1
+    mode="$(/usr/bin/stat -f '%Lp' "$dir" 2>/dev/null)" || return 1
+    [ "$owner" = "$OWNER_UID" ] || return 1
+    [ $((8#$mode & 002)) -eq 0 ] || return 1
+    dir="$(/usr/bin/dirname "$dir")"
+  done
+  return 0
+}
 owner_of() { /usr/bin/stat -f '%u' "$1" 2>/dev/null; }
 
 # Canonical path. Intermediate symlinks are followed so a link planted in a
@@ -282,6 +299,10 @@ _near() { N_PATHS+=("$1"); N_REASONS+=("$2"); }
 
 _add() {
   local kind="$1" path="$2" label="$3" reason="$4" ident i
+  # The manifest is tab-separated, one item per line.
+  case "$path" in
+    *$'\t'* | *$'\n'*) _near "$path" "a tab or newline in the path"; return 0 ;;
+  esac
   # Several attributed packages can list the same item: keep one candidate.
   for ((i = 0; i < ${#C_PATHS[@]}; i++)); do
     [ "${C_PATHS[$i]}" = "$path" ] && return 0
@@ -404,6 +425,9 @@ payload_allowed() {
   fi
   case "$r" in
     /Library/Apple|/Library/Apple/*|/Library/Developer/CommandLineTools*) return 1 ;;
+    # Kernel, system, and driver extensions are unloaded by macOS or the
+    # vendor, not by moving files; they are reported, never selected.
+    /Library/Extensions/*|/Library/SystemExtensions/*|/Library/DriverExtensions/*) return 1 ;;
     /Library/LaunchDaemons/*|/Library/LaunchAgents/*|/Library/PrivilegedHelperTools/*) return 1 ;;
     /Applications/?*|/Library/?*|/usr/local/?*|/opt/?*) return 0 ;;
   esac
@@ -539,6 +563,7 @@ _derive_payload() {
         [ -e "$canon" ] || [ -L "$canon" ] || continue
         if [ -L "$canon" ]; then _near "$canon" "symlink"; continue; fi
         if [ "$(owner_of "$canon")" != "$OWNER_UID" ]; then _near "$canon" "not owned by root"; continue; fi
+        _parents_trusted "$canon" || { _near "$canon" "a folder above it is not root-owned, or is world-writable"; continue; }
         _add "payload" "$canon" "$pkg" "installed by package $pkg, owned by no other package"
       done < "$w/items"
       /bin/mv -f "$w/next" "$w/items"
@@ -693,8 +718,9 @@ cmd_apply() {
       else
         [ -f "$path" ] || kind_ok=0
       fi
-      # Re-check the object itself immediately before acting (TOCTOU).
-      if [ -L "$path" ] || [ "$kind_ok" = 0 ] || [ "$(ident_of "$path")" != "${C_IDENTS[$j]}" ] || [ "$(owner_of "$path")" != "$OWNER_UID" ]; then
+      # Re-check the object and its parents immediately before acting (TOCTOU).
+      if [ -L "$path" ] || [ "$kind_ok" = 0 ] || [ "$(ident_of "$path")" != "${C_IDENTS[$j]}" ] ||
+         [ "$(owner_of "$path")" != "$OWNER_UID" ] || ! _parents_trusted "$path"; then
         warn "changed since it was listed, skipped: $path"
         failed=$((failed + 1))
         continue
@@ -738,7 +764,15 @@ cmd_restore() {
   run_dir="$(run_dir_for "$1")"
   while IFS=$'\t' read -r kind label orig q ident; do
     [ -n "$orig" ] || continue
+    # The source is always the direct child of this run with the manifest's
+    # file name; a manifest line cannot point a restore at any other file.
+    q="$run_dir/${q##*/}"
+    case "${orig##*/}" in
+      "" | . | ..) warn "manifest names an unexpected path, skipped: $orig"; failed=$((failed + 1)); continue ;;
+    esac
     case "$orig" in
+      "$LD"/*/* | "$LA"/*/* | "$HT"/*/*)
+        warn "manifest names an unexpected path, skipped: $orig"; failed=$((failed + 1)); continue ;;
       "$LD"/*|"$LA"/*|"$HT"/*) ;;
       *)
         local restored_as
@@ -885,7 +919,7 @@ cmd_runs() {
     [ -d "$d" ] || continue
     printf '%s  %s  %s item(s)\n' "$(/usr/bin/basename "$d")" \
       "$(/usr/bin/awk -F'\t' '$1 == "bundle_id" { print $2 }' "$d/info.tsv" 2>/dev/null)" \
-      "$(/usr/bin/grep -c . "$d/manifest.tsv" 2>/dev/null || echo 0)"
+      "$(/usr/bin/awk 'END { print NR }' "$d/manifest.tsv" 2>/dev/null)"
   done
 }
 
