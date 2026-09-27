@@ -135,6 +135,26 @@ apply() { run /bin/bash -c 'printf "%s\n" "$1" | "$2" "$3"' _ "$1" "$TOOL" "$REQ
   [ "$(head -1 "$run_dir/manifest.tsv" | cut -f1)" = daemon ]
 }
 
+@test "root: a system LaunchAgent is stopped in every logged-in GUI session" {
+  setup_root
+  daemon com.acme.app.agent com.acme.app.agent "$R/Library/PrivilegedHelperTools/com.acme.app.agent"
+  mv "$R/Library/LaunchDaemons/com.acme.app.agent.plist" "$R/Library/LaunchAgents/"
+  helper com.acme.app.agent
+  export MOCK_PS_SESSIONS="  501 /System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow
+  502 /System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow
+  503 /usr/sbin/cfprefsd
+    0 /usr/libexec/notloginwindow"
+  request com.acme.app
+  apply com.acme.app
+  [ "$status" -eq 0 ]
+  [ ! -e "$R/Library/LaunchAgents/com.acme.app.agent.plist" ]
+  grep -q "launchctl bootout gui/501/com.acme.app.agent" "$MOCK_CALL_LOG"
+  grep -q "launchctl bootout gui/502/com.acme.app.agent" "$MOCK_CALL_LOG"
+  grep -q "launchctl bootout gui/$(id -u)/com.acme.app.agent" "$MOCK_CALL_LOG"
+  ! grep -q "launchctl bootout gui/503/" "$MOCK_CALL_LOG"
+  ! grep -q "launchctl bootout gui/0/" "$MOCK_CALL_LOG"
+}
+
 @test "root: a wrong typed confirmation changes nothing" {
   setup_root; acme
   request com.acme.app
@@ -427,6 +447,17 @@ acme_pkg() {
   run "$TOOL" --uninstall-tool
   [ "$status" -eq 0 ]
   [ ! -e "$h" ]
+}
+
+@test "hardened copy: the launcher compiles in an empty environment and names the files it trusts" {
+  setup_root
+  # Honoured by the xcrun shim behind /usr/bin/cc; must not reach the compile.
+  DEVELOPER_DIR="$TEST_TMPDIR/no-such-xcode" SDKROOT="$TEST_TMPDIR/no-sdk" run "$TOOL" --install
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "trusting the files this was run from"
+  echo "$output" | grep -qF "$REPO_ROOT/libexec/mimi-root-launch.c"
+  [ -x "$R/usr/local/libexec/mimi/mimi-root-launch" ]
+  [ -z "$(ls -A "$R/usr/local/libexec/mimi" | grep '^\.')" ]
 }
 
 @test "hardened copy: uninstalling it keeps quarantine runs and says where they are" {

@@ -33,7 +33,9 @@ nonisolated struct MockEngineClient: EngineClientProtocol, Sendable {
             }
         }
 
-        // Development fallback: try known repo path relative to source file
+        #if DEBUG
+        // Development builds only: read the fixture next to this source file.
+        // #filePath is the build machine's path, so release builds skip this.
         let repoFixturePath = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -41,6 +43,7 @@ nonisolated struct MockEngineClient: EngineClientProtocol, Sendable {
         if let content = try? String(contentsOf: repoFixturePath, encoding: .utf8) {
             return content.components(separatedBy: "\n").filter { !$0.isEmpty }
         }
+        #endif
 
         // Embedded fallback literal in case bundle lookup fails during headless tests
         return [

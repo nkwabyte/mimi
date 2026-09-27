@@ -35,7 +35,10 @@ nonisolated final class ProcessEngineClient: EngineClientProtocol, @unchecked Se
             return
         }
 
-        // gui/Mimi/Mimi/Engine/<this file> → repository root is four levels up.
+        #if DEBUG
+        // Development builds only: gui/Mimi/Mimi/Engine/<this file> puts the
+        // repository root four levels up. #filePath is the build machine's
+        // source path, so release builds must not carry it.
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -46,6 +49,7 @@ nonisolated final class ProcessEngineClient: EngineClientProtocol, @unchecked Se
             engineURL = devBin
             return
         }
+        #endif
 
         for path in ["/opt/homebrew/bin/mimi", "/usr/local/bin/mimi"] {
             if FileManager.default.isExecutableFile(atPath: path) {
@@ -54,7 +58,8 @@ nonisolated final class ProcessEngineClient: EngineClientProtocol, @unchecked Se
             }
         }
 
-        engineURL = devBin
+        // Nothing found: point at the bundled location so the error names it.
+        engineURL = bundled
     }
 
     var engineLocation: String {

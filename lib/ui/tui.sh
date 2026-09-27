@@ -121,7 +121,8 @@ tui_begin() {
   tui_available || return 0
   printf '\033[?25l'   # hide cursor
   _CURSOR_HIDDEN=1
-  trap '_cleanup_on_exit' EXIT INT TERM
+  install_exit_trap
+  trap '_cleanup_on_exit' INT TERM
 }
 tui_end() {
   [ "$_CURSOR_HIDDEN" = 1 ] || return 0

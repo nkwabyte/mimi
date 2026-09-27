@@ -1,0 +1,10 @@
+#!/bin/sh
+# Mock: ps — only the session listing the root helper reads is faked.
+# MOCK_PS_SESSIONS: lines of "uid command" to print for `ps -axo uid=,comm=`.
+# Every other call goes to the real ps.
+if [ "$*" = "-axo uid=,comm=" ] && [ -n "${MOCK_PS_SESSIONS+x}" ]; then
+  [ -n "${MOCK_CALL_LOG:-}" ] && printf 'ps %s\n' "$*" >> "$MOCK_CALL_LOG"
+  printf '%s\n' "$MOCK_PS_SESSIONS"
+  exit 0
+fi
+exec /bin/ps "$@"

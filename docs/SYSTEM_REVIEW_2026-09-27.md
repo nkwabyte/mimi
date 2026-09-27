@@ -52,7 +52,7 @@ The findings below are kept as written. This table records what happened to each
 | R-01 plan runs cleanups | Fixed. `is_dry_run` guards every category; tool categories record a `tool_cleanup` action that `apply` runs |
 | R-02 apply bypasses classes, plans unauthenticated | Fixed. Per-class confirmation at apply; every action re-derived at preflight; digest covers the header; host and uid checked; risk taken from the registry; schema 3. The digest stays unkeyed on purpose: authority comes from re-derivation, not from the file |
 | R-03 uninstall permanent vs docs | Decided by the owner: uninstall deletes the app and its remnants permanently (no quarantine). Docs, schema (`wipe`), help and tests now agree; a saved uninstall plan also needs the typed confirmation |
-| R-04 runner and CI | Fixed. Runner checks shell files only; CI runs on `dev`, lints all modules and the root helper, compiles the launcher. GUI build in CI is still open (needs an Xcode that supports the project's Swift settings) |
+| R-04 runner and CI | Fixed. Runner checks shell files only; CI runs on `dev`, lints all modules and the root helper, compiles the launcher, and builds and unit-tests the GUI (O-1) |
 | R-05 cross-volume copy loss | Fixed |
 | R-06 nested whitelist | Fixed |
 | R-07 apply moves whole folders | Fixed |
@@ -60,14 +60,14 @@ The findings below are kept as written. This table records what happened to each
 | R-09 weak orphans moved | Fixed (`--include-weak`) |
 | R-10 history counters | Fixed |
 | R-11 JSON escaping | Fixed in the engine; the GUI now skips an undecodable line with a warning |
-| R-12 root helper | Fixed except a signed prebuilt launcher and stopping system LaunchAgents for every logged-in user |
+| R-12 root helper | Fixed. System LaunchAgents are stopped in every GUI session and the launcher compiles in an empty environment (O-4, O-5). A signed prebuilt launcher waits on a Developer ID |
 | R-13 run lock | Fixed (exit 7) |
-| R-14 exit codes | Exit 6 (refused plan) and 7 (busy) added. `EXIT_FAILURE` and `EXIT_PARTIAL` still share 3 |
+| R-14 exit codes | Fixed: exit 6 (refused plan), 7 (busy), and 8 for work that could not be done at all (O-6) |
 | R-15 streams and log privacy | Fixed |
 | R-16 test bypass | Narrowed to an explicit `MIMI_TEST_TMP_PARENT` naming one directory, with ownership and mode still checked |
 | R-17 plan reader | Reformatted plans are refused with an accurate message |
-| R-18 docs | Fixed links, SECURITY.md, GUI profile text, changelog. Scratchpad archiving still open |
-| R-19 GUI hygiene | `xcuserdata` untracked and ignored. Team id and Debug-only fallback still open |
+| R-18 docs | Fixed links, SECURITY.md, GUI profile text, changelog. Completed scratchpad phases archived (O-8) |
+| R-19 GUI hygiene | Fixed: `xcuserdata` untracked, team id in an untracked `Local.xcconfig`, `#filePath` fallbacks Debug-only (O-2, O-3) |
 | R-20 static analysis | ShellCheck is clean at warning level on every module; remaining notes are the `[ a ] && [ b ] \|\| continue` idiom |
 | R-21 performance | Whitelist canonicalized once per run, JSON events without per-event subshells, no `tput` at start-up, fewer forks in list checks |
 
@@ -415,3 +415,23 @@ HOME=$FAKE ./bin/mimi clean --only caches --yes \
 ```
 
 R-02 was reproduced by building a plan with `plan_add_action` and `plan_save` from `lib/load.sh`, then running `mimi apply <file> --yes` against the fake home.
+
+## 7. Recommended fixes for the open items
+
+Status: approved by the owner and implemented on 2026-09-27, except O-9 and the second step of O-5, which were optional and are not done. Decisions DEC-072 to DEC-074 in the scratchpad.
+
+These are the items the fix pass left open (see the status table at the top), plus one test-harness problem found while getting CI green. Each has a recommended fix, its size, and what it needs from the owner.
+
+| # | Open item | Recommended fix | Size | Needs from the owner |
+|---|---|---|---|---|
+| O-1 | The GUI is never built in CI, and its two Swift changes (tolerating an undecodable line, corrected profile text) have never been compiled | Add a `gui` job on a macOS runner that has an Xcode supporting the project's Swift settings (type-level `nonisolated` needs Swift 6.2 or later): `xcodebuild -project gui/Mimi/Mimi.xcodeproj -scheme Mimi -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO test`. Select the Xcode version explicitly so the job does not change when the runner image does. Fix whatever the first run reports | Small, plus whatever the first compile finds | Nothing |
+| O-2 | `DEVELOPMENT_TEAM` is hard-coded in `project.pbxproj`, so nobody else can build the app without editing the project | Move signing settings into `gui/Mimi/Config/Signing.xcconfig`, which optionally includes an untracked `Local.xcconfig` holding the team id. Commit a `Local.xcconfig.example`. CI builds unsigned (O-1) | Small | Put your team id in your own `Local.xcconfig` once |
+| O-3 | The engine fallback uses `#filePath`, which embeds the build machine's source path in release builds | Wrap the repository-root fallback in `#if DEBUG`. Release builds find the engine only inside the app bundle or in Homebrew's standard paths | Small | Nothing |
+| O-4 | Stopping a system-wide LaunchAgent covers only the user who ran `sudo`; other logged-in users keep it running until they log out | In `mimi-root-apply`, stop the agent in every GUI session: find each logged-in user by their `loginwindow` process (`ps -axo uid=,comm=`) and run `launchctl bootout gui/<uid>/<label>` for each. Add a root-helper test with a mocked `ps` listing two sessions | Small | Nothing |
+| O-5 | The root launcher is compiled on the user's Mac during `--install`: it needs Xcode command-line tools, and the compile trusts whatever is in the user-writable source folder | Two steps. **Now:** compile with a cleared environment (`env -i PATH=/usr/bin:/bin /usr/bin/cc …`) so `DEVELOPER_DIR`, `SDKROOT` and similar cannot redirect the compiler, and say plainly in `--install` output which files are being trusted. **Later:** build a universal launcher in the release workflow, sign it with a Developer ID and notarize it, and have `--install` copy that binary after `codesign --verify --strict` and a check that its Team ID matches a constant in the helper. No compiler is needed then | Now: small. Later: medium | Later step only: an Apple Developer ID certificate and notarization credentials stored as GitHub secrets. Without them, only the first step can be done |
+| O-6 | `EXIT_FAILURE` and `EXIT_PARTIAL` are both 3, so a script cannot tell "some items failed" from "the work could not be done at all" | Give `EXIT_FAILURE` its own code, 8 (a plan that could not be saved, a quarantine run that could not be created, a failed Homebrew hand-off). Keep 3 for partial runs. Document it in the help, man page, README and USAGE, and note it in the changelog as a change scripts may need to follow | Small | Agree to the exit-code change, since it reverses DEC-063 |
+| O-7 | When a test loads the engine into the test shell, `log_init` replaces bats' own exit trap, so a failing test there can vanish instead of reporting "not ok" (CI showed "Executed 609 instead of expected 610") | Have `log_init` and the menu keep any exit trap that was already installed and run it after `_cleanup_on_exit`, instead of replacing it. Add a test that a failing assertion after `log_init` is still reported | Small | Nothing |
+| O-8 | `CLI_IMPLEMENTATION_SCRATCHPAD.md` is over 1,700 lines, which buries the active checklist | Move completed phases to `docs/archive/CLI_IMPLEMENTATION_LOG_2026-09.md` unchanged, and keep the current focus, open tasks and the decision log in the scratchpad with a link to the archive | Small (docs only) | Nothing |
+| O-9 | The test suite only runs on macOS, the slowest CI runner, and needs BSD `stat` and `date` | Add `lib/core/platform.sh` with small wrappers (`file_identity`, `file_mode`, `file_mtime`, `epoch_to_iso`) used everywhere instead of calling `stat -f` and `date -r` directly, then add a Linux CI job for the tests that do not need macOS tools. Optional: the macOS job already covers everything | Medium, touches many call sites | Decide whether it is worth it now |
+
+Recommended order: O-7 and O-1 first (they make CI trustworthy and prove the Swift changes compile), then O-3, O-2, O-4, O-6, the first step of O-5, and O-8. O-9 and the second step of O-5 only if you want them.

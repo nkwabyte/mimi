@@ -53,10 +53,23 @@ and a release tag must match it.
 - One mutating run at a time: a second `clean`, `apply`, `restore`, `purge`
   or uninstall exits 7 while another holds the lock.
 - New exit code 6 for a refused plan (was 1).
+- New exit code 8 when the work could not be done at all (a plan that could
+  not be saved, a quarantine run that could not be created, a failed Homebrew
+  or vendor uninstaller hand-off). These exited 3 before, the same as a run
+  where some items failed; scripts that treat 3 as "could not run" should
+  also check for 8.
+- Root helper: a system-wide LaunchAgent is stopped in every logged-in GUI
+  session, not only the session of the user who ran `sudo`. `--install`
+  compiles the launcher from a root-owned copy of its source with an empty
+  environment, and names the files it trusts.
+- The GUI keeps its source-path fallbacks (`#filePath`) in Debug builds only.
+  Its signing team moved to an untracked `gui/Mimi/Config/Local.xcconfig`.
 - Warnings and errors go to stderr; logs are private (0700/0600); colours
   honour `NO_COLOR`; warnings are also sent as JSON `warning` events.
-- CI runs on `dev`, lints every module and the root helper, and compiles the
-  launcher.
+- CI runs on `dev`, lints every module and the root helper, compiles the
+  launcher, and builds the GUI and runs its unit tests.
+- A test that loads the engine into its own shell keeps the test runner's
+  exit trap, so a failure there is reported instead of vanishing.
 
 ### Removed
 

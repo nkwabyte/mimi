@@ -46,6 +46,29 @@ jobs:
             ${{ runner.temp }}/**/clean-*.log
           retention-days: 7
 
+  gui:
+    name: GUI build and unit tests
+    runs-on: macos-26
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # The project needs Xcode 26 or later (Swift 6.2 isolation settings)
+      # and keeps the Xcode 16 project format. Pick the newest installed
+      # Xcode by name so a change of the image's default does not change
+      # this job.
+      - name: Select Xcode
+        run: |
+          xcode="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+
+      - name: Build and test
+        run: |
+          xcodebuild -project gui/Mimi/Mimi.xcodeproj -scheme Mimi \
+            -destination 'platform=macOS' -only-testing:MimiTests \
+            CODE_SIGNING_ALLOWED=NO test
+
   static-checks:
     name: Static Analysis & Style
     runs-on: ubuntu-latest
