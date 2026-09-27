@@ -206,9 +206,11 @@ ident_of() { /usr/bin/stat -f '%d:%i' "$1" 2>/dev/null; }
 # by root and not world-writable, so nobody else can swap a parent between
 # the checks and the move.
 _parents_trusted() {
-  local dir owner mode stop="${P:-/}"
+  local dir owner mode
   dir="$(/usr/bin/dirname "$1")"
-  while [ -n "$dir" ] && [ "$dir" != "/" ] && [ "$dir" != "$stop" ]; do
+  # Candidate paths are canonical, so the test prefix is compared in both
+  # spellings (/var/folders is /private/var/folders on macOS).
+  while [ -n "$dir" ] && [ "$dir" != "/" ] && [ "$dir" != "${P:-/}" ] && [ "$dir" != "${P_CANON:-/}" ]; do
     [ ! -L "$dir" ] || return 1
     owner="$(owner_of "$dir")" || return 1
     mode="$(/usr/bin/stat -f '%Lp' "$dir" 2>/dev/null)" || return 1

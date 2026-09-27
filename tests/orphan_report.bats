@@ -450,7 +450,7 @@ orphan_run_id() {
   printf '<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.zzqqxx9.agent</string></dict></plist>\n' \
     > "$FAKE_HOME/Library/LaunchAgents/com.zzqqxx9.agent.plist"
   export MOCK_CALL_LOG="$TEST_TMPDIR/calls"
-  run_clean --clean --yes --only orphans --remove-orphans
+  run_clean --clean --yes --only orphans --remove-orphans --include-weak
   [ "$status" -eq 0 ]
   [ ! -e "$FAKE_HOME/Library/LaunchAgents/com.zzqqxx9.agent.plist" ]
   grep -q "launchctl bootout gui/.*/com.zzqqxx9.agent" "$MOCK_CALL_LOG"
