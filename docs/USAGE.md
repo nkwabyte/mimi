@@ -141,7 +141,7 @@ Free space before: 48G  ->  after: 67G
 For maximum safety and reproducibility, `mimi` provides an immutable plan/apply workflow with automatic quarantine and rollback.
 
 ### `mimi plan`
-Discovers cleanup candidates according to your selected categories and writes an immutable, SHA-256 digested execution plan (`schemas/plan-v1.json`) with restricted `0600` permissions. Nothing is deleted or modified.
+Discovers cleanup candidates according to your selected categories and writes an execution plan (`schemas/plan-v1.json`, schema 3) with restricted `0600` permissions, valid for 24 hours. Its SHA-256 digest covers the header and every action, so any edit is detected. Nothing is deleted or modified, and no cleanup command runs: a category that cleans with its own tool (`brew`, `npm`, `simctl`, `docker`, …) is recorded as one `tool_cleanup` action.
 ```bash
 mimi plan --only caches
 # or specify an exact output file:
@@ -154,17 +154,28 @@ Preflights the execution plan (digest over the whole file, schema version, user,
 mimi apply ~/.config/mimi/plans/plan-20260924-120000-1234.json
 ```
 
+A refused plan exits `6` and changes nothing. Space moved to quarantine is
+reported separately from space freed. Quarantine runs are excluded from Time
+Machine and Spotlight and are released after `--quarantine-days` (default 7,
+`0` keeps them until you purge).
+
 ### `mimi restore <run-id>`
 Restores a previously quarantined run back to the original filesystem locations, verifying destination availability and file identities.
 ```bash
-mimi restore run-20260924-120000-1234
+mimi restore plan-20260924-120000-1234
 ```
 
+A run's id is the plan id for `apply`, `orphans-<timestamp>` for
+`--remove-orphans`. `mimi history` lists every run that can still be restored.
+
 ### `mimi purge <run-id>`
-Permanently deletes the quarantine directory for a specified run after explicit confirmation.
+Permanently deletes the quarantine directory for a specified run. Irreversible: it needs the typed word `purge` at a terminal, or `--force-risky purge`.
 ```bash
-mimi purge run-20260924-120000-1234
+mimi purge plan-20260924-120000-1234 --force-risky purge
 ```
+
+Only one run that changes files at a time: a second `clean`, `apply`,
+`restore`, `purge` or uninstall exits `7` while another holds the lock.
 
 ---
 
@@ -272,18 +283,20 @@ estimate, and both separately from what is retained.
 
 ### `mimi app uninstall <target>`
 
-Removes an application by **moving it to quarantine**, never by deleting it.
-The target resolves exactly like `app inspect`.
+Removes an application and its remnant files **permanently**. Nothing goes to
+quarantine, so an uninstall cannot be restored. The target resolves exactly
+like `app inspect`.
 
 ```bash
-mimi app uninstall Slack                    # asks once whether to include user data
-mimi app uninstall Slack --purge-data       # bundle + LaunchAgents + attributable data
+mimi app uninstall Slack                    # bundle + LaunchAgents + attributable data
 mimi app uninstall Slack --keep-data        # bundle + LaunchAgents only
-mimi app uninstall Slack --plan-only        # write the plan; nothing moves
-mimi apply ~/.config/mimi/plans/uninstall-<id>.json
-mimi restore uninstall-<id>                 # undo, until…
-mimi purge uninstall-<id>                   # …you release the space for good
+mimi app uninstall Slack --plan-only        # write the plan; nothing is removed
+mimi apply ~/.config/mimi/plans/uninstall-<id>.json --force-risky uninstall
 ```
+
+Because deletion is irreversible, it needs you to type `uninstall` at a
+terminal, or `--force-risky uninstall`. `--yes` alone cannot approve it, and
+that holds for a saved uninstall plan run with `mimi apply` as well.
 
 What happens, in order:
 
@@ -291,20 +304,23 @@ What happens, in order:
    signature that contradicts it, symlinked bundles, and anything that is not
    an `.app` directly in an application folder (or one vendor folder down)
    are refused.
-2. **Plan.** LaunchAgents that belong to the app, then the bundle, then — if
-   included — attributable user data. Everything the evidence could not
-   attribute (weak, shared, conflicting, system locations) and any data you
-   chose to keep is written into the plan as **kept**. The plan is saved
-   `0600` and is valid for 24 hours.
+2. **Plan.** LaunchAgents that belong to the app, then the bundle, then its
+   attributable user data (unless `--keep-data`). Everything the evidence
+   could not attribute (weak, shared, conflicting, system locations) is
+   written into the plan as **kept**. The plan is saved `0600` and is valid
+   for 24 hours.
 3. **Preflight.** The saved plan file — not an in-memory copy — goes through
-   the same checks as `mimi apply`: digest, expiry, user, and file identity.
-   An edited plan, or a bundle replaced since planning, is refused.
+   the same checks as `mimi apply`: digest, expiry, user, host and file
+   identity. When a saved plan is applied later, the app's data is also
+   attributed again, and any action that is no longer attributable refuses
+   the plan (exit `6`). An edited plan, or a bundle replaced since planning,
+   is refused.
 4. **Running app.** It is asked to quit normally, so it can offer to save.
    If it is still running after 10 seconds (often a save dialog), force-quitting
    needs a person at the terminal or `--force-risky app-terminate`. `--yes`
-   cannot approve it: quarantine can bring files back, not unsaved work.
-5. **Apply.** Each LaunchAgent is stopped (`launchctl bootout gui/<uid>/<Label>`)
-   and moved, then the bundle, then the data.
+   cannot approve it: unsaved work cannot be brought back.
+5. **Delete.** Each LaunchAgent is stopped (`launchctl bootout gui/<uid>/<Label>`)
+   and deleted, then the bundle, then the data. Freed space is measured.
 6. **Verify.** The bundle is gone, every kept item is still there, and
    anything attributable that is still present is reported as a leftover
    (exit `3`).
@@ -312,17 +328,9 @@ What happens, in order:
 The run is recorded in `~/.config/mimi/history.jsonl`. `--json` streams the
 same protocol events as `apply`.
 
-**User data by default.** At a terminal you are asked once. Without one, or
-with `--yes`, user data is kept and the run tells you to pass `--purge-data`.
 Your documents are never part of an uninstall: only Library locations the
-evidence ties to the app are candidates.
-
-**Restore** puts the bundle and data back as the same files. Running it
-twice is harmless. If the app was reinstalled in the meantime, the original
-path is never overwritten: the quarantined copy stays put and the run says so.
-Restored LaunchAgents start at your next login (or with
-`launchctl bootstrap gui/$(id -u) <plist>`), and a restored app re-registers
-its login items when it is next opened.
+evidence ties to the app are candidates, and shared items (App Group
+containers, vendor folders another app uses) are always kept.
 
 **System items (`--system`).** LaunchDaemons, system-wide LaunchAgents, and
 privileged helper tools belong to root, so the normal uninstall only reports
@@ -330,14 +338,17 @@ them. `--system` prepares their removal without mimi ever running as root:
 
 ```bash
 mimi app uninstall Docker --system          # or the bundle id, once the app is gone
-sudo "/path/to/mimi/libexec/mimi-root-apply" ~/.config/mimi/system-requests/<id>.request
-sudo "/path/to/mimi/libexec/mimi-root-apply" --restore sys-<run-id>
-sudo "/path/to/mimi/libexec/mimi-root-apply" --purge   sys-<run-id>
+sudo /usr/local/libexec/mimi/mimi-root-launch ~/.config/mimi/system-requests/<id>.request
+sudo /usr/local/libexec/mimi/mimi-root-launch --restore sys-<run-id>
+sudo /usr/local/libexec/mimi/mimi-root-launch --purge   sys-<run-id>
 ```
 
 It also covers what an Installer package put on disk for the app (the app
 itself if the package installed it, support folders, tools in
-`/usr/local`), as long as no other installed package shares it. The package
+`/usr/local`), as long as no other installed package shares it and every
+folder above it is root-owned and not world-writable. Kernel, system, and
+driver extensions are reported, never moved: macOS or the vendor unloads
+those. The package
 receipt is forgotten (`pkgutil --forget`) only at `--purge`, once every file
 of the package is gone.
 
@@ -348,13 +359,20 @@ sudo "/path/to/mimi/libexec/mimi-root-apply" --install      # root-owned copy in
 sudo /usr/local/libexec/mimi/mimi-root-apply --uninstall-tool # remove it again
 ```
 
-mimi uses that copy while it matches the installed version and tells you
-when a `brew upgrade` made it out of date.
+`--install` also compiles `mimi-root-launch`, the program `sudo` actually
+runs: it finds the helper from its own resolved location (never from how it
+was invoked) and starts it with a fixed environment. The compile needs the
+Xcode command-line tools; it runs on a root-owned copy of the source with an
+empty environment, and `--install` names the two files it is trusting, so
+run it from a copy you have checked. mimi prints a `sudo`
+command only for that installed launcher, while the installed helper matches
+this version, and tells you when a `brew upgrade` made it out of date.
 
 mimi lists what is attributable and what is related but *not* attributable,
 writes a request (valid for an hour), and prints the exact `sudo` command.
 The root tool — one standalone file — works out the items again itself,
-shows them, asks you to type the bundle id, stops each job, and moves the
+shows them, asks you to type the bundle id, stops each job (a system-wide
+LaunchAgent in every logged-in user's session, not only yours), and moves the
 files into a root-only quarantine that `--restore` undoes. An item needs two
 independent signals to be attributable (its name or its
 `AssociatedBundleIdentifiers`, plus the program it runs), and anything shared
@@ -572,6 +590,7 @@ enough to run that category — you do not also need `--only`.
 
 | Flag | Effect |
 |---|---|
+| `--include-weak` | With `--remove-orphans`: move the `[weak]` guesses too. |
 | `--remove-orphans-from <file>` | Remove exactly the paths listed in a review file produced by `--include-orphans`. The file must still carry its `# mimi-orphan-review v1` header, `#` comments a line out only in the first column, and each path must resolve to a direct child of a scanned orphan location. Refused lines are reported with a reason code. |
 
 ### Applications
@@ -587,7 +606,7 @@ enough to run that category — you do not also need `--only`.
 |---|---|
 | `--jsonl`, `--json` | Emit structured JSON Lines events to stdout for machine integration (protocol v1). Diagnostics go to stderr. |
 | `--request-id <id>` | Correlation ID for protocol v1 events. |
-| `--no-color` | Suppress ANSI color escape codes in terminal output. |
+| `--no-color` | Suppress ANSI color escape codes in terminal output. Colours are also off when stdout is not a terminal or `NO_COLOR` is set. |
 | `--no-prompt` | Do not prompt interactively; exit `5` immediately if confirmation or authorization is missing. |
 
 ### Exit codes
@@ -601,6 +620,7 @@ enough to run that category — you do not also need `--only`.
 | `5` | A required confirmation was declined, or could not be obtained at all |
 | `6` | `apply` refused the plan: edited, expired, from another user or Mac, or selecting more than mimi would now |
 | `7` | Another mimi run is changing files right now |
+| `8` | The work could not be done at all: a plan could not be saved, a quarantine run could not be created, or a hand-off to Homebrew or a vendor uninstaller failed |
 
 `2` is deliberately unused — too many tools read it as "usage", and invalid
 usage here is already `1`.
@@ -711,7 +731,7 @@ explains the fix.
 | `sim-stale` | risky | Simulator devices unused for `--sim-stale-days`. Booted and never-booted devices are always kept. | `--include-sim-stale` |
 | `android` | risky | Android system images no AVD references, plus AVDs unused for `--android-stale-days`. Confirms per AVD. | `--include-android` |
 | `trash` | irreversible | Empties `~/.Trash`. Irreversible. | `--include-trash` |
-| `orphans` | irreversible | Leftovers no installed app or tool claims. Reports; with `--remove-orphans` (or ticked in the menus) moves them all to quarantine — see [its section](#possible-app-leftovers). | `--include-orphans` |
+| `orphans` | irreversible | Leftovers no installed app or tool claims. Reports; with `--remove-orphans` (or ticked in the menus) moves the `[strong]` ones to quarantine — see [its section](#possible-app-leftovers). | `--include-orphans` |
 | `ios-backups` | irreversible | Local iPhone/iPad backups in MobileSync. Confirms per backup with size and date. | `--include-ios-backups` |
 
 ### What `browsers` and `electron` touch
@@ -782,7 +802,8 @@ mimi --cleaner --whitelist ~/Dev --whitelist ~/Documents   # repeatable
 ```
 
 Whitelisted paths are reported as `whitelisted, skipped:` so you can see the
-protection working.
+protection working. A folder being cleared that *contains* a whitelisted path
+is cleaned around it: that entry stays, its siblings go.
 
 ### Presets
 
@@ -923,6 +944,7 @@ prefer.
 | `TMP_STALE_DAYS` | Same as `--tmp-stale-days` |
 | `KEEP_TOOLCHAINS` | Same as `--keep-toolchains` |
 | `KEEP_LOGS` | Same as `--keep-logs` |
+| `QUARANTINE_KEEP_DAYS` | Same as `--quarantine-days` |
 | `WHITELIST` | Comma-separated whitelist entries, merged with any `--whitelist` |
 | `SELECTED_CATEGORIES` | Comma-separated ids. Replaces the built-in defaults; `--only` still overrides it |
 
@@ -939,7 +961,8 @@ Every run writes a full transcript to:
 ```
 
 It includes the stderr of every delegated command (`brew`, `docker`, `npm`…),
-which is where to look when a category reports less than you expected. **View
+which is where to look when a category reports less than you expected. The
+folder is `0700` and each transcript `0600`: they list paths in your home. **View
 most recent log** in the interactive menu tails the newest one.
 
 **The log directory is self-limiting.** A tool for removing junk should not
@@ -1036,6 +1059,10 @@ needed.
 The check happens **before any category runs**, so an unauthorized scripted
 run costs nothing rather than stopping part-way through.
 
+`mimi apply` asks the same questions for the categories in the plan, once per
+category, and a saved uninstall plan needs the `uninstall` confirmation
+(typed, or `--force-risky uninstall`). `mimi purge` needs `purge`.
+
 These prompts apply to command-line runs. In the interactive menus the
 category selection answers all of them; see [Choose categories](#choose-categories).
 
@@ -1056,7 +1083,13 @@ category selection answers all of them; see [Choose categories](#choose-categori
 - **Destructive categories are opt-in and confirmed**, per item where the
   items are individually meaningful (backups, AVDs, Simulator devices).
 - **The whitelist is checked on every single path**, including each entry
-  inside a directory being cleared.
+  inside a directory being cleared, and a folder that contains a
+  whitelisted path is never removed whole.
+- **Plans only select.** `mimi plan` changes nothing and runs no cleanup
+  command; `mimi apply` re-derives every action and refuses anything mimi
+  would not pick now.
+- **One run at a time.** Runs that change files take a lock; a second one
+  exits `7`.
 - **Nothing is silently skipped.** Unreadable paths, whitelisted paths,
   running apps and items spared by an age threshold are all reported with a
   reason.
@@ -1092,6 +1125,13 @@ snapshots are only actually released on restart.
 kept; the rest are pruned at the start of each run. Raise the number, or use
 `--no-log` to keep none.
 
-**Undo** — there is none. `--scan` first, whitelist what matters, and note
-that `trash` and `ios-backups` in particular are genuinely irreversible —
-which is why `--yes` cannot authorize either of them.
+**Undo** — `mimi apply` and `--remove-orphans` move files to a quarantine
+run that `mimi restore <run-id>` puts back, until it is purged or released
+after `--quarantine-days`. A plain `--cleaner` run and `mimi app uninstall`
+delete directly. `--scan` first, whitelist what matters, and note that
+`trash`, `ios-backups` and uninstall are genuinely irreversible — which is why
+`--yes` cannot authorize them.
+
+**"another mimi run … is changing files"** — exit `7`. Wait for the other run
+(the GUI, a cron job, another terminal) to finish. A lock left by a run that
+no longer exists is taken over automatically.

@@ -36,7 +36,8 @@ prune_old_logs() {
 
 # Single exit path: restore the cursor if a TUI screen was up, and drop the
 # scratch log if --no-log was used. Installed by both log_init and tui_begin
-# so whichever runs first wins and neither clobbers the other.
+# through install_exit_trap, so whichever runs first wins and neither
+# clobbers the other.
 _cleanup_on_exit() {
   tui_end 2>/dev/null
   run_unlock
@@ -61,8 +62,37 @@ log_init() {
   # EXIT is cleanup. INT/TERM must NOT exit here: being killed partway through
   # an rm is exactly how a half-removed tree and a wrong total happen, so the
   # handler raises a flag and every action checks it before starting.
-  trap '_cleanup_on_exit' EXIT
+  install_exit_trap
   trap '_on_interrupt' INT TERM
+}
+
+# Install the exit handler without dropping one that was already there (a
+# test harness loading the engine into its own shell relies on its trap to
+# report the result). The earlier handler runs afterwards with the original
+# exit status. Only the shell that loaded the engine can have one: in a
+# subshell `trap -p` still prints the parent's traps although none is
+# active, and running the parent's handler there would run it twice.
+_PRIOR_EXIT_TRAP=""
+_MIMI_LOAD_LEVEL="$BASH_SUBSHELL"
+install_exit_trap() {
+  local current
+  if [ "$BASH_SUBSHELL" = "$_MIMI_LOAD_LEVEL" ]; then
+    current="$(trap -p EXIT)"
+    case "$current" in
+      *_mimi_on_exit*) return 0 ;;
+      # `trap -p` prints `trap -- '<command>' EXIT`; the command is word three.
+      ?*) eval "_keep_prior_trap $current" ;;
+    esac
+  fi
+  trap '_mimi_on_exit' EXIT
+}
+_keep_prior_trap() { _PRIOR_EXIT_TRAP="$3"; }
+_mimi_on_exit() {
+  local rc=$?
+  _cleanup_on_exit
+  [ -n "$_PRIOR_EXIT_TRAP" ] && [ "$BASH_SUBSHELL" = "$_MIMI_LOAD_LEVEL" ] || return "$rc"
+  (exit "$rc")
+  eval "$_PRIOR_EXIT_TRAP"
 }
 
 # One mutating run at a time per user: a GUI scan, a terminal clean, and an

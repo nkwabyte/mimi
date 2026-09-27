@@ -289,6 +289,8 @@ EXIT CODES:
   5 a required confirmation was declined or could not be obtained
   6 a plan was refused (stale, expired, edited, or selects more than mimi would)
   7 another mimi run is changing files
+  8 the work could not be done at all (plan not saved, quarantine not
+    created, Homebrew or vendor uninstaller failed)
 
 EXAMPLES:
   mimi                                   # scan only, see what would be freed
