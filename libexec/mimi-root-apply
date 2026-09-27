@@ -648,14 +648,36 @@ read_request() {
   [ "${#REQ_SELECT[@]}" -gt 0 ] || die "request selects nothing"
 }
 
-stop_job() {
-  local kind="$1" label="$2" domain
-  if [ "$kind" = daemon ]; then domain="system"; else domain="gui/${SUDO_UID:-$EUID_NOW}"; fi
+# Users with a GUI session: each runs its own loginwindow. A system-wide
+# LaunchAgent is loaded once per session, so it has to be stopped in each.
+gui_session_uids() {
+  {
+    printf '%s\n' "${SUDO_UID:-$EUID_NOW}"
+    ps -axo uid=,comm= 2>/dev/null | awk '{
+      uid = $1; sub(/^[ ]*[0-9]+[ ]+/, "")
+      if (uid ~ /^[0-9]+$/ && $0 ~ /(^|\/)loginwindow$/) print uid
+    }'
+  } | sort -un
+}
+
+stop_in_domain() {
+  local domain="$1" label="$2"
   if launchctl bootout "$domain/$label" > /dev/null 2>&1; then
     say "  stopped $domain/$label"
   elif launchctl print "$domain/$label" > /dev/null 2>&1; then
     warn "could not stop $domain/$label; it stays loaded until restart"
   fi
+}
+
+stop_job() {
+  local kind="$1" label="$2" uid
+  if [ "$kind" = daemon ]; then
+    stop_in_domain system "$label"
+    return 0
+  fi
+  for uid in $(gui_session_uids); do
+    stop_in_domain "gui/$uid" "$label"
+  done
 }
 
 cmd_apply() {
@@ -883,12 +905,24 @@ cmd_install() {
 
   # The program sudo actually runs. It starts this script with a fixed
   # environment, so BASH_ENV and SHELLOPTS never reach bash.
-  local launch_src launch_tmp launch_dst
+  local launch_src launch_tmp launch_dst launch_c
   launch_src="$(/usr/bin/dirname "$self")/mimi-root-launch.c"
   launch_dst="$HARDENED_DIR/mimi-root-launch"
   launch_tmp="$HARDENED_DIR/.mimi-root-launch.$$"
+  launch_c="$HARDENED_DIR/.mimi-root-launch.$$.c"
   [ -f "$launch_src" ] || die "launcher source missing: $launch_src"
-  /usr/bin/cc -O2 -o "$launch_tmp" "$launch_src" || die "could not compile the launcher (need a C compiler)"
+  say "trusting the files this was run from:"
+  say "  $self"
+  say "  $launch_src"
+  # Compile a copy in the root-owned folder, so the source cannot change
+  # between the copy and the compile, with an empty environment, so
+  # DEVELOPER_DIR, SDKROOT and the like cannot point the compiler elsewhere.
+  /bin/cp "$launch_src" "$launch_c" || die "could not copy the launcher source"
+  /usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/cc -O2 -o "$launch_tmp" "$launch_c" || {
+    /bin/rm -f "$launch_c" "$launch_tmp"
+    die "could not compile the launcher (need the Xcode command-line tools)"
+  }
+  /bin/rm -f "$launch_c"
   /bin/chmod 0755 "$launch_tmp"
   if [ "$TEST_MODE" != 1 ]; then
     /usr/sbin/chown root:wheel "$launch_tmp" || die "could not chown the launcher"

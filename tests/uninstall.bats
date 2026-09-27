@@ -1009,7 +1009,7 @@ assert rec["type"] == "cask-uninstall" and rec["exit"] == 0 and rec["zap"] == 1,
   create_app "$FAKE_HOME/Applications/Broken Cask.app" "Broken Cask" "com.example.broken" "1.0"
   export MOCK_FAIL_CMDS="brew uninstall*"
   run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Broken Cask.app" --cask --yes --force-risky uninstall
-  [ "$status" -eq 3 ]
+  [ "$status" -eq 8 ]
   ! echo "$output" | grep -q "unbound variable"
   echo "$output" | grep -q "Homebrew cask uninstall failed"
   grep -q '"type":"cask-uninstall","status":"failed"' "$FAKE_HOME/.config/mimi/history.jsonl"
