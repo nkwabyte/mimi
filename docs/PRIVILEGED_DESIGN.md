@@ -146,6 +146,7 @@ plan-bound operations.
 
 ## 7. What was built (first slice)
 
+- `libexec/mimi-root-launch` is the program `sudo` runs. It execs `mimi-root-apply` in the same directory with `bash --noprofile --norc` and a fixed environment, so `BASH_ENV` and `SHELLOPTS` from the caller are not applied. `sudo mimi-root-apply --install` compiles that launcher next to the root-owned script.
 - `libexec/mimi-root-apply` (standalone; sources nothing): `--candidates`
   (no root needed), apply a request, `--restore`, `--purge`, `--runs`.
   Scope: `/Library/LaunchDaemons`, `/Library/LaunchAgents`,

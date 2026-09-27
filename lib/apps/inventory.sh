@@ -494,7 +494,9 @@ app_detect_uninstaller() {
 #   resolve — identity only (Info.plist, provenance by receipt/cask). No du,
 #             codesign, pkgutil, or nested-component walk. Used for target
 #             resolution and sibling indexing.
-#   list    — adds size, signing, and receipts (what `apps list` shows).
+#   pick    — signing and receipts, no recursive size. What the app picker
+#             and the human `apps list` use.
+#   list    — pick, plus an exact bundle size (JSON `apps list`).
 #   full    — everything, including architecture, nested components, and the
 #             vendor uninstaller (what `app inspect` shows).
 
@@ -650,9 +652,12 @@ app_inspect_bundle() {
         ;;
     esac
 
-    # Size
-    APP_INFO_SIZE_KB="$(dir_size_kb "$APP_INFO_CANONICAL_PATH")"
-    [ -n "$APP_INFO_SIZE_KB" ] || APP_INFO_SIZE_KB=0
+    # Size is the expensive part of a listing (one du per bundle) and the
+    # human table does not show it. Only list and full measure it.
+    if [ "$depth" = "list" ] || [ "$depth" = "full" ]; then
+      APP_INFO_SIZE_KB="$(dir_size_kb "$APP_INFO_CANONICAL_PATH")"
+      [ -n "$APP_INFO_SIZE_KB" ] || APP_INFO_SIZE_KB=0
+    fi
   fi
 
   # Provenance facts. Every applicable fact is recorded; the primary label
@@ -787,6 +792,13 @@ _app_in_bundle_dir() {
 
 inventory_scan_apps() {
   local depth="${1:-list}"
+
+  # The receipt-to-app table is built once here, in this process. Per-app
+  # lookups run in a subshell and would otherwise rebuild the whole package
+  # database for every application.
+  if [ "$depth" != "resolve" ]; then
+    receipt_app_table || true
+  fi
 
   APP_INV_PATHS=()
   APP_INV_NAMES=()
@@ -984,9 +996,19 @@ mimi_apps_list() {
     die_usage "--source must be one of: $APP_SOURCE_VALUES (got '$source_filter')"
   fi
 
-  inventory_scan_apps list
+  # Discover and classify first. Exact sizes are measured afterwards, and
+  # only for the rows JSON will print, so --source does not du apps it hides.
+  inventory_scan_apps pick
 
   if [ "${JSONL_ENABLED:-0}" -eq 1 ]; then
+    local si
+    for ((si = 0; si < APP_INV_COUNT; si++)); do
+      if [ "$source_filter" != "all" ] && [ "${APP_INV_SOURCES[$si]}" != "$source_filter" ]; then
+        continue
+      fi
+      APP_INV_SIZES[$si]="$(dir_size_kb "${APP_INV_PATHS[$si]}")"
+      [ -n "${APP_INV_SIZES[$si]}" ] || APP_INV_SIZES[$si]=0
+    done
     printf '{\n'
     printf '  "schema": "mimi.apps-list/1",\n'
     printf '  "source_filter": "%s",\n' "$(json_escape "$source_filter")"

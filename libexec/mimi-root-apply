@@ -88,6 +88,8 @@ LD="$P/Library/LaunchDaemons"
 LA="$P/Library/LaunchAgents"
 HT="$P/Library/PrivilegedHelperTools"
 QROOT="$P/Library/Application Support/mimi/quarantine"
+# Filled in after canon_nofollow is defined. Empty when there is no test prefix.
+P_CANON=""
 HARDENED_DIR="$P/usr/local/libexec/mimi"
 HARDENED="$HARDENED_DIR/mimi-root-apply"
 
@@ -200,6 +202,55 @@ id_match() {
 
 ident_of() { /usr/bin/stat -f '%d:%i' "$1" 2>/dev/null; }
 owner_of() { /usr/bin/stat -f '%u' "$1" 2>/dev/null; }
+
+# Canonical path. Intermediate symlinks are followed so a link planted in a
+# parent cannot point a lexical "/usr/local/..." path somewhere else. The
+# final component is not followed: the object itself is what would be moved.
+# Returns non-zero on a symlink loop.
+canon_nofollow() {
+  local input="$1" rest comp next link resolved="" hops=0
+  case "$input" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  rest="${input#/}"
+  while [ -n "$rest" ]; do
+    comp="${rest%%/*}"
+    if [ "$comp" = "$rest" ]; then
+      rest=""
+    else
+      rest="${rest#*/}"
+    fi
+    case "$comp" in
+      ""|".") continue ;;
+      "..") resolved="${resolved%/*}"; continue ;;
+    esac
+    next="$resolved/$comp"
+    if [ -z "$rest" ]; then
+      resolved="$next"
+      break
+    fi
+    if [ -L "$next" ]; then
+      hops=$((hops + 1))
+      [ "$hops" -le 40 ] || return 1
+      link="$(/usr/bin/readlink "$next" 2>/dev/null)" || return 1
+      [ -n "$link" ] || return 1
+      case "$link" in
+        /*) resolved=""; rest="${link#/}${rest:+/$rest}" ;;
+        *) rest="$link${rest:+/$rest}" ;;
+      esac
+      continue
+    fi
+    resolved="$next"
+  done
+  printf '%s' "${resolved:-/}"
+}
+
+# Physical prefix. Receipt paths are judged after symlink resolution, so the
+# prefix they are stripped against has to be physical too.
+if [ -n "$P" ]; then
+  P_CANON="$(canon_nofollow "$P")" || P_CANON="$P"
+fi
 
 cand_id() {
   local h
@@ -341,14 +392,40 @@ _derive_launchd() {
 }
 
 # Payload paths may only be acted on inside these roots (test prefix aside).
+# The argument must already be canonical (canon_nofollow). A lexical prefix
+# match is not enough: "/usr/local/../../etc/passwd" starts with /usr/local.
 payload_allowed() {
-  local r="${1#"$P"}"
+  local r="$1"
+  if [ -n "$P_CANON" ]; then
+    case "$r" in
+      "$P_CANON"/*) r="${r#"$P_CANON"}" ;;
+      *) return 1 ;;
+    esac
+  fi
   case "$r" in
     /Library/Apple|/Library/Apple/*|/Library/Developer/CommandLineTools*) return 1 ;;
     /Library/LaunchDaemons/*|/Library/LaunchAgents/*|/Library/PrivilegedHelperTools/*) return 1 ;;
     /Applications/?*|/Library/?*|/usr/local/?*|/opt/?*) return 0 ;;
   esac
   return 1
+}
+
+# True when a receipt-relative entry cannot escape its install location by
+# spelling. Absolute entries and ".", "..", and empty components are refused.
+receipt_rel_ok() {
+  local rel="$1" comp rest
+  case "$rel" in
+    ""|/*) return 1 ;;
+  esac
+  rest="$rel"
+  while [ -n "$rest" ]; do
+    comp="${rest%%/*}"
+    if [ "$comp" = "$rest" ]; then rest=""; else rest="${rest#*/}"; fi
+    case "$comp" in
+      ""|"."|"..") return 1 ;;
+    esac
+  done
+  return 0
 }
 
 # "<pkg>\t<absolute path>" for every third-party receipt, into FILE.
@@ -360,8 +437,17 @@ _receipt_index() {
     case "$pkg" in com.apple.*) continue ;; esac
     loc="$(pkgutil --pkg-info "$pkg" 2>/dev/null | /usr/bin/sed -n 's/^location: //p')"
     loc="${loc#/}"; loc="${loc%/}"
-    pkgutil --files "$pkg" 2>/dev/null | /usr/bin/awk -v id="$pkg" -v b="$P${loc:+/$loc}" \
-      'NF { sub(/^\.\//, ""); print id "\t" b "/" $0 }' >> "$out"
+    receipt_rel_ok "$loc" || [ -z "$loc" ] || continue
+    pkgutil --files "$pkg" 2>/dev/null | /usr/bin/awk -v id="$pkg" -v b="$P${loc:+/$loc}" '
+      NF {
+        sub(/^\.\//, "")
+        if ($0 ~ /^\//) next
+        n = split($0, c, "/")
+        bad = 0
+        for (i = 1; i <= n; i++) if (c[i] == "" || c[i] == "." || c[i] == "..") bad = 1
+        if (bad) next
+        print id "\t" b "/" $0
+      }' >> "$out"
   done < <(pkgutil --pkgs 2>/dev/null)
 }
 
@@ -407,7 +493,7 @@ _attributed_pkgs() {
 }
 
 _derive_payload() {
-  local bid="$1" w idx pkg loc items next owners item depth attr_list
+  local bid="$1" w idx pkg loc items next owners item depth attr_list canon
   w="$(work_dir)"
   idx="$w/index"
   _receipt_index "$idx"
@@ -446,11 +532,14 @@ _derive_payload() {
           fi
           continue
         fi
-        payload_allowed "$item" || { [ -e "$item" ] && _near "$item" "outside the roots mimi may change"; continue; }
-        [ -e "$item" ] || [ -L "$item" ] || continue
-        if [ -L "$item" ]; then _near "$item" "symlink"; continue; fi
-        if [ "$(owner_of "$item")" != "$OWNER_UID" ]; then _near "$item" "not owned by root"; continue; fi
-        _add "payload" "$item" "$pkg" "installed by package $pkg, owned by no other package"
+        # Judge the resolved path, not the spelling in the receipt.
+        canon="$(canon_nofollow "$item" 2>/dev/null || true)"
+        if [ -z "$canon" ]; then _near "$item" "could not resolve"; continue; fi
+        payload_allowed "$canon" || { _near "$item" "outside the roots mimi may change"; continue; }
+        [ -e "$canon" ] || [ -L "$canon" ] || continue
+        if [ -L "$canon" ]; then _near "$canon" "symlink"; continue; fi
+        if [ "$(owner_of "$canon")" != "$OWNER_UID" ]; then _near "$canon" "not owned by root"; continue; fi
+        _add "payload" "$canon" "$pkg" "installed by package $pkg, owned by no other package"
       done < "$w/items"
       /bin/mv -f "$w/next" "$w/items"
       depth=$((depth + 1))
@@ -592,8 +681,14 @@ cmd_apply() {
         job:daemon|job:agent|helper:helper|payload:payload) ;;
         *) continue ;;
       esac
-      local path="${C_PATHS[$j]}" dest kind_ok=1
+      local path="${C_PATHS[$j]}" dest kind_ok=1 now=""
       if [ "$k" = payload ]; then
+        now="$(canon_nofollow "$path" 2>/dev/null || true)"
+        if [ -z "$now" ] || [ "$now" != "$path" ] || ! payload_allowed "$now"; then
+          warn "changed since it was listed, skipped: $path"
+          failed=$((failed + 1))
+          continue
+        fi
         [ -f "$path" ] || [ -d "$path" ] || kind_ok=0
       else
         [ -f "$path" ] || kind_ok=0
@@ -645,9 +740,13 @@ cmd_restore() {
     [ -n "$orig" ] || continue
     case "$orig" in
       "$LD"/*|"$LA"/*|"$HT"/*) ;;
-      *) if [ "$kind" != payload ] || ! payload_allowed "$orig"; then
-           warn "manifest names an unexpected path, skipped: $orig"; failed=$((failed + 1)); continue
-         fi ;;
+      *)
+        local restored_as
+        restored_as="$(canon_nofollow "$orig" 2>/dev/null || true)"
+        if [ "$kind" != payload ] || [ -z "$restored_as" ] || [ "$restored_as" != "$orig" ] || ! payload_allowed "$restored_as"; then
+          warn "manifest names an unexpected path, skipped: $orig"; failed=$((failed + 1)); continue
+        fi
+        ;;
     esac
     if [ ! -e "$q" ]; then
       if [ -e "$orig" ] && [ "$(ident_of "$orig")" = "$ident" ]; then say "  already restored: $orig"; continue; fi
@@ -745,7 +844,22 @@ cmd_install() {
   fi
   /bin/mv -f "$tmp" "$HARDENED" || die "install failed"
   /usr/bin/cmp -s "$self" "$HARDENED" || die "the installed copy does not match"
+
+  # The program sudo actually runs. It starts this script with a fixed
+  # environment, so BASH_ENV and SHELLOPTS never reach bash.
+  local launch_src launch_tmp launch_dst
+  launch_src="$(/usr/bin/dirname "$self")/mimi-root-launch.c"
+  launch_dst="$HARDENED_DIR/mimi-root-launch"
+  launch_tmp="$HARDENED_DIR/.mimi-root-launch.$$"
+  [ -f "$launch_src" ] || die "launcher source missing: $launch_src"
+  /usr/bin/cc -O2 -o "$launch_tmp" "$launch_src" || die "could not compile the launcher (need a C compiler)"
+  /bin/chmod 0755 "$launch_tmp"
+  if [ "$TEST_MODE" != 1 ]; then
+    /usr/sbin/chown root:wheel "$launch_tmp" || die "could not chown the launcher"
+  fi
+  /bin/mv -f "$launch_tmp" "$launch_dst" || die "could not install the launcher"
   say "installed $HARDENED (owner $(/usr/bin/stat -f '%Su' "$HARDENED"), mode $(/usr/bin/stat -f '%Lp' "$HARDENED"))"
+  say "installed $launch_dst"
 }
 
 cmd_uninstall_tool() {
@@ -753,7 +867,7 @@ cmd_uninstall_tool() {
   if [ ! -e "$HARDENED" ]; then
     say "no installed copy at $HARDENED"
   else
-    /bin/rm -f -- "$HARDENED" || die "could not remove $HARDENED"
+    /bin/rm -f -- "$HARDENED" "$HARDENED_DIR/mimi-root-launch" || die "could not remove $HARDENED"
     /bin/rmdir "$HARDENED_DIR" 2>/dev/null || true
     say "removed $HARDENED"
   fi
@@ -774,6 +888,11 @@ cmd_runs() {
       "$(/usr/bin/grep -c . "$d/manifest.tsv" 2>/dev/null || echo 0)"
   done
 }
+
+# Tests set this to force the ownership check without being real root.
+if [ "${MIMI_ROOT_CHECK_TRUST:-0}" = 1 ]; then
+  require_root
+fi
 
 case "${1:-}" in
   --candidates)

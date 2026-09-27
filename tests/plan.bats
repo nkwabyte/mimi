@@ -26,7 +26,7 @@ load 'test_helper'
   /usr/bin/python3 -c '
 import sys, json
 data = json.loads(sys.stdin.read())
-assert data["schema_version"] == 1
+assert data["schema_version"] == 2
 assert data["plan_id"] == "test-plan-001"
 assert data["summary"]["total_candidates"] == 2
 assert data["summary"]["total_bytes"] == 3072
@@ -140,7 +140,7 @@ assert data["plan_id"] == "test-plan-save"
 
   plan_load "$plan_file"
   [ "$PLAN_ID" = "plan-roundtrip" ]
-  [ "$PLAN_SCHEMA_VERSION" = "1" ]
+  [ "$PLAN_SCHEMA_VERSION" = "2" ]
   [ "${#PLAN_ACTIONS[@]}" -eq 1 ]
   [ -n "$PLAN_DIGEST" ]
 }
@@ -294,7 +294,53 @@ assert data["plan_id"] == "test-plan-save"
   plan_build ""
   plan_save "$TEST_TMPDIR/odd.json"
   plan_preflight "$TEST_TMPDIR/odd.json"
-  [ "${PLAN_ACTIONS[0]#*::*::*::}" != "${PLAN_ACTIONS[0]}" ]
-  local p="${PLAN_ACTIONS[0]#*::*::*::}"; p="${p%%::*}"
-  [ "$p" = "$odd" ]
+  plan_read_record "${PLAN_ACTIONS[0]}"
+  [ "$PLAN_F_PATH" = "$odd" ]
+  [ "$PLAN_F_EVID" = 'evidence with "quotes"' ]
+}
+
+@test "plan: a path containing :: does not shift the later fields" {
+  load_lib
+  LOG_FILE="$TEST_TMPDIR/test.log"; : > "$LOG_FILE"
+  local weird="$FAKE_HOME/Library/Caches/a::b"
+  mkdir -p "$weird"
+  plan_init "plan-colon"
+  plan_add_action "act-1" "caches" "remove_path" "$weird" "ident-keep" 10 "safe" "evidence"
+  plan_save "$TEST_TMPDIR/colon.json"
+  plan_init "blank"
+  plan_load "$TEST_TMPDIR/colon.json"
+  plan_read_record "${PLAN_ACTIONS[0]}"
+  [ "$PLAN_F_PATH" = "$weird" ]
+  [ "$PLAN_F_IDENT" = "ident-keep" ]
+  [ "$PLAN_F_OP" = "remove_path" ]
+  [ "$PLAN_F_BYTES" = "10" ]
+}
+
+@test "quarantine: purge and restore refuse a dot run id" {
+  load_lib
+  LOG_FILE="$TEST_TMPDIR/test.log"; : > "$LOG_FILE"
+  mkdir -p "$QUARANTINE_DIR/keep"
+  printf 'marker\n' > "$QUARANTINE_DIR/keep/marker"
+  run quarantine_purge_run "."
+  [ "$status" -ne 0 ]
+  [ -f "$QUARANTINE_DIR/keep/marker" ]
+  run quarantine_restore_run "."
+  [ "$status" -ne 0 ]
+  [ -f "$QUARANTINE_DIR/keep/marker" ]
+}
+
+@test "quarantine: restore will not move a path named outside the run" {
+  load_lib
+  LOG_FILE="$TEST_TMPDIR/test.log"; : > "$LOG_FILE"
+  mkdir -p "$QUARANTINE_DIR/run-ok" "$FAKE_HOME/Library/Caches"
+  printf 'secret\n' > "$FAKE_HOME/secret"
+  local ident
+  ident="$(stat -f '%d:%i' "$FAKE_HOME/secret")"
+  printf '{"action_id":"a","category":"caches","original_path":"%s","quarantine_path":"%s","identity":"%s","bytes":1,"quarantined_at":"t"}\n' \
+    "$FAKE_HOME/Library/Caches/landed" "$FAKE_HOME/secret" "$ident" \
+    > "$QUARANTINE_DIR/run-ok/manifest.jsonl"
+  run quarantine_restore_run "run-ok"
+  [ "$status" -ne 0 ]
+  [ -f "$FAKE_HOME/secret" ]
+  [ ! -e "$FAKE_HOME/Library/Caches/landed" ]
 }

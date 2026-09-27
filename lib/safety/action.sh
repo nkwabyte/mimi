@@ -105,6 +105,32 @@ fs_remove() {
   return 1
 }
 
+# Permanently delete one planned uninstall target. The bundle uses the
+# narrow app rule; everything else uses the normal path gate. A missing
+# target is success: there is nothing left to wipe.
+plan_wipe_target() {
+  local cat="$1" raw="$2" ident="$3" canon now
+  if [ "$cat" = "uninstall-app" ]; then
+    uninstall_authorize_bundle "$raw" || return 1
+    canon="$UNINSTALL_CANONICAL"
+  else
+    canon="$(path_authorize "$raw")" || return 1
+  fi
+  if is_whitelisted "$canon"; then
+    warn "whitelisted, left in place: $canon"
+    return 1
+  fi
+  if [ ! -e "$canon" ] && [ ! -L "$canon" ]; then
+    return 0
+  fi
+  now="$(path_identity "$canon" 2>/dev/null || true)"
+  if [ -n "$ident" ] && [ "$ident" != "unknown" ] && [ -n "$now" ] && [ "$now" != "$ident" ]; then
+    warn "target changed since it was planned, skipped: $raw"
+    return 1
+  fi
+  fs_remove "$canon"
+}
+
 # One place that turns an fs_remove outcome into a message and a count.
 report_action() {
   local what="$1" bytes="${2:-0}"
@@ -269,7 +295,7 @@ clear_dir_contents() {
     return 1
   fi
 
-  local failed=0
+  local failed=0 entry_ident parent_now
   for entry in "$canon"/* "$canon"/.[!.]* "$canon"/..?*; do
     # A signal during a long directory stops the next entry, rather than the
     # process being killed partway through removing one.
@@ -290,6 +316,16 @@ clear_dir_contents() {
     if is_whitelisted "$entry_canon"; then
       record_action skipped
       verbose "whitelisted entry, kept: $entry"
+      continue
+    fi
+    # Re-stat immediately before the delete. A child or the directory that
+    # was swapped for a symlink since authorization is skipped. This does
+    # not close a swap that happens inside rm itself.
+    entry_ident="$(path_identity "$entry" 2>/dev/null || true)"
+    parent_now="$(path_identity "$canon" 2>/dev/null || true)"
+    if [ -z "$entry_ident" ] || [ "$parent_now" != "$ident" ]; then
+      record_action skipped
+      warn "entry changed since it was checked, skipped: $entry"
       continue
     fi
     verbose "removing: $entry"

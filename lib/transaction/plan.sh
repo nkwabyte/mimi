@@ -5,7 +5,7 @@
 # Sourced by lib/load.sh; never executed on its own. Defines functions and
 # plan state helpers conforming to schemas/plan-v1.json.
 
-PLAN_SCHEMA_VERSION=1
+PLAN_SCHEMA_VERSION=2
 PLAN_ID=""
 PLAN_CREATED_AT=""
 PLAN_EXPIRES_AT=""
@@ -55,10 +55,50 @@ plan_candidate_id() {
 # emit a JSON candidate event do not compute it a second time.
 PLAN_LAST_CID=""
 
+# Length-prefixed fields. A value may contain "::" or any other character;
+# the length, not a separator, says where the next field starts.
+plan_pack() {
+  local out="" f
+  for f in "$@"; do
+    out="${out}${#f}:${f}"
+  done
+  printf '%s' "$out"
+}
+
+plan_unpack() {
+  local s="$1" n
+  PLAN_FIELDS=()
+  while [ -n "$s" ]; do
+    n="${s%%:*}"
+    case "$n" in
+      ""|*[!0-9]*) return 1 ;;
+    esac
+    s="${s#*:}"
+    PLAN_FIELDS+=("${s:0:$n}")
+    s="${s:$n}"
+  done
+  return 0
+}
+
+# Eight fields: id, category, operation, path, identity, bytes, risk, evidence.
+plan_read_record() {
+  plan_unpack "$1" || return 1
+  [ "${#PLAN_FIELDS[@]}" -eq 8 ] || return 1
+  PLAN_F_ID="${PLAN_FIELDS[0]}"
+  PLAN_F_CAT="${PLAN_FIELDS[1]}"
+  PLAN_F_OP="${PLAN_FIELDS[2]}"
+  PLAN_F_PATH="${PLAN_FIELDS[3]}"
+  PLAN_F_IDENT="${PLAN_FIELDS[4]}"
+  PLAN_F_BYTES="${PLAN_FIELDS[5]}"
+  PLAN_F_RISK="${PLAN_FIELDS[6]}"
+  PLAN_F_EVID="${PLAN_FIELDS[7]}"
+  return 0
+}
+
 plan_candidate_add() {
   local cat="$1" op="$2" p="$3" ident="$4" bytes="${5:-0}" risk="${6:-safe}" evid="${7:-}"
   PLAN_LAST_CID="$(plan_candidate_id "$cat" "$p")"
-  PLAN_CANDIDATES+=("${PLAN_LAST_CID}::${cat}::${op}::${p}::${ident}::${bytes}::${risk}::${evid}")
+  PLAN_CANDIDATES+=("$(plan_pack "$PLAN_LAST_CID" "$cat" "$op" "$p" "$ident" "$bytes" "$risk" "$evid")")
 }
 
 # True when discovered candidates are needed: building a plan, or streaming
@@ -77,20 +117,21 @@ plan_build() {
 
   local item cid cat op p ident bytes risk evid act_id
   for item in "${PLAN_CANDIDATES[@]}"; do
-    cid="${item%%::*}"
+    plan_read_record "$item" || continue
+    cid="$PLAN_F_ID"
     if [ -n "$selected_cids" ]; then
       case ",${selected_cids}," in
         *",${cid},"*) ;;
         *) continue ;;
       esac
     fi
-    cat="${item#*::}"; cat="${cat%%::*}"
-    op="${item#*::*::}"; op="${op%%::*}"
-    p="${item#*::*::*::}"; p="${p%%::*}"
-    ident="${item#*::*::*::*::}"; ident="${ident%%::*}"
-    bytes="${item#*::*::*::*::*::}"; bytes="${bytes%%::*}"
-    risk="${item#*::*::*::*::*::*::}"; risk="${risk%%::*}"
-    evid="${item##*::}"
+    cat="$PLAN_F_CAT"
+    op="$PLAN_F_OP"
+    p="$PLAN_F_PATH"
+    ident="$PLAN_F_IDENT"
+    bytes="$PLAN_F_BYTES"
+    risk="$PLAN_F_RISK"
+    evid="$PLAN_F_EVID"
 
     printf -v act_id 'act-%04d' "$(( ${#PLAN_ACTIONS[@]} + 1 ))"
     plan_add_action "$act_id" "$cat" "$op" "$p" "$ident" "$bytes" "$risk" "$evid"
@@ -99,14 +140,11 @@ plan_build() {
 
 plan_add_action() {
   local action_id="$1" category="$2" operation="$3" target_path="$4" target_identity="$5" expected_bytes="${6:-0}" risk="${7:-safe}" evidence="${8:-}"
-  PLAN_ACTIONS+=("${action_id}::${category}::${operation}::${target_path}::${target_identity}::${expected_bytes}::${risk}::${evidence}")
+  PLAN_ACTIONS+=("$(plan_pack "$action_id" "$category" "$operation" "$target_path" "$target_identity" "$expected_bytes" "$risk" "$evidence")")
 }
 
-# SHA-256 over every action followed by a newline. The actions are streamed
-# into the hash rather than concatenated into one Bash string first: that
-# concatenation copied the growing string on every append and made a
-# 10,000-action plan take minutes. The bytes hashed are unchanged, so existing
-# plans keep their digests.
+# SHA-256 over every packed action followed by a newline. The actions are
+# streamed into the hash rather than concatenated into one Bash string first.
 plan_compute_digest() {
   _plan_digest_input | {
     if command -v shasum >/dev/null 2>&1; then
@@ -131,8 +169,9 @@ plan_serialize() {
 
   local item act_id cat op p ident bytes risk evid
   for item in "${PLAN_ACTIONS[@]}"; do
-    bytes="${item#*::*::*::*::*::}"; bytes="${bytes%%::*}"
-    risk="${item#*::*::*::*::*::*::}"; risk="${risk%%::*}"
+    plan_read_record "$item" || continue
+    bytes="$PLAN_F_BYTES"
+    risk="$PLAN_F_RISK"
     total_bytes=$((total_bytes + bytes))
     case "$risk" in
       safe) safe_cnt=$((safe_cnt + 1)) ;;
@@ -167,14 +206,15 @@ plan_serialize() {
 
   local i=0
   for item in "${PLAN_ACTIONS[@]}"; do
-    act_id="${item%%::*}"
-    cat="${item#*::}"; cat="${cat%%::*}"
-    op="${item#*::*::}"; op="${op%%::*}"
-    p="${item#*::*::*::}"; p="${p%%::*}"
-    ident="${item#*::*::*::*::}"; ident="${ident%%::*}"
-    bytes="${item#*::*::*::*::*::}"; bytes="${bytes%%::*}"
-    risk="${item#*::*::*::*::*::*::}"; risk="${risk%%::*}"
-    evid="${item##*::}"
+    plan_read_record "$item" || continue
+    act_id="$PLAN_F_ID"
+    cat="$PLAN_F_CAT"
+    op="$PLAN_F_OP"
+    p="$PLAN_F_PATH"
+    ident="$PLAN_F_IDENT"
+    bytes="$PLAN_F_BYTES"
+    risk="$PLAN_F_RISK"
+    evid="$PLAN_F_EVID"
 
     i=$((i + 1))
     local e_act e_cat e_op e_p e_ident e_risk e_evid
@@ -240,12 +280,10 @@ plan_load() {
       '"plan_id":'*)
         cur_id="${line#*: \"}"
         cur_id="${cur_id%\"*}"
-        case "$cur_id" in
-          */*|*..*|"")
-            err "plan_load: invalid plan_id: $cur_id"
-            return 1
-            ;;
-        esac
+        if ! mimi_id_ok "$cur_id"; then
+          err "plan_load: invalid plan_id: $cur_id"
+          return 1
+        fi
         ;;
       '"created_at":'*)
         cur_created="${line#*: \"}"
@@ -306,7 +344,7 @@ plan_load() {
             json_unescape_to ident "$ident"
             json_unescape_to risk "$risk"
             json_unescape_to evid "$evid"
-            PLAN_ACTIONS+=("${act_id}::${cat}::${op}::${p}::${ident}::${bytes}::${risk}::${evid}")
+            PLAN_ACTIONS+=("$(plan_pack "$act_id" "$cat" "$op" "$p" "$ident" "$bytes" "$risk" "$evid")")
           fi
           in_action=0
         fi
@@ -330,7 +368,7 @@ plan_load() {
 plan_validate_schema() {
   local file="$1"
   plan_load "$file" || return 1
-  [ "$PLAN_SCHEMA_VERSION" = "1" ] || return 1
+  [ "$PLAN_SCHEMA_VERSION" = "2" ] || return 1
 }
 
 plan_preflight() {
@@ -346,7 +384,7 @@ plan_preflight() {
   fi
 
   # 1. Schema version check
-  if [ "$PLAN_SCHEMA_VERSION" != "1" ]; then
+  if [ "$PLAN_SCHEMA_VERSION" != "2" ]; then
     err "plan preflight: unsupported plan schema version: $PLAN_SCHEMA_VERSION"
     return 1
   fi
@@ -379,11 +417,12 @@ plan_preflight() {
   local item act_id cat op p ident bytes risk evid
   local cur_ident canon
   for item in "${PLAN_ACTIONS[@]}"; do
-    act_id="${item%%::*}"
-    cat="${item#*::}"; cat="${cat%%::*}"
-    op="${item#*::*::}"; op="${op%%::*}"
-    p="${item#*::*::*::}"; p="${p%%::*}"
-    ident="${item#*::*::*::*::}"; ident="${ident%%::*}"
+    plan_read_record "$item" || return 1
+    act_id="$PLAN_F_ID"
+    cat="$PLAN_F_CAT"
+    op="$PLAN_F_OP"
+    p="$PLAN_F_PATH"
+    ident="$PLAN_F_IDENT"
 
     # Operation tool_cleanup might not have a target_path
     [ -z "$p" ] && continue

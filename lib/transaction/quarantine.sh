@@ -38,25 +38,39 @@ history_record() {
   return 0
 }
 
+# One grammar for plan ids and quarantine run ids. Rejects empty, ".",
+# "..", slashes, and anything outside [A-Za-z0-9._-]. ".." inside the id
+# is rejected too, so a name cannot be a traversal once it is joined.
+mimi_id_ok() {
+  local id="$1"
+  [ -n "$id" ] || return 1
+  [ "${#id}" -le 128 ] || return 1
+  case "$id" in
+    */*|*..*|.) return 1 ;;
+  esac
+  case "$id" in
+    *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  return 0
+}
+
+# The directory for a run id, or failure. It is a real directory, not a
+# symlink, and a direct child of the quarantine root.
+quarantine_run_dir() {
+  local id="$1" root dir
+  mimi_id_ok "$id" || return 1
+  root="${QUARANTINE_DIR%/}"
+  dir="$root/$id"
+  [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
+  [ "$(dirname "$dir")" = "$root" ] || return 1
+  printf '%s' "$dir"
+}
+
 quarantine_init_run() {
   local custom_id="${1:-}"
   if [ -n "$custom_id" ]; then
-    # F-08: reject path separators and traversal sequences before concatenating
-    # to QUARANTINE_DIR. The grammar allows the same characters plan_init uses
-    # (letters, digits, dot, hyphen, underscore) and nothing more.
-    case "$custom_id" in
-      */*|*..*|"."|"")  err "quarantine: invalid run id: $custom_id"; return 1 ;;
-    esac
-    # Reject characters outside [A-Za-z0-9._-] (no slashes, spaces, or shell
-    # metacharacters that could escape the quarantine directory boundary).
-    case "$custom_id" in
-      *[!A-Za-z0-9._-]*)
-        err "quarantine: run id contains invalid characters: $custom_id"
-        return 1
-        ;;
-    esac
-    if [ "${#custom_id}" -gt 128 ]; then
-      err "quarantine: run id too long (max 128): $custom_id"
+    if ! mimi_id_ok "$custom_id"; then
+      err "quarantine: invalid run id: $custom_id"
       return 1
     fi
     QUARANTINE_CURRENT_RUN_ID="$custom_id"
@@ -197,19 +211,38 @@ quarantine_restore_target() {
   return 1
 }
 
+# One JSON string field. Handles \" and \\. Prints the value, or fails
+# when the key is absent. Used for quarantine manifests, which are written
+# by us and must not be split on the first raw quote.
+_manifest_field() {
+  local line="$1" key="$2" rest val ch esc=0
+  rest="${line#*\""${key}"\":\"}"
+  [ "$rest" != "$line" ] || return 1
+  val=""
+  while [ -n "$rest" ]; do
+    ch="${rest:0:1}"
+    rest="${rest:1}"
+    if [ "$esc" = 1 ]; then
+      val="${val}${ch}"
+      esc=0
+      continue
+    fi
+    case "$ch" in
+      \\) esc=1 ;;
+      '"') printf '%s' "$val"; return 0 ;;
+      *) val="${val}${ch}" ;;
+    esac
+  done
+  return 1
+}
+
 quarantine_restore_run() {
   local run_id="$1"
-  case "$run_id" in
-    */*|*..*|"")
-      err "quarantine restore: invalid run id: $run_id"
-      return 1
-      ;;
-  esac
-  local run_dir="$QUARANTINE_DIR/$run_id"
-  if [ ! -d "$run_dir" ] || [ -L "$run_dir" ]; then
-    err "quarantine restore: run directory not found: $run_id"
+  local run_dir
+  run_dir="$(quarantine_run_dir "$run_id")" || {
+    err "quarantine restore: invalid run id: $run_id"
     return 1
-  fi
+  }
 
   local manifest="$run_dir/manifest.jsonl"
   if [ ! -f "$manifest" ]; then
@@ -221,14 +254,34 @@ quarantine_restore_run() {
   local act_id orig_path q_path ident now_ident
   while IFS= read -r line || [ -n "$line" ]; do
     [ -z "$line" ] && continue
-    orig_path="$(printf '%s' "$line" | sed -n 's/.*"original_path":"\([^"]*\)".*/\1/p')"
-    q_path="$(printf '%s' "$line" | sed -n 's/.*"quarantine_path":"\([^"]*\)".*/\1/p')"
-    ident="$(printf '%s' "$line" | sed -n 's/.*"identity":"\([^"]*\)".*/\1/p')"
-    act_id="$(printf '%s' "$line" | sed -n 's/.*"action_id":"\([^"]*\)".*/\1/p')"
+    orig_path="$(_manifest_field "$line" original_path || true)"
+    q_path="$(_manifest_field "$line" quarantine_path || true)"
+    ident="$(_manifest_field "$line" identity || true)"
+    act_id="$(_manifest_field "$line" action_id || true)"
 
-    if [ -z "$orig_path" ] || [ -z "$q_path" ]; then
+    if [ -z "$orig_path" ] || [ -z "$q_path" ] || [ -z "$ident" ] || [ "$ident" = "unknown" ]; then
+      warn "quarantine restore: manifest line is missing a path or an identity; skipped"
+      failed=$((failed + 1))
       continue
     fi
+    # The quarantined object must be a direct child of this run. A manifest
+    # that names some other file is not a restore.
+    local q_base
+    case "$q_path" in
+      "$run_dir"/*) q_base="${q_path#"$run_dir"/}" ;;
+      *)
+        warn "quarantine restore: source is not inside this run: $q_path"
+        failed=$((failed + 1))
+        continue
+        ;;
+    esac
+    case "$q_base" in
+      */*|.|..)
+        warn "quarantine restore: source is not a direct child of this run: $q_path"
+        failed=$((failed + 1))
+        continue
+        ;;
+    esac
 
     # Re-running restore is safe: an item already back where it belongs, as
     # the same object, is reported and skipped rather than counted as failed.
@@ -294,17 +347,11 @@ quarantine_restore_run() {
 
 quarantine_purge_run() {
   local run_id="$1"
-  case "$run_id" in
-    */*|*..*|"")
-      err "quarantine purge: invalid run id: $run_id"
-      return 1
-      ;;
-  esac
-  local run_dir="$QUARANTINE_DIR/$run_id"
-  if [ ! -d "$run_dir" ] || [ -L "$run_dir" ]; then
-    err "quarantine purge: run directory not found: $run_id"
+  local run_dir
+  run_dir="$(quarantine_run_dir "$run_id")" || {
+    err "quarantine purge: invalid run id: $run_id"
     return 1
-  fi
+  }
 
   if ! fs_remove "$run_dir"; then
     err "quarantine purge: failed to purge run directory: $run_dir"
