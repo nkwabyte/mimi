@@ -841,7 +841,7 @@ run_id_from() {
   local plan
   plan="$(plan_file_from "$output")"
   [ -f "$plan" ]
-  [ "$(stat -f '%Lp' "$plan")" = "600" ]
+  [ "$(file_mode "$plan")" = "600" ]
 
   run /bin/bash "$MIMI_BIN" apply "$plan" --yes --force-risky uninstall
   [ "$status" -eq 0 ]
@@ -868,7 +868,7 @@ run_id_from() {
   run /bin/bash "$MIMI_BIN" app uninstall "$app" --plan-only
   local plan
   plan="$(plan_file_from "$output")"
-  sed -i '' 's#"target_path": ".*Edited.app"#"target_path": "'"$FAKE_HOME"'/Documents"#' "$plan"
+  sed_i 's#"target_path": ".*Edited.app"#"target_path": "'"$FAKE_HOME"'/Documents"#' "$plan"
 
   run /bin/bash "$MIMI_BIN" apply "$plan" --yes
   [ "$status" -ne 0 ]
@@ -882,8 +882,10 @@ run_id_from() {
   run /bin/bash "$MIMI_BIN" app uninstall "$app" --plan-only
   local plan
   plan="$(plan_file_from "$output")"
+  # Made before the original goes, so it cannot reuse the original's inode.
+  create_app "$app.new" "Swapped" "com.example.swapped" "2.0"
   rm -rf "$app"
-  create_app "$app" "Swapped" "com.example.swapped" "2.0"
+  mv "$app.new" "$app"
 
   run /bin/bash "$MIMI_BIN" apply "$plan" --yes
   [ "$status" -ne 0 ]
@@ -892,6 +894,7 @@ run_id_from() {
 }
 
 @test "order: LaunchAgents are stopped and moved before the bundle" {
+  require_tool plutil
   local app="$FAKE_HOME/Applications/Ordered.app"
   create_app "$app" "Ordered" "com.example.ordered" "1.0"
   cat > "$FAKE_HOME/Library/LaunchAgents/com.example.ordered.helper.plist" <<PLIST

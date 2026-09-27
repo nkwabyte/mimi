@@ -375,11 +375,14 @@ write_review_unmarked() {
 
   # dir_size_kb is called once per queued item while the list is printed,
   # which is after validation and before the removal loop.
+  # The replacement is made before the original goes, so it cannot reuse the
+  # original's inode (Linux file systems hand a freed inode straight back).
   dir_size_kb() {
     if [ ! -f "$target/planted" ]; then
+      mkdir -p "$target.new"
+      printf 'planted\n' > "$target.new/planted"
       rm -rf "$target"
-      mkdir -p "$target"
-      printf 'planted\n' > "$target/planted"
+      mv "$target.new" "$target"
     fi
     printf '1'
   }

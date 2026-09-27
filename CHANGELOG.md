@@ -40,6 +40,9 @@ and a release tag must match it.
 - JSON output escapes every control character, so a file name holding ESC
   or 0x01 no longer produces invalid JSON (which ended the GUI's scan).
 - `pip` cleanup reported success without checking the command's result.
+- Package payload shared with another package listed its owners with a
+  leading comma under awks that create an array element before testing it
+  (mawk); the owner list no longer depends on evaluation order.
 
 ### Changed
 
@@ -70,6 +73,9 @@ and a release tag must match it.
   launcher, and builds the GUI and runs its unit tests.
 - A test that loads the engine into its own shell keeps the test runner's
   exit trap, so a failure there is reported instead of vanishing.
+- The test suite also runs on Linux CI. The BSD-only `stat` and `date`
+  flags moved into `lib/core/platform.sh`; tests that need macOS itself skip
+  on Linux.
 
 ### Removed
 

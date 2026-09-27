@@ -386,6 +386,7 @@ unlock() {
 # ---------------------------------------------------------------------------
 
 @test "path_is_sip_protected: true for a SIP-restricted system path, false for a user file" {
+  require_macos
   source_lib
   path_is_sip_protected /System/Library
   touch "$FAKE_HOME/plain"

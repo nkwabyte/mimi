@@ -9,6 +9,14 @@
 
 load 'test_helper'
 
+# The root helper is a macOS program (BSD stat, plutil, launchctl domains, the
+# launcher compile), so every test here skips on Linux CI.
+eval "_helper_$(declare -f setup)"
+setup() {
+  _helper_setup
+  require_macos
+}
+
 TOOL="$REPO_ROOT/libexec/mimi-root-apply"
 
 setup_root() {
@@ -130,7 +138,7 @@ apply() { run /bin/bash -c 'printf "%s\n" "$1" | "$2" "$3"' _ "$1" "$TOOL" "$REQ
   grep -q "launchctl bootout system/com.acme.app.helper" "$MOCK_CALL_LOG"
   local run_dir
   run_dir="$(ls -d "$R/Library/Application Support/mimi/quarantine"/sys-*)"
-  [ "$(stat -f '%Lp' "$run_dir")" = "700" ]
+  [ "$(file_mode "$run_dir")" = "700" ]
   [ "$(wc -l < "$run_dir/manifest.tsv" | tr -d ' ')" = 2 ]
   [ "$(head -1 "$run_dir/manifest.tsv" | cut -f1)" = daemon ]
 }
@@ -285,7 +293,7 @@ apply() { run /bin/bash -c 'printf "%s\n" "$1" | "$2" "$3"' _ "$1" "$TOOL" "$REQ
   ! echo "$output" | grep -q "sudo \".*\" \".*system-requests/.*\.request\""
   local req
   req="$(ls "$FAKE_HOME/.config/mimi/system-requests"/*.request)"
-  [ "$(stat -f '%Lp' "$req")" = 600 ]
+  [ "$(file_mode "$req")" = 600 ]
   [ "$(head -1 "$req")" = "mimi-root-request v1" ]
   grep -q '^bundle_id=com.acme.app$' "$req"
   [ "$(grep -c '^select=sys-' "$req")" = 2 ]
@@ -442,7 +450,7 @@ acme_pkg() {
   [ "$status" -eq 0 ]
   local h="$R/usr/local/libexec/mimi/mimi-root-apply"
   cmp -s "$TOOL" "$h"
-  [ "$(stat -f '%Lp' "$h")" = 755 ]
+  [ "$(file_mode "$h")" = 755 ]
 
   run "$TOOL" --uninstall-tool
   [ "$status" -eq 0 ]

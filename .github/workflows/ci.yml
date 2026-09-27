@@ -46,6 +46,26 @@ jobs:
             ${{ runner.temp }}/**/clean-*.log
           retention-days: 7
 
+  # The same suite on Linux with GNU tools and a newer bash: a faster second
+  # opinion, and a check that nothing depends on BSD-only flags outside
+  # lib/core/platform.sh. Tests that need macOS itself, or a macOS tool with
+  # no mock, skip here; the macOS job above runs all of them.
+  test-linux:
+    name: Tests (Linux, GNU tools)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install bats-core, zsh and ShellCheck
+        run: |
+          sudo apt-get update && sudo apt-get install -y bats zsh shellcheck
+          bats --version
+
+      - name: Run Bats test suite
+        run: |
+          ./tests/run < /dev/null
+
   gui:
     name: GUI build and unit tests
     runs-on: macos-26

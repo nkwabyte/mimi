@@ -14,7 +14,7 @@ source_lib() {
 
 # mdls date line for the mock, relative to now.
 days_ago() {
-  date -u -r "$(( $(date +%s) - $1 * 86400 ))" '+%Y-%m-%d %H:%M:%S +0000'
+  epoch_format "$(( $(date +%s) - $1 * 86400 ))" '+%Y-%m-%d %H:%M:%S +0000' -u
 }
 
 @test "large files: lists single files over the threshold, largest first, and removes nothing" {
