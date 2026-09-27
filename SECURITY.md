@@ -32,7 +32,8 @@ Operations are classified into four distinct confirmation classes:
 - **`irreversible`**: Permanent, non-recoverable actions (e.g. macOS Trash, iOS device backups, orphan file removal). Requires explicit opt-in flags AND `--force-risky <name>`. `--yes` alone will never approve risky or irreversible work.
 
 ### 6. Privilege Model
-- `mimi` never requires `sudo` or root privileges. It must run exclusively with normal user privileges.
+- Everyday cleaning runs as the current user. It does not call `sudo`.
+- System-scope uninstall is separate. `mimi app uninstall <app> --system` only writes a request and prints a `sudo` command for `libexec/mimi-root-apply`. That helper is not safe to treat as finished: it can still be pointed at a user-writable copy. The fix order is [docs/SECURITY_REMEDIATION_PLAN.md](docs/SECURITY_REMEDIATION_PLAN.md). Until that plan's first phases land, do not build a GUI button that runs it.
 
 ## Reporting a Vulnerability
 

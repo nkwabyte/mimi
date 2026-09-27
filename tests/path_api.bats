@@ -692,3 +692,27 @@ real() {
   [ -f "$base/keep/data" ]
   [ ! -e "$base/keep2/data" ]
 }
+
+@test "path: a mode 700 temp parent is allowed and a mode 702 parent is not" {
+  source_lib
+  local parent="$TEST_TMPDIR/mode-parent" canon found=0 r
+  mkdir -p "$parent/T"
+  chmod 700 "$parent"
+  TMPDIR="$parent/T/"
+  _PATH_ROOTS_READY=0
+  path_init_roots
+  canon="$(path_canonicalize "$parent")"
+  for r in "${PATH_ALLOWED_ROOTS[@]}"; do
+    [ "$r" = "$canon" ] && found=1
+  done
+  [ "$found" -eq 1 ]
+
+  chmod 702 "$parent"
+  _PATH_ROOTS_READY=0
+  path_init_roots
+  found=0
+  for r in "${PATH_ALLOWED_ROOTS[@]}"; do
+    [ "$r" = "$canon" ] && found=1
+  done
+  [ "$found" -eq 0 ]
+}

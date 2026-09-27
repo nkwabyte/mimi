@@ -21,6 +21,9 @@ SUBCOMMANDS:
   apply <plan-file>       Validate and execute a plan using atomic quarantine.
   restore <run-id>        Restore a previously quarantined run to original paths.
   purge <run-id>          Permanently remove a quarantined run.
+  history [--limit N]     What mimi has done (uninstalls, hand-offs, system
+                          requests) and which quarantine runs can be restored.
+                          --json emits schemas/history-v1.json.
   apps [list] [options]   Inventory installed applications (read-only).
                           --source all|app|cask|mas|pkg|system   Filter by provenance.
                           --app-root DIR  Inventory DIR instead (repeatable).
@@ -29,13 +32,11 @@ SUBCOMMANDS:
                           (read-only). Target resolves by exact path, bundle ID,
                           cask token, then name; ambiguity stops with the choices.
                           --json emits schemas/app-inspect-v1.json.
-  app uninstall <target>  Uninstall an app (bundle + optional user data) via plan/quarantine.
+  app uninstall <target>  Delete an app and its attributable files. This is permanent.
                           Target: app name, bundle ID, cask token, or exact path.
-                          Everything goes to a quarantine run (mimi restore undoes it).
-                          --keep-data   Bundle and LaunchAgents only; user data is kept.
-                          --purge-data  Also quarantine all attributable user data.
-                          (default)     Asks once whether to include user data;
-                                        without a terminal, or with --yes, keeps it.
+                          Shared, system, and weakly matched files are kept.
+                          --keep-data   Delete only the bundle and its LaunchAgents.
+                          --purge-data  Same as the default (attributable data is deleted).
                           --plan-only   Save the plan; apply later with `mimi apply`.
                           --cask        Hand the uninstall to Homebrew (cask apps only).
                           --system      System LaunchDaemons, LaunchAgents, and helper

@@ -1143,3 +1143,45 @@ mock_receipt() {
   [ "$status" -eq 0 ]
   [ "$(echo "$output" | json_eval 'd["resolution"]["method"]')" = "bundle_id" ]
 }
+
+@test "resolve: a bundle id found by Spotlight is resolved without a full inventory" {
+  local app="$FAKE_HOME/Applications/Fast.app"
+  create_app "$app" "Fast" "com.example.fast" "1.0"
+  printf '%s|com.example.fast\n' "$(canon "$app")" > "$TEST_TMPDIR/index"
+  export MOCK_APP_INDEX="$TEST_TMPDIR/index"
+  source_lib
+  APP_SEARCH_ROOTS=("$FAKE_HOME/Applications")
+  APP_ROOTS_EXPLICIT=0
+  APP_INV_SCANNED=0
+  resolve_app_target com.example.fast
+  [ "$RESOLVED_APP_PATH" = "$(canon "$app")" ]
+  [ "$RESOLVED_APP_METHOD" = "bundle_id" ]
+  [ "$APP_INV_SCANNED" = 0 ]
+}
+
+@test "resolve: two copies found by Spotlight fall back to the inventory and stop as ambiguous" {
+  create_app "$FAKE_HOME/Applications/Twin1.app" "Twin" "com.example.twins" "1.0"
+  mkdir -p "$FAKE_HOME/Applications/Old"
+  create_app "$FAKE_HOME/Applications/Old/Twin2.app" "Twin" "com.example.twins" "0.9"
+  printf '%s|com.example.twins\n%s|com.example.twins\n' "$(canon "$FAKE_HOME/Applications/Twin1.app")" \
+    "$(canon "$FAKE_HOME/Applications/Old/Twin2.app")" > "$TEST_TMPDIR/index"
+  export MOCK_APP_INDEX="$TEST_TMPDIR/index"
+  source_lib
+  APP_SEARCH_ROOTS=("$FAKE_HOME/Applications")
+  APP_ROOTS_EXPLICIT=0
+  run resolve_app_target com.example.twins
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "ambiguous"
+}
+
+@test "resolve: a Spotlight hit whose Info.plist says otherwise is not trusted" {
+  local app="$FAKE_HOME/Applications/Liar.app"
+  create_app "$app" "Liar" "com.example.real" "1.0"
+  printf '%s|com.example.claimed\n' "$(canon "$app")" > "$TEST_TMPDIR/index"
+  export MOCK_APP_INDEX="$TEST_TMPDIR/index"
+  source_lib
+  APP_SEARCH_ROOTS=("$FAKE_HOME/Applications")
+  APP_ROOTS_EXPLICIT=0
+  run _resolve_bundle_id_fast com.example.claimed
+  [ "$status" -ne 0 ]
+}

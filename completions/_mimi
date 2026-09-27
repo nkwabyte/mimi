@@ -1,0 +1,92 @@
+#compdef mimi
+#
+# zsh completion for mimi. Installed by the Homebrew formula; from a source
+# checkout: fpath=(/path/to/mimi/completions $fpath); autoload -U compinit; compinit
+
+local -a categories subcommands forceable
+categories=(browsers electron dev-caches caches tmp logs diagnostics dsstore quicklook xcode-derived xcode-archives sim-caches sim-unavailable device-support homebrew homebrew-old npm yarn pnpm cocoapods gradle pip timemachine docker docker-cache mail trash orphans whatsapp sim-stale claude-cache android ide-stale ml-caches ios-backups toolchains)
+forceable=(docker mail trash orphans sim-stale android ios-backups app-terminate vendor-uninstaller)
+subcommands=(
+  'scan:report reclaimable space (default, deletes nothing)'
+  'clean:remove junk, with confirmation'
+  'plan:write an immutable plan without changing anything'
+  'apply:apply a plan through quarantine'
+  'restore:put a quarantine run back'
+  'purge:permanently delete a quarantine run'
+  'history:what mimi did and what can be restored'
+  'apps:inventory installed applications'
+  'app:inspect or uninstall one application'
+)
+
+_mimi_runs() {
+  local -a runs
+  runs=(${HOME}/.config/mimi/quarantine/*(N/:t))
+  _describe 'quarantine run' runs
+}
+
+_arguments -C -s \
+  '1: :->cmd' \
+  '*:: :->args' \
+  '--only[run only these categories]:categories:_values -s , category $categories' \
+  '--skip[skip these categories]:categories:_values -s , category $categories' \
+  '--profile[category profile]:profile:(safe developer aggressive list)' \
+  '--whitelist[protect a path or identifier]:path:_files' \
+  '--whitelist-preset[apply a whitelist preset]:preset:(xcode-simulator xcode-derived node browsers ml)' \
+  '--force-risky[authorize risky/irreversible actions by name]:action:_values -s , action $forceable' \
+  '--source[apps list: filter by provenance]:source:(all app cask mas pkg system)' \
+  '--app-root[application folder to inventory]:folder:_directories' \
+  '--remove-orphans-from[remove paths listed in a review file]:file:_files' \
+  '--plan-out[where to write the plan]:file:_files' \
+  '--limit[history: records to show]:number:' \
+  '--large-file-mb[report: minimum file size]:MB:' \
+  '--downloads-stale-days[report: days since last opened]:days:' \
+  '--keep-device-support[DeviceSupport versions to keep]:number:' \
+  '--sim-stale-days[simulator staleness threshold]:days:' \
+  '--android-stale-days[AVD staleness threshold]:days:' \
+  '--tmp-stale-days[temp file age threshold]:days:' \
+  '--keep-toolchains[toolchain versions to keep]:number:' \
+  '--keep-logs[run logs to keep]:number:' \
+  '--request-id[protocol correlation id]:id:' \
+  '(--clean --cleaner)'{--clean,--cleaner}'[actually delete]' \
+  '--scan[report only (default)]' \
+  '--plan[write a plan]' \
+  '--report[where the disk space went]' \
+  '--list[list categories]' \
+  '(-y --yes)'{-y,--yes}'[answer recoverable prompts]' \
+  '(-v --verbose)'{-v,--verbose}'[verbose output]' \
+  '(-i --interactive)'{-i,--interactive}'[interactive menus]' \
+  '(-h --help)'{-h,--help}'[help]' \
+  '(-V --version)'{-V,--version}'[version]' \
+  '(--json --jsonl)'{--json,--jsonl}'[machine-readable output]' \
+  '--no-color[no ANSI colours]' \
+  '--no-prompt[never prompt]' \
+  '--no-log[do not keep a run log]' \
+  '--aggressive[prune harder]' \
+  '--keep-data[app uninstall: keep user data]' \
+  '--purge-data[app uninstall: include user data]' \
+  '--plan-only[app uninstall: write the plan only]' \
+  '--cask[app uninstall: hand off to Homebrew]' \
+  '--zap[app uninstall: Homebrew --zap]' \
+  '--vendor-uninstaller[app uninstall: launch the verified vendor uninstaller]' \
+  '--system[app uninstall: system items via the root tool]' \
+  '--remove-orphans[quarantine every leftover found]' \
+  '--app-target[application target]:app:_files' \
+  '--apply[apply a plan]:plan:_files' \
+  '--restore[restore a run]:run:_mimi_runs' \
+  '--purge[purge a run]:run:_mimi_runs' \
+  '--include-android' '--include-caches' '--include-claude-cache' '--include-device-support' \
+  '--include-docker' '--include-docker-cache' '--include-homebrew-old' '--include-ide-stale' \
+  '--include-ios-backups' '--include-logs' '--include-mail' '--include-ml-caches' \
+  '--include-orphans' '--include-sim-stale' '--include-timemachine' '--include-toolchains' \
+  '--include-trash' '--include-whatsapp' && return
+
+case $state in
+  cmd) _describe 'command' subcommands ;;
+  args)
+    case $words[1] in
+      apply) _files ;;
+      restore|purge) _mimi_runs ;;
+      app) (( CURRENT == 2 )) && _values 'action' inspect uninstall list || _files -g '*.app(-/)' ;;
+      apps) _values 'action' list ;;
+    esac ;;
+esac

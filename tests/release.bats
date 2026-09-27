@@ -153,6 +153,18 @@ release() { run /bin/bash -c 'cd "$1" && shift && /bin/bash scripts/release.sh "
   ! grep -q -E 'gh (pr create|pr merge|release create)' "$GH_LOG"
 }
 
+@test "release: a tag is exactly vX.Y.Z" {
+  run "$REPO_ROOT/scripts/validate-tag.sh" v1.2.3
+  [ "$status" -eq 0 ]
+  [ "$output" = "1.2.3" ]
+  run "$REPO_ROOT/scripts/validate-tag.sh" 'v1.2.3;echo pwned'
+  [ "$status" -ne 0 ]
+  run "$REPO_ROOT/scripts/validate-tag.sh" "$(printf 'v1.2.3\nevil')"
+  [ "$status" -ne 0 ]
+  run "$REPO_ROOT/scripts/validate-tag.sh" v1.2
+  [ "$status" -ne 0 ]
+}
+
 @test "release: without a terminal it asks for --yes instead of pushing" {
   release minor --skip-tests
   [ "$status" -eq 1 ]

@@ -29,6 +29,9 @@
 .com.apple.timemachine.donotpresent
 
 docs/info.txt
+docs/INDEPENDENT_SECURITY_REVIEW.md
+docs/SECURITY_REMEDIATION_PLAN.md
+
 
 # Editors and IDEs
 .idea/

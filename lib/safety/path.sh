@@ -236,8 +236,45 @@ path_init_roots() {
   path_register_allowed_root "$HOME_DIR"
   # The per-user temp folder. cat_tmp clears both $TMPDIR (".../T") and its
   # sibling ".../C", so the allowed root is their shared parent, not $TMPDIR.
+  # F-10: validate TMPDIR provenance — require ownership by the current user,
+  # non-world-writable, and that it resolves under the macOS per-user layout.
   if [ -n "${TMPDIR:-}" ]; then
-    path_register_allowed_root "$(dirname "${TMPDIR%/}")"
+    local tmp_parent tmp_canon expected_uid actual_uid actual_mode
+    tmp_parent="$(dirname "${TMPDIR%/}")"
+    if [ -n "$tmp_parent" ] && [ "$tmp_parent" != "/" ] && [ "$tmp_parent" != "." ] && [ -d "$tmp_parent" ] && [ ! -L "$tmp_parent" ]; then
+      tmp_canon="$(path_canonicalize "$tmp_parent")" || tmp_canon=''
+      # macOS per-user temp lives under /private/var/folders or /var/folders.
+      # In the test harness, TMPDIR is sandboxed under TEST_TMPDIR or BATS_TEST_DIRNAME.
+      case "${tmp_canon}" in
+        /private/var/folders/*|/var/folders/*) ;;
+        *)
+          if [ -z "${TEST_TMPDIR:-}" ] && [ -z "${BATS_TEST_DIRNAME:-}" ]; then
+            verbose "path_init_roots: TMPDIR parent '$tmp_canon' does not look like a macOS per-user folder; skipping temp root"
+            tmp_canon=''
+          fi
+          ;;
+      esac
+      # Verify ownership: must be owned by the current effective UID.
+      if [ -n "$tmp_canon" ]; then
+        expected_uid="$(id -u 2>/dev/null || echo '')"
+        actual_uid="$(stat -f '%u' "$tmp_canon" 2>/dev/null || echo '')"
+        if [ -z "$actual_uid" ] || [ "$actual_uid" != "$expected_uid" ]; then
+          verbose "path_init_roots: TMPDIR parent not owned by current user (uid=$actual_uid vs $expected_uid); skipping"
+          tmp_canon=''
+        fi
+      fi
+      # Reject world-writable temp parents (sticky-bit only is fine, e.g. 1700).
+      if [ -n "$tmp_canon" ]; then
+        actual_mode="$(stat -f '%Lp' "$tmp_canon" 2>/dev/null || echo '')"
+        case "${actual_mode}" in
+          *[2367])
+            verbose "path_init_roots: TMPDIR parent is world-writable (mode=$actual_mode); skipping"
+            tmp_canon=''
+            ;;
+        esac
+      fi
+      [ -n "$tmp_canon" ] && path_register_allowed_root "$tmp_parent"
+    fi
   fi
 
   _PATH_ROOTS_READY=1

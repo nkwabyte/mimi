@@ -50,6 +50,7 @@ unset _mimi_self _mimi_dir
 # ---------------------------------------------------------------------------
 
 migrate_legacy_state
+check_version_stamp
 load_config
 
 # Bare invocation from an actual terminal drops into the interactive menu;
@@ -113,6 +114,14 @@ while [ $# -gt 0 ]; do
       MODE="apply"
       PLAN_FILE="$2"
       shift 2 ;;
+    history) MODE="history"; shift ;;
+    --limit)
+      require_arg "--limit" "$#" "${2-}"
+      validate_int "--limit" "$2"
+      HISTORY_LIMIT="$2"; shift 2 ;;
+    --limit=*)
+      validate_int "--limit" "${1#*=}"
+      HISTORY_LIMIT="${1#*=}"; shift ;;
     restore)
       require_arg "restore" "$#" "${2-}"
       MODE="restore"
@@ -369,7 +378,7 @@ validate_config_values
 #
 # Any --include-X flag adds X to ONLY_LIST and opens its gate.
 # --skip always wins over any of the above.
-if [ "$MODE" != "apps" ] && [ "$MODE" != "app_inspect" ] && [ "$MODE" != "app_uninstall" ]; then
+if [ "$MODE" != "apps" ] && [ "$MODE" != "app_inspect" ] && [ "$MODE" != "app_uninstall" ] && [ "$MODE" != "history" ]; then
   if [ -z "$ONLY_LIST" ]; then
     if [ -n "$PROFILE" ]; then
       ONLY_LIST="$(profile_category_list "$PROFILE")"

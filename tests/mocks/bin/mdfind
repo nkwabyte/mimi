@@ -10,6 +10,11 @@ if [ -n "${MOCK_APP_INDEX:-}" ] && [ -f "${MOCK_APP_INDEX}" ]; then
     *application-bundle*)
       awk -F'|' 'NF { print $1 }' "$MOCK_APP_INDEX"
       ;;
+    *"kMDItemCFBundleIdentifier == '"*)
+      want="${*#*kMDItemCFBundleIdentifier == \'}"
+      want="${want%%\'*}"
+      awk -F'|' -v w="$want" '$2 == w { print $1 }' "$MOCK_APP_INDEX"
+      ;;
   esac
 fi
 exit 0

@@ -162,3 +162,44 @@ apply_whitelist_preset() {
       ;;
   esac
 }
+
+# ---------------------------------------------------------------------------
+# Version stamp (P7-T03)
+# ---------------------------------------------------------------------------
+#
+# ~/.config/mimi/.version records the newest mimi that used this folder.
+# Running an older one afterwards is a downgrade: it warns once, clearly.
+# What would actually be unsafe is refused by the formats themselves: a plan
+# with a newer schema_version is rejected by plan_preflight, protocol and
+# JSON documents carry their versions, and quarantine manifests have not
+# changed shape, so restore and purge keep working in both directions.
+# Nothing is created for a first run: the stamp is written only into an
+# existing config folder.
+
+# 0 when version $1 is older than $2 (X.Y.Z).
+_version_lt() {
+  local a1 a2 a3 b1 b2 b3
+  IFS=. read -r a1 a2 a3 <<< "$1"
+  IFS=. read -r b1 b2 b3 <<< "$2"
+  a1="${a1:-0}"; a2="${a2:-0}"; a3="${a3:-0}"; b1="${b1:-0}"; b2="${b2:-0}"; b3="${b3:-0}"
+  case "$a1$a2$a3$b1$b2$b3" in *[!0-9]*) return 1 ;; esac
+  [ "$a1" -lt "$b1" ] && return 0; [ "$a1" -gt "$b1" ] && return 1
+  [ "$a2" -lt "$b2" ] && return 0; [ "$a2" -gt "$b2" ] && return 1
+  [ "$a3" -lt "$b3" ]
+}
+
+check_version_stamp() {
+  local stamp="$CONFIG_DIR/.version" seen=""
+  [ -d "$CONFIG_DIR" ] || return 0
+  [ -f "$stamp" ] && IFS= read -r seen < "$stamp"
+  if [ -n "$seen" ] && _version_lt "$MIMI_VERSION" "$seen"; then
+    warn "this mimi ($MIMI_VERSION) is older than mimi $seen, which last used $CONFIG_DIR."
+    warn "Plans or records written by the newer version are refused rather than misread;"
+    warn "restore and purge still work. Update with: brew upgrade nkwabyte/mimi/mimi"
+    return 0
+  fi
+  if [ "$seen" != "$MIMI_VERSION" ]; then
+    printf '%s\n' "$MIMI_VERSION" > "$stamp.$$" 2>/dev/null && mv -f "$stamp.$$" "$stamp" 2>/dev/null
+  fi
+  return 0
+}

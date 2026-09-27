@@ -174,7 +174,7 @@ EOF
   local app="$FAKE_HOME/Applications/TestApp.app"
   create_app "$app" "TestApp" "com.example.testapp" "1.0"
 
-  run /bin/bash "$MIMI_BIN" app uninstall "$app" --keep-data --yes
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --keep-data --yes --force-risky uninstall
   # Exits 0 or EXIT_CANCELLED (5) — the important thing is not exit 1 (usage error).
   [ "$status" -ne 1 ]
 }
@@ -183,7 +183,7 @@ EOF
   local app="$FAKE_HOME/Applications/TestApp.app"
   create_app "$app" "TestApp" "com.example.testapp" "1.0"
 
-  run /bin/bash "$MIMI_BIN" app uninstall "$app" --purge-data --yes
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --purge-data --yes --force-risky uninstall
   [ "$status" -ne 1 ]
 }
 
@@ -247,9 +247,8 @@ EOF
   # At least one action for the bundle.
   [ "${#PLAN_ACTIONS[@]}" -ge 1 ]
   # First action must be the bundle itself.
-  local first="${PLAN_ACTIONS[0]}"
-  local first_path="${first#*::*::*::}"; first_path="${first_path%%::*}"
-  [ "$first_path" = "$app" ]
+  plan_read_record "${PLAN_ACTIONS[0]}"
+  [ "$PLAN_F_PATH" = "$app" ]
 }
 
 @test "uninstall plan: authoritative container is included in purge mode" {
@@ -280,8 +279,9 @@ EOF
   canon_cont="$(cd -P "$cont" 2>/dev/null && pwd -P || echo "$cont")"
   for item in "${PLAN_ACTIONS[@]}"; do
     # Kept items are recorded as "retain" actions; only moves count here.
-    case "$item" in *"::retain::"*) continue ;; esac
-    local p="${item#*::*::*::}"; p="${p%%::*}"
+    plan_read_record "$item" || continue
+    [ "$PLAN_F_OP" = "retain" ] && continue
+    local p="$PLAN_F_PATH"
     if [ "$p" = "$canon_cont" ]; then
       found=1
       break
@@ -311,8 +311,9 @@ EOF
   local has_pref=0 item
   for item in "${PLAN_ACTIONS[@]}"; do
     # Kept items are recorded as "retain" actions; only moves count here.
-    case "$item" in *"::retain::"*) continue ;; esac
-    local p="${item#*::*::*::}"; p="${p%%::*}"
+    plan_read_record "$item" || continue
+    [ "$PLAN_F_OP" = "retain" ] && continue
+    local p="$PLAN_F_PATH"
     if echo "$p" | grep -q "Preferences"; then
       has_pref=1
       break
@@ -342,8 +343,9 @@ EOF
   local has_weak_cache=0 item
   for item in "${PLAN_ACTIONS[@]}"; do
     # Kept items are recorded as "retain" actions; only moves count here.
-    case "$item" in *"::retain::"*) continue ;; esac
-    local p="${item#*::*::*::}"; p="${p%%::*}"
+    plan_read_record "$item" || continue
+    [ "$PLAN_F_OP" = "retain" ] && continue
+    local p="$PLAN_F_PATH"
     if echo "$p" | grep -q "Library/Caches/WeakApp"; then
       has_weak_cache=1
       break
@@ -390,8 +392,9 @@ EOF
   local has_gc=0 item
   for item in "${PLAN_ACTIONS[@]}"; do
     # Kept items are recorded as "retain" actions; only moves count here.
-    case "$item" in *"::retain::"*) continue ;; esac
-    local p="${item#*::*::*::}"; p="${p%%::*}"
+    plan_read_record "$item" || continue
+    [ "$PLAN_F_OP" = "retain" ] && continue
+    local p="$PLAN_F_PATH"
     if echo "$p" | grep -q "Group Containers"; then
       has_gc=1
       break
@@ -438,8 +441,8 @@ EOF
 
   uninstall_apply "$app" "com.example.manifesttest" "ManifestTest"
 
-  [ -n "$QUARANTINE_CURRENT_RUN_DIR" ]
-  [ -f "$QUARANTINE_CURRENT_RUN_DIR/manifest.jsonl" ]
+  [ ! -e "$app" ]
+  [ -z "${QUARANTINE_CURRENT_RUN_DIR:-}" ]
 }
 
 @test "uninstall apply: quarantined bundle can be restored to original path" {
@@ -458,12 +461,8 @@ EOF
   uninstall_apply "$app" "com.example.restoretest" "RestoreTest"
 
   [ ! -e "$app" ]
-  local run_id="$QUARANTINE_CURRENT_RUN_ID"
-
-  quarantine_restore_run "$run_id"
-
-  # App should be back.
-  [ -e "$app" ]
+  # Uninstall deletes the bundle. There is no quarantine copy to put back.
+  [ -z "${QUARANTINE_CURRENT_RUN_ID:-}" ]
 }
 
 @test "uninstall apply: also quarantines attributable data in purge mode" {
@@ -525,11 +524,10 @@ EOF
 
   uninstall_apply "$app" "com.example.escapetest" "EscapeTest"
 
-  # Everything should be within QUARANTINE_DIR which is inside TEST_TMPDIR.
-  case "$QUARANTINE_CURRENT_RUN_DIR" in
-    "$TEST_TMPDIR"*) ;;
-    *) false ;;
-  esac
+  # The wiped paths lived inside the fixture, and nothing was moved elsewhere.
+  [ ! -e "$app" ]
+  [ ! -e "$cont" ]
+  [ -z "${QUARANTINE_CURRENT_RUN_DIR:-}" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -541,37 +539,29 @@ EOF
   [ "$status" -eq 1 ]
 }
 
-@test "cli: 'mimi app uninstall <path> --yes' exits 0 for a valid app" {
+@test "cli: 'mimi app uninstall <path> --yes --force-risky uninstall' exits 0 for a valid app" {
   local app="$FAKE_HOME/Applications/CLIUninstallTest.app"
   create_app "$app" "CLIUninstallTest" "com.example.cliuninstalltest" "1.0"
 
   run /bin/bash "$MIMI_BIN" \
     --app-root "$FAKE_HOME/Applications" \
-    app uninstall "$app" --yes --keep-data
+    app uninstall "$app" --yes --force-risky uninstall --keep-data
 
   [ "$status" -eq 0 ]
   [ ! -e "$app" ]
 }
 
-@test "cli: uninstalled app can be restored via 'mimi restore'" {
+@test "cli: an uninstalled app is gone and was not quarantined" {
   local app="$FAKE_HOME/Applications/RestoreCLI.app"
   create_app "$app" "RestoreCLI" "com.example.restorecli" "1.0"
 
   run /bin/bash "$MIMI_BIN" \
     --app-root "$FAKE_HOME/Applications" \
-    app uninstall "$app" --yes --keep-data
+    app uninstall "$app" --yes --force-risky uninstall --keep-data
 
   [ "$status" -eq 0 ]
   [ ! -e "$app" ]
-
-  # Extract the run ID from the output.
-  local run_id
-  run_id=$(echo "$output" | grep -o 'uninstall-[^ ]*' | head -1)
-  [ -n "$run_id" ]
-
-  run /bin/bash "$MIMI_BIN" restore "$run_id" --yes
-  [ "$status" -eq 0 ]
-  [ -e "$app" ]
+  echo "$output" | grep -q "Nothing was moved to quarantine"
 }
 
 @test "cli: --keep-data does not quarantine Library data" {
@@ -584,7 +574,7 @@ EOF
 
   run /bin/bash "$MIMI_BIN" \
     --app-root "$FAKE_HOME/Applications" \
-    app uninstall "$app" --yes --keep-data
+    app uninstall "$app" --yes --force-risky uninstall --keep-data
 
   [ "$status" -eq 0 ]
   [ ! -e "$app" ]
@@ -616,7 +606,7 @@ EOF
 
   run /bin/bash "$MIMI_BIN" \
     --app-root "$FAKE_HOME/Applications" \
-    app uninstall "$app" --yes --keep-data
+    app uninstall "$app" --yes --force-risky uninstall --keep-data
 
   [ "$status" -eq 0 ]
   [[ "$output" =~ "This application was installed via Homebrew Cask" ]]
@@ -630,7 +620,7 @@ EOF
   export MOCK_CALL_LOG="$TEST_TMPDIR/mock.log"
   run /bin/bash "$MIMI_BIN" \
     --app-root "$FAKE_HOME/Applications" \
-    app uninstall "$app" --yes --cask
+    app uninstall "$app" --yes --force-risky uninstall --cask
 
   [ "$status" -eq 0 ]
   [[ "$output" =~ "Homebrew Cask Delegation" ]]
@@ -646,7 +636,7 @@ EOF
   export MOCK_CALL_LOG="$TEST_TMPDIR/mock.log"
   run /bin/bash "$MIMI_BIN" \
     --app-root "$FAKE_HOME/Applications" \
-    app uninstall "$app" --yes --zap
+    app uninstall "$app" --yes --force-risky uninstall --zap
 
   [ "$status" -eq 0 ]
   [[ "$output" =~ "Homebrew Cask Delegation" ]]
@@ -661,7 +651,7 @@ EOF
 
   run /bin/bash "$MIMI_BIN" \
     --app-root "$FAKE_HOME/Applications" \
-    app uninstall "$app" --yes --zap
+    app uninstall "$app" --yes --force-risky uninstall --zap
 
   [ "$status" -ne 0 ]
   [[ "$output" =~ "--zap is only applicable to applications installed via Homebrew Cask" ]]
@@ -677,7 +667,7 @@ EOF
 
   run /bin/bash "$MIMI_BIN" \
     --app-root "$FAKE_HOME/Applications" \
-    app uninstall "$app" --yes --keep-data
+    app uninstall "$app" --yes --force-risky uninstall --keep-data
 
   [ "$status" -eq 0 ]
   # A plan file must exist in PLANS_DIR.
@@ -697,38 +687,24 @@ EOF
 
   run /bin/bash "$MIMI_BIN" \
     --app-root "$FAKE_HOME/Applications" \
-    app uninstall "$app" --yes --purge-data
+    app uninstall "$app" --yes --force-risky uninstall --purge-data
 
   [ "$status" -eq 0 ]
   # Group container (shared) must still be present.
   [ -d "$gc" ]
 }
 
-@test "phase4 gate: restore works end to end before explicit purge" {
+@test "phase4 gate: uninstall removes the app and leaves no quarantine run" {
   local app="$FAKE_HOME/Applications/E2ETest.app"
   create_app "$app" "E2ETest" "com.example.e2etest" "1.0"
 
-  # Apply uninstall.
   run /bin/bash "$MIMI_BIN" \
     --app-root "$FAKE_HOME/Applications" \
-    app uninstall "$app" --yes --keep-data
+    app uninstall "$app" --yes --force-risky uninstall --keep-data
 
   [ "$status" -eq 0 ]
   [ ! -e "$app" ]
-
-  local run_id
-  run_id=$(echo "$output" | grep -o 'uninstall-[^ ]*' | head -1)
-  [ -n "$run_id" ]
-
-  # Restore.
-  run /bin/bash "$MIMI_BIN" restore "$run_id" --yes
-  [ "$status" -eq 0 ]
-  [ -e "$app" ]
-
-  # Purge.
-  run /bin/bash "$MIMI_BIN" purge "$run_id" --yes
-  [ "$status" -eq 0 ]
-  [ ! -d "$FAKE_HOME/.config/mimi/quarantine/$run_id" ]
+  [ -z "$(ls -A "$FAKE_HOME/.config/mimi/quarantine" 2>/dev/null)" ]
 }
 
 # ===========================================================================
@@ -751,22 +727,21 @@ run_id_from() {
 
 @test "modes: --keep-data and --purge-data together are a usage error" {
   create_app "$FAKE_HOME/Applications/Both.app" "Both" "com.example.both" "1.0"
-  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Both.app" --keep-data --purge-data --yes
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Both.app" --keep-data --purge-data --yes --force-risky uninstall
   [ "$status" -eq 1 ]
   echo "$output" | grep -q "contradict each other"
   [ -d "$FAKE_HOME/Applications/Both.app" ]
 }
 
-@test "modes: the default keeps user data without a terminal and says how to include it" {
+@test "modes: the default deletes attributable user data" {
   local app="$FAKE_HOME/Applications/AskApp.app"
   create_app "$app" "AskApp" "com.example.askapp" "1.0"
   touch "$FAKE_HOME/Library/Preferences/com.example.askapp.plist"
 
-  run /bin/bash "$MIMI_BIN" app uninstall "$app" --yes < /dev/null
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --yes --force-risky uninstall < /dev/null
   [ "$status" -eq 0 ]
   [ ! -e "$app" ]
-  [ -f "$FAKE_HOME/Library/Preferences/com.example.askapp.plist" ]
-  echo "$output" | grep -q "Pass --purge-data to include it"
+  [ ! -e "$FAKE_HOME/Library/Preferences/com.example.askapp.plist" ]
 }
 
 @test "modes: --purge-data moves attributable data but never shared data" {
@@ -775,7 +750,7 @@ run_id_from() {
   touch "$FAKE_HOME/Library/Preferences/com.example.purgeapp.plist"
   mkdir -p "$FAKE_HOME/Library/Group Containers/group.com.example.purgeapp"
 
-  run /bin/bash "$MIMI_BIN" app uninstall "$app" --purge-data --yes
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --purge-data --yes --force-risky uninstall
   [ "$status" -eq 0 ]
   [ ! -e "$FAKE_HOME/Library/Preferences/com.example.purgeapp.plist" ]
   [ -d "$FAKE_HOME/Library/Group Containers/group.com.example.purgeapp" ]
@@ -848,7 +823,7 @@ run_id_from() {
 
 @test "cli: app-terminate is accepted by --force-risky" {
   create_app "$FAKE_HOME/Applications/Ft.app" "Ft" "com.example.ft" "1.0"
-  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Ft.app" --yes --force-risky app-terminate
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Ft.app" --yes --force-risky uninstall,app-terminate
   [ "$status" -eq 0 ]
 }
 
@@ -919,9 +894,10 @@ PLIST
   plan_init
   uninstall_build_plan "$APP_INFO_CANONICAL_PATH" "Ordered" "com.example.ordered"
   plan_build ""
-  local first="${PLAN_ACTIONS[0]#*::}" second="${PLAN_ACTIONS[1]#*::}"
-  [ "${first%%::*}" = "uninstall-launchagent" ]
-  [ "${second%%::*}" = "uninstall-app" ]
+  plan_read_record "${PLAN_ACTIONS[0]}"
+  [ "$PLAN_F_CAT" = "uninstall-launchagent" ]
+  plan_read_record "${PLAN_ACTIONS[1]}"
+  [ "$PLAN_F_CAT" = "uninstall-app" ]
 
   uninstall_apply > /dev/null 2>&1
   [ ! -e "$FAKE_HOME/Library/LaunchAgents/com.example.ordered.helper.plist" ]
@@ -944,7 +920,7 @@ PLIST
 @test "history: an uninstall is recorded" {
   local app="$FAKE_HOME/Applications/Hist.app"
   create_app "$app" "Hist" "com.example.hist" "1.0"
-  run /bin/bash "$MIMI_BIN" app uninstall "$app" --yes
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --yes --force-risky uninstall
   [ "$status" -eq 0 ]
   local h="$FAKE_HOME/.config/mimi/history.jsonl"
   [ -f "$h" ]
@@ -952,14 +928,14 @@ PLIST
 import json, sys
 rec = [json.loads(l) for l in open(sys.argv[1])][-1]
 assert rec["type"] == "uninstall" and rec["status"] == "ok", rec
-assert rec["bundle_id"] == "com.example.hist" and rec["quarantined"] >= 1, rec
+assert rec["bundle_id"] == "com.example.hist" and rec["removed"] >= 1, rec
 ' "$h"
 }
 
 @test "json: --json emits candidates, results, and a finished event" {
   local app="$FAKE_HOME/Applications/Jay.app"
   create_app "$app" "Jay" "com.example.jay" "1.0"
-  run --separate-stderr /bin/bash "$MIMI_BIN" app uninstall "$app" --yes --json
+  run --separate-stderr /bin/bash "$MIMI_BIN" app uninstall "$app" --yes --force-risky uninstall --json
   [ "$status" -eq 0 ]
   echo "$output" | /usr/bin/python3 -c '
 import json, sys
@@ -978,7 +954,7 @@ assert ev[-1]["type"] == "run_finished" and ev[-1]["status"] == "ok", ev[-1]
 @test "cask: --cask on an app Homebrew did not install is refused, not guessed" {
   create_app "$FAKE_HOME/Applications/NotCask.app" "NotCask" "com.example.notcask" "1.0"
   export MOCK_CALL_LOG="$TEST_TMPDIR/calls"
-  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/NotCask.app" --cask --yes
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/NotCask.app" --cask --yes --force-risky uninstall
   [ "$status" -eq 1 ]
   echo "$output" | grep -q "was not installed by Homebrew Cask"
   ! grep -q "brew uninstall" "$MOCK_CALL_LOG" 2>/dev/null
@@ -989,7 +965,7 @@ assert ev[-1]["type"] == "run_finished" and ev[-1]["status"] == "ok", ev[-1]
   create_app "$FAKE_HOME/Applications/Stale Cask.app" "Stale Cask" "com.example.stale" "1.0"
   export MOCK_FAIL_CMDS="brew list*"
   export MOCK_CALL_LOG="$TEST_TMPDIR/calls"
-  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Stale Cask.app" --cask --yes
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Stale Cask.app" --cask --yes --force-risky uninstall
   [ "$status" -eq 1 ]
   echo "$output" | grep -q "refusing to guess"
   ! grep -q "brew uninstall" "$MOCK_CALL_LOG"
@@ -1003,7 +979,7 @@ assert ev[-1]["type"] == "run_finished" and ev[-1]["status"] == "ok", ev[-1]
   create_app "$FAKE_HOME/Applications/Zappy.app" "Zappy" "com.example.zappy" "1.0"
   export MOCK_CALL_LOG="$TEST_TMPDIR/calls"
 
-  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Zappy.app" --zap --yes
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Zappy.app" --zap --yes --force-risky uninstall
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "Library/Preferences/com.example.zappy.plist"
   echo "$output" | grep -q "\[shared\] .*Group Containers/group.com.example.zappy"
@@ -1019,8 +995,9 @@ assert rec["type"] == "cask-uninstall" and rec["exit"] == 0 and rec["zap"] == 1,
   mkdir -p "$FAKE_HOME/Caskroom/broken-cask/1.0"
   create_app "$FAKE_HOME/Applications/Broken Cask.app" "Broken Cask" "com.example.broken" "1.0"
   export MOCK_FAIL_CMDS="brew uninstall*"
-  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Broken Cask.app" --cask --yes
-  [ "$status" -ne 0 ]
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Broken Cask.app" --cask --yes --force-risky uninstall
+  [ "$status" -eq 3 ]
+  ! echo "$output" | grep -q "unbound variable"
   echo "$output" | grep -q "Homebrew cask uninstall failed"
   grep -q '"type":"cask-uninstall","status":"failed"' "$FAKE_HOME/.config/mimi/history.jsonl"
 }
@@ -1029,58 +1006,27 @@ assert rec["type"] == "cask-uninstall" and rec["exit"] == 0 and rec["zap"] == 1,
 # P4-T06: restore
 # ---------------------------------------------------------------------------
 
-@test "restore: bundle and data come back with the same identity, and a second restore is harmless" {
+@test "wipe: the bundle and its preference are deleted, not stored" {
   local app="$FAKE_HOME/Applications/Back.app"
   create_app "$app" "Back" "com.example.back" "1.0"
   printf 'setting\n' > "$FAKE_HOME/Library/Preferences/com.example.back.plist"
-  local ident_app
-  ident_app="$(stat -f '%d:%i' "$app")"
 
-  run /bin/bash "$MIMI_BIN" app uninstall "$app" --purge-data --yes
-  local run_id
-  run_id="$(run_id_from "$output")"
-  [ -n "$run_id" ]
-
-  run /bin/bash "$MIMI_BIN" restore "$run_id"
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --purge-data --yes --force-risky uninstall
   [ "$status" -eq 0 ]
-  [ "$(stat -f '%d:%i' "$app")" = "$ident_app" ]
-  [ "$(cat "$FAKE_HOME/Library/Preferences/com.example.back.plist")" = "setting" ]
-  echo "$output" | grep -q "re-register their login items"
-
-  run /bin/bash "$MIMI_BIN" restore "$run_id"
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -q "already restored"
+  [ ! -e "$app" ]
+  [ ! -e "$FAKE_HOME/Library/Preferences/com.example.back.plist" ]
+  echo "$output" | grep -q "Nothing was moved to quarantine"
 }
 
-@test "restore: a reinstalled app is never overwritten" {
-  local app="$FAKE_HOME/Applications/Again.app"
-  create_app "$app" "Again" "com.example.again" "1.0"
-  run /bin/bash "$MIMI_BIN" app uninstall "$app" --yes
-  local run_id
-  run_id="$(run_id_from "$output")"
-  create_app "$app" "Again" "com.example.again" "2.0"
-
-  run /bin/bash "$MIMI_BIN" restore "$run_id"
-  [ "$status" -ne 0 ]
-  echo "$output" | grep -q "something already exists at"
-  grep -q "<string>2.0</string>" "$app/Contents/Info.plist"
-  ls "$FAKE_HOME/.config/mimi/quarantine/$run_id" | grep -q "Again.app__"
-}
-
-@test "restore: LaunchAgents come back with a note that they are not running" {
+@test "wipe: a LaunchAgent for the app is deleted with it" {
   local app="$FAKE_HOME/Applications/Agented.app"
   create_app "$app" "Agented" "com.example.agented" "1.0"
   printf '<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.example.agented</string></dict></plist>\n' \
     > "$FAKE_HOME/Library/LaunchAgents/com.example.agented.plist"
-  run /bin/bash "$MIMI_BIN" app uninstall "$app" --yes
-  [ ! -e "$FAKE_HOME/Library/LaunchAgents/com.example.agented.plist" ]
-  local run_id
-  run_id="$(run_id_from "$output")"
-
-  run /bin/bash "$MIMI_BIN" restore "$run_id"
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --yes --force-risky uninstall
   [ "$status" -eq 0 ]
-  [ -f "$FAKE_HOME/Library/LaunchAgents/com.example.agented.plist" ]
-  echo "$output" | grep -q "launchctl bootstrap gui/"
+  [ ! -e "$app" ]
+  [ ! -e "$FAKE_HOME/Library/LaunchAgents/com.example.agented.plist" ]
 }
 
 @test "gate: user documents named after the app survive even --purge-data" {
@@ -1091,7 +1037,7 @@ assert rec["type"] == "cask-uninstall" and rec["exit"] == 0 and rec["zap"] == 1,
   printf 'notes\n' > "$FAKE_HOME/.writer/config"
   touch "$FAKE_HOME/Library/Preferences/com.example.writer.plist"
 
-  run /bin/bash "$MIMI_BIN" app uninstall "$app" --purge-data --yes
+  run /bin/bash "$MIMI_BIN" app uninstall "$app" --purge-data --yes --force-risky uninstall
   [ "$status" -eq 0 ]
   [ "$(cat "$FAKE_HOME/Documents/Writer/novel.txt")" = "my novel" ]
   [ -d "$FAKE_HOME/Desktop/Writer" ]
@@ -1118,7 +1064,7 @@ vendor_fixture() {
 
 @test "vendor: --yes alone cannot launch a vendor uninstaller" {
   vendor_fixture
-  run /bin/bash "$MIMI_BIN" app uninstall "$VENDOR/Acme Studio.app" --vendor-uninstaller --yes
+  run /bin/bash "$MIMI_BIN" app uninstall "$VENDOR/Acme Studio.app" --vendor-uninstaller --yes --force-risky uninstall
   [ "$status" -eq "5" ]
   ! grep -q '^open ' "$MOCK_CALL_LOG" 2>/dev/null
   [ -d "$VENDOR/Acme Studio.app" ]
@@ -1148,4 +1094,40 @@ vendor_fixture() {
   run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Plainer.app" --vendor-uninstaller --force-risky vendor-uninstaller
   [ "$status" -eq 1 ]
   echo "$output" | grep -q "no vendor uninstaller found"
+}
+
+# ---------------------------------------------------------------------------
+# mimi history
+# ---------------------------------------------------------------------------
+
+@test "history: lists uninstalls and restorable quarantine runs, in text and JSON" {
+  create_app "$FAKE_HOME/Applications/Histo.app" "Histo" "com.example.histo" "1.0"
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Histo.app" --yes --force-risky uninstall
+  [ "$status" -eq 0 ]
+
+  run /bin/bash "$MIMI_BIN" history
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "uninstall"
+  echo "$output" | grep -q "Histo"
+  echo "$output" | grep -q "(none)"
+
+  run --separate-stderr /bin/bash "$MIMI_BIN" history --json
+  [ "$status" -eq 0 ]
+  echo "$output" | /usr/bin/python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["schema"] == "mimi.history/1"
+r = d["records"][-1]
+assert r["v"] == 1 and r["type"] == "uninstall" and r["bundle_id"] == "com.example.histo", r
+assert r["removed"] >= 1, r
+assert d["quarantine_runs"] == [], d["quarantine_runs"]
+'
+}
+
+@test "history: empty history and --limit validation" {
+  run /bin/bash "$MIMI_BIN" history
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "nothing recorded yet"
+  run /bin/bash "$MIMI_BIN" history --limit abc
+  [ "$status" -eq 1 ]
 }

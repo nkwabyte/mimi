@@ -848,6 +848,197 @@ interactive_settings_numeric() {
   done
 }
 
+# ---------------------------------------------------------------------------
+# Application picker. Space toggles, u deletes the ticked apps and their
+# attributable files. System and other ineligible apps are not listed.
+# ---------------------------------------------------------------------------
+
+APP_PICK_ON=()
+
+# Keep only apps this screen can uninstall. The inventory itself still
+# records system apps; this screen does not show them.
+_apps_only_selectable() {
+  local i n=0
+  local -a paths names sources
+  for i in "${!APP_INV_PATHS[@]}"; do
+    [ "${APP_INV_SYSTEM[$i]}" = 1 ] && continue
+    [ "${APP_INV_ELIGIBLE[$i]}" = 1 ] || continue
+    paths[$n]="${APP_INV_PATHS[$i]}"
+    names[$n]="${APP_INV_NAMES[$i]}"
+    sources[$n]="${APP_INV_SOURCES[$i]}"
+    n=$((n + 1))
+  done
+  APP_INV_PATHS=()
+  APP_INV_NAMES=()
+  APP_INV_SOURCES=()
+  APP_INV_SYSTEM=()
+  APP_INV_ELIGIBLE=()
+  APP_INV_COUNT=0
+  [ "$n" -gt 0 ] || return 0
+  APP_INV_PATHS=("${paths[@]}")
+  APP_INV_NAMES=("${names[@]}")
+  APP_INV_SOURCES=("${sources[@]}")
+  local j
+  for ((j = 0; j < n; j++)); do
+    APP_INV_SYSTEM[$j]=0
+    APP_INV_ELIGIBLE[$j]=1
+  done
+  APP_INV_COUNT=$n
+}
+
+_apps_draw() {
+  local cur="$1" top="$2" vh="$3" cols="${4:-}"
+  local i mark name src path line count on=0 dw
+  count="${#APP_INV_PATHS[@]}"
+  [ -n "$cols" ] || cols="$(term_cols)"
+  dw=$(( cols - 46 ))
+  [ "$dw" -lt 12 ] && dw=12
+  for i in "${!APP_PICK_ON[@]}"; do
+    [ "${APP_PICK_ON[$i]}" = 1 ] && on=$((on + 1))
+  done
+  printf '%s\n' "${C_BOLD}Uninstall applications${C_RESET}  ${C_DIM}(${on} selected)${C_RESET}"
+  if [ "$cols" -ge 78 ]; then
+    printf '%s\n' "${C_DIM}  ↑/↓ move   space toggle   u uninstall   q back${C_RESET}"
+  else
+    printf '%s\n' "${C_DIM}  ↑↓ space u q${C_RESET}"
+  fi
+  printf '%s\n' "${C_DIM}  Uninstall deletes the app and its own files. It cannot be undone.${C_RESET}"
+  printf '\n'
+  local end=$((top + vh))
+  [ "$end" -gt "$count" ] && end="$count"
+  i="$top"
+  while [ "$i" -lt "$end" ]; do
+    name="${APP_INV_NAMES[$i]}"
+    src="${APP_INV_SOURCES[$i]}"
+    path="${APP_INV_PATHS[$i]}"
+    [ ${#name} -gt 22 ] && name="${name:0:19}..."
+    [ ${#path} -gt "$dw" ] && path="…${path: -$((dw - 1))}"
+    if [ "${APP_PICK_ON[$i]}" = 1 ]; then
+      mark="${C_GREEN}[x]${C_RESET}"
+    else
+      mark="[ ]"
+    fi
+    printf -v line '%s %-22s %-8s %s' "$mark" "$name" "$src" "$path"
+    if [ "$i" = "$cur" ]; then
+      printf '%s\n' "${C_BOLD}${C_CYAN}❯ ${C_RESET}${C_BOLD}${line}${C_RESET}"
+    else
+      printf '  %s\n' "$line"
+    fi
+    i=$((i + 1))
+  done
+  if [ "$count" -gt "$vh" ]; then
+    printf '%s\n' "${C_DIM}  — showing $((top + 1))-$end of $count —${C_RESET}"
+  fi
+  return 0
+}
+
+_apps_toggle() {
+  local i="$1"
+  if [ "${APP_PICK_ON[$i]}" = 1 ]; then APP_PICK_ON[$i]=0; else APP_PICK_ON[$i]=1; fi
+}
+
+_apps_wipe_selected() {
+  local i n=0 path rc=0
+  for i in "${!APP_PICK_ON[@]}"; do
+    [ "${APP_PICK_ON[$i]}" = 1 ] && n=$((n + 1))
+  done
+  if [ "$n" -eq 0 ]; then
+    warn "nothing selected"
+    return 1
+  fi
+  say "Permanently deleting $n application(s) and their own files."
+  local saved_yes="$ASSUME_YES" saved_force="$FORCE_RISKY_LIST" saved_src="${FORCE_RISKY_SOURCE:-}"
+  ASSUME_YES=1
+  FORCE_RISKY_LIST="uninstall"
+  FORCE_RISKY_SOURCE="your app selection"
+  for i in "${!APP_PICK_ON[@]}"; do
+    [ "${APP_PICK_ON[$i]}" = 1 ] || continue
+    path="${APP_INV_PATHS[$i]}"
+    say ""
+    say "${C_BOLD}${APP_INV_NAMES[$i]}${C_RESET}"
+    # exit inside mimi_app_uninstall leaves this subshell only.
+    (
+      APP_TARGET="$path"
+      UNINSTALL_DATA_MODE=purge
+      JSONL_ENABLED=0
+      mimi_app_uninstall
+    ) || rc=$?
+  done
+  ASSUME_YES="$saved_yes"
+  FORCE_RISKY_LIST="$saved_force"
+  FORCE_RISKY_SOURCE="$saved_src"
+  return "$rc"
+}
+
+interactive_uninstall_apps() {
+  say "Looking for installed applications…"
+  inventory_scan_apps pick
+  _apps_only_selectable
+  if [ "${APP_INV_COUNT:-0}" -eq 0 ]; then
+    warn "no applications that can be uninstalled"
+    interactive_pause
+    return 0
+  fi
+  local i
+  APP_PICK_ON=()
+  for i in "${!APP_INV_PATHS[@]}"; do APP_PICK_ON[$i]=0; done
+
+  if ! tui_available; then
+    local sel idx
+    while true; do
+      say ""
+      say "${C_BOLD}Uninstall applications${C_RESET} (number=toggle, u=uninstall, b=back)"
+      for i in "${!APP_INV_PATHS[@]}"; do
+        local marker="[ ]"
+        [ "${APP_PICK_ON[$i]}" = 1 ] && marker="[x]"
+        printf '  %3d) %s %-22s %s\n' "$((i + 1))" "$marker" "${APP_INV_NAMES[$i]}" "${APP_INV_PATHS[$i]}"
+      done
+      read -r -p "> " sel </dev/tty
+      case "$sel" in
+        u|U) _apps_wipe_selected; interactive_pause; return 0 ;;
+        b|B) return 0 ;;
+        [0-9]*)
+          idx=$((sel - 1))
+          if [ "$idx" -ge 0 ] && [ "$idx" -lt "${#APP_INV_PATHS[@]}" ]; then
+            _apps_toggle "$idx"
+          else
+            warn "no such application number: $sel"
+          fi ;;
+        *) warn "unrecognized option: $sel" ;;
+      esac
+    done
+  fi
+
+  local count cur=0 top=0 vh rows cols drawn key frame
+  count="${#APP_INV_PATHS[@]}"
+  tui_begin
+  drawn=0
+  while true; do
+    rows="$(term_rows)"
+    cols="$(term_cols)"
+    vh=$((rows - 6))
+    [ "$vh" -lt 3 ] && vh=3
+    if [ "$cur" -lt "$top" ]; then top="$cur"; fi
+    if [ "$cur" -ge $((top + vh)) ]; then top=$((cur - vh + 1)); fi
+    frame="$(_apps_draw "$cur" "$top" "$vh" "$cols")"
+    tui_paint "$drawn" "$frame"
+    drawn=$((vh + 5))
+    key="$(read_key)"
+    case "$key" in
+      up|k) [ "$cur" -gt 0 ] && cur=$((cur - 1)) ;;
+      down|j) [ "$cur" -lt $((count - 1)) ] && cur=$((cur + 1)) ;;
+      space) _apps_toggle "$cur" ;;
+      u|U)
+        tui_end
+        _apps_wipe_selected
+        interactive_pause
+        return 0
+        ;;
+      q|quit|escape) tui_end; return 0 ;;
+    esac
+  done
+}
+
 interactive_main() {
   log_init
   build_category_state
@@ -861,6 +1052,7 @@ interactive_main() {
       "Quick scan    — code-default safe categories, changes nothing"
       "Quick clean   — code-default safe categories"
       "Choose categories & run"
+      "Uninstall applications"
       "Disk report   — where your space actually went"
       "Manage whitelist"
       "Settings"
@@ -890,13 +1082,14 @@ interactive_main() {
         interactive_pause
         ;;
       2) interactive_choose_categories ;;
-      3) log_init; report_system_data; report_top_offenders; interactive_pause ;;
-      4) interactive_whitelist ;;
-      5) interactive_settings ;;
-      6) print_live_category_state; interactive_pause ;;
-      7) view_last_log; interactive_pause ;;
-      8) save_config; interactive_pause ;;
-      9) exit 0 ;;
+      3) interactive_uninstall_apps ;;
+      4) log_init; report_system_data; report_top_offenders; interactive_pause ;;
+      5) interactive_whitelist ;;
+      6) interactive_settings ;;
+      7) print_live_category_state; interactive_pause ;;
+      8) view_last_log; interactive_pause ;;
+      9) save_config; interactive_pause ;;
+      10) exit 0 ;;
     esac
   done
 }

@@ -34,7 +34,7 @@
 # --force-risky takes the same names as --only/--skip; `orphans` gates the
 # removal of a reviewed remnants file, which is the only way the orphan
 # scanner's output can ever delete anything.
-CONFIRM_GATED_IDS="docker mail trash orphans sim-stale android ml-caches ios-backups app-terminate vendor-uninstaller"
+CONFIRM_GATED_IDS="docker mail trash orphans sim-stale android ml-caches ios-backups app-terminate vendor-uninstaller purge uninstall"
 
 # confirm_class <action-id> -> recoverable | risky | irreversible
 #
@@ -46,6 +46,8 @@ confirm_class() {
     trash)        printf '%s' "irreversible" ;;   # ~/.Trash is the last copy
     ios-backups)  printf '%s' "irreversible" ;;   # the only local copy of a phone
     orphans)      printf '%s' "irreversible" ;;   # reviewed remnants, deleted outright
+    purge)        printf '%s' "irreversible" ;;   # F-03: quarantine purge is permanent
+    uninstall)    printf '%s' "irreversible" ;;   # the app and its files are deleted, not quarantined
     docker)       printf '%s' "risky" ;;          # named volumes hold real data
     mail)         printf '%s' "risky" ;;          # a POP attachment has no server copy
     sim-stale)    printf '%s' "risky" ;;          # custom devices are not recreated
@@ -284,6 +286,7 @@ confirm_action_selected() {
   # selection, so it never appears in the pre-flight list.
   [ "$id" = app-terminate ] && return 1
   [ "$id" = vendor-uninstaller ] && return 1
+  [ "$id" = uninstall ] && return 1
   # The orphan scanner never deletes; the reviewed file is the gated action.
   if [ "$id" = orphans ]; then
     [ -n "$REMOVE_ORPHANS_FILE" ] && return 0

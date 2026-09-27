@@ -7,15 +7,23 @@
 # interpolate $HOME_DIR (set in globals.sh, loaded first).
 
 human_kb() {
-  # $1 = size in KB (integer) -> human string
-  local kb="${1:-0}"
-  awk -v kb="$kb" 'BEGIN{
-    split("K M G T", u, " ")
-    v = kb + 0
-    i = 1
-    while (v >= 1024 && i < 4) { v = v / 1024; i++ }
-    printf "%.1f%s", v, u[i]
-  }'
+  # $1 = size in KB (integer) -> "12.3M". Pure Bash: this runs once per listed
+  # item, and forking awk for it dominated large reports. Integer arithmetic
+  # reproduces printf "%.1f" exactly: the units are powers of two, so the
+  # value is exact and ties round to even, as printf does.
+  local kb="${1:-0}" u=K den=1 num q r
+  case "$kb" in ''|*[!0-9]*) kb=0 ;; esac
+  if [ "$kb" -ge 1073741824 ]; then u=T; den=1073741824
+  elif [ "$kb" -ge 1048576 ]; then u=G; den=1048576
+  elif [ "$kb" -ge 1024 ]; then u=M; den=1024
+  fi
+  num=$((kb * 10))
+  q=$((num / den))
+  r=$((num % den))
+  if [ $((r * 2)) -gt "$den" ] || { [ $((r * 2)) -eq "$den" ] && [ $((q % 2)) -eq 1 ]; }; then
+    q=$((q + 1))
+  fi
+  printf '%d.%d%s' $((q / 10)) $((q % 10)) "$u"
 }
 
 # ALLOCATED size: blocks actually occupied on the volume. This is the number

@@ -255,11 +255,14 @@ apply() { run /bin/bash -c 'printf "%s\n" "$1" | "$2" "$3"' _ "$1" "$TOOL" "$REQ
 # mimi app uninstall --system (writes the request; never runs as root)
 # ---------------------------------------------------------------------------
 
-@test "mimi: --system writes a 0600 request selecting every candidate and prints the sudo command" {
+@test "mimi: --system writes a 0600 request selecting every candidate and does not sudo the bundled tool" {
   setup_root; acme
   run /bin/bash "$MIMI_BIN" app uninstall com.acme.app --system
   [ "$status" -eq 0 ]
-  echo "$output" | grep -q "sudo \".*libexec/mimi-root-apply\" \"$FAKE_HOME/.config/mimi/system-requests/.*\.request\""
+  echo "$output" | grep -q "No sudo command was printed"
+  echo "$output" | grep -q "sudo \".*libexec/mimi-root-apply\" --install"
+  # The request path must not appear on a sudo line.
+  ! echo "$output" | grep -q "sudo \".*\" \".*system-requests/.*\.request\""
   local req
   req="$(ls "$FAKE_HOME/.config/mimi/system-requests"/*.request)"
   [ "$(stat -f '%Lp' "$req")" = 600 ]
@@ -322,8 +325,11 @@ acme_pkg() {
   setup_root; acme_pkg
   run candidates com.acme.app
   [ "$status" -eq 0 ]
+  # Payload paths are the physical ones. $R may sit under the /var -> /private/var symlink.
+  local rp
+  rp="$(cd -P "$R" && pwd -P)"
   [ "$(echo "$output" | awk -F'\t' '$2 == "payload" {print $3}' | sort | tr '\n' '|')" = \
-    "$R/Applications/Acme.app|$R/Library/Application Support/Acme/Core|" ]
+    "$rp/Applications/Acme.app|$rp/Library/Application Support/Acme/Core|" ]
   echo "$output" | grep -q "near	-	$R/Library/Application Support/Acme/Shared/license.dat	-	also installed by: com.acme.extras"
   echo "$output" | grep -q "near	-	$R/usr/bin/acmectl	-	outside the roots mimi may change"
 }
@@ -334,7 +340,9 @@ acme_pkg() {
   receipt com.gone.app.pkg "" "Library/Application Support/Gone/data"
   printf 'x\n' > "$R/Library/Application Support/Gone/data"
   run candidates com.gone.app
-  echo "$output" | grep -q "	payload	$R/Library/Application Support/Gone	com.gone.app.pkg	"
+  local rp
+  rp="$(cd -P "$R" && pwd -P)"
+  echo "$output" | grep -q "	payload	$rp/Library/Application Support/Gone	com.gone.app.pkg	"
 }
 
 @test "payload: another app's package is never attributed" {
@@ -431,21 +439,109 @@ acme_pkg() {
   ls -d "$R/Library/Application Support/mimi/quarantine"/sys-* > /dev/null
 }
 
-@test "hardened copy: mimi prints the root-owned copy when identical, and warns when it is stale or missing" {
+@test "hardened copy: mimi prints sudo only for a trusted identical copy" {
   setup_root; acme
+  chmod 0755 "$R"
   run /bin/bash "$MIMI_BIN" app uninstall com.acme.app --system
-  echo "$output" | grep -q "sudo \"$REPO_ROOT/libexec/mimi-root-apply\""
-  echo "$output" | grep -q "install a root-owned copy"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "No sudo command was printed"
+  echo "$output" | grep -q "No trusted root-owned copy is installed"
+  ! echo "$output" | grep -q "sudo \".*\" \".*system-requests/"
 
   "$TOOL" --install > /dev/null
+  chmod 0755 "$R" "$R/usr" "$R/usr/local" "$R/usr/local/libexec" "$R/usr/local/libexec/mimi"
   run /bin/bash "$MIMI_BIN" app uninstall com.acme.app --system
-  echo "$output" | grep -q "sudo \"$R/usr/local/libexec/mimi/mimi-root-apply\""
-  ! echo "$output" | grep -q "root-owned copy"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "sudo \"$R/usr/local/libexec/mimi/mimi-root-launch\" \".*system-requests/.*\.request\""
+  ! echo "$output" | grep -q "No sudo command was printed"
 
+  # A same-user edit of the hardened copy must not stay on the sudo line.
   printf '# older version\n' >> "$R/usr/local/libexec/mimi/mimi-root-apply"
   run /bin/bash "$MIMI_BIN" app uninstall com.acme.app --system
-  echo "$output" | grep -q "sudo \"$REPO_ROOT/libexec/mimi-root-apply\""
-  echo "$output" | grep -q "is out of date"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "out of date"
+  ! echo "$output" | grep -q "sudo \".*\" \".*system-requests/"
+
+  # Identical again, but group-writable: still not trusted.
+  cp "$TOOL" "$R/usr/local/libexec/mimi/mimi-root-apply"
+  chmod 0775 "$R/usr/local/libexec/mimi/mimi-root-apply"
+  run /bin/bash "$MIMI_BIN" app uninstall com.acme.app --system
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "not a trusted root-owned file"
+  ! echo "$output" | grep -q "sudo \".*\" \".*system-requests/"
+}
+
+@test "launcher: BASH_ENV does not run before the helper" {
+  setup_root
+  chmod 0755 "$R"
+  run "$TOOL" --install
+  [ "$status" -eq 0 ]
+  [ -x "$R/usr/local/libexec/mimi/mimi-root-launch" ]
+  printf 'echo PWNED > "%s/pwned"\n' "$R" > "$R/evil.sh"
+  chmod 0755 "$R" "$R/usr" "$R/usr/local" "$R/usr/local/libexec" "$R/usr/local/libexec/mimi"
+  run env BASH_ENV="$R/evil.sh" SHELLOPTS=verbose "$R/usr/local/libexec/mimi/mimi-root-launch" --runs
+  [ "$status" -eq 0 ]
+  [ ! -f "$R/pwned" ]
+}
+
+@test "require_root: a group-writable copy is refused when trust is enforced" {
+  setup_root
+  local copy="$R/bin/mimi-root-apply"
+  mkdir -p "$R/bin"
+  cp "$TOOL" "$copy"
+  chmod 0755 "$R" "$R/bin"
+  chmod 0777 "$copy"
+  run env MIMI_ROOT_CHECK_TRUST=1 "$copy" --runs
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "not a trusted root-owned tool"
+
+  chmod 0755 "$copy"
+  run env MIMI_ROOT_CHECK_TRUST=1 "$copy" --runs
+  [ "$status" -eq 0 ]
+}
+
+@test "payload: a receipt entry that spells .. is not a candidate" {
+  setup_root
+  mkdir -p "$R/etc"
+  printf 'secret\n' > "$R/etc/passwd"
+  receipt com.evil.app "" "usr/local/../../etc/passwd"
+  run candidates com.evil.app
+  [ "$status" -eq 0 ]
+  ! echo "$output" | grep -q $'\tpayload\t'
+  ! echo "$output" | grep -q "passwd"
+  [ -f "$R/etc/passwd" ]
+}
+
+@test "payload: an intermediate symlink out of the allow-list is not a candidate" {
+  setup_root
+  mkdir -p "$R/etc" "$R/usr/local"
+  printf 'secret\n' > "$R/etc/passwd"
+  ln -s "$R/etc" "$R/usr/local/escape"
+  receipt com.evil.app "" "usr/local/escape/passwd"
+  run candidates com.evil.app
+  [ "$status" -eq 0 ]
+  ! echo "$output" | grep -q $'\tpayload\t'
+  ! echo "$output" | grep -q "/etc/passwd"
+  [ -f "$R/etc/passwd" ]
+}
+
+@test "payload: a file replaced after the request is not moved" {
+  setup_root
+  mkdir -p "$R/Library/Application Support/Swap"
+  printf 'old\n' > "$R/Library/Application Support/Swap/data"
+  receipt com.swap.app "" "Library/Application Support/Swap/data"
+  request com.swap.app
+  # The candidate is the Swap directory, so the directory itself has to change inode.
+  rm -rf "$R/Library/Application Support/Swap"
+  mkdir -p "$R/Library/Application Support/Swap"
+  printf 'new\n' > "$R/Library/Application Support/Swap/data"
+  apply com.swap.app
+  [ "$status" -ne 0 ]
+  # The candidate id includes the inode, so a replaced directory matches nothing
+  # and the whole request is refused before any move.
+  echo "$output" | grep -q "nothing was done"
+  [ -f "$R/Library/Application Support/Swap/data" ]
+  [ "$(cat "$R/Library/Application Support/Swap/data")" = "new" ]
 }
 
 @test "payload: an item listed by two of the app's own packages is one candidate" {
@@ -457,7 +553,9 @@ acme_pkg() {
   printf 'x\n' > "$R/Library/Application Support/Dup/data/b"
   run candidates com.dup.app
   [ "$(echo "$output" | awk -F'\t' '$1 ~ /^sys-/' | wc -l | tr -d ' ')" = 1 ]
-  echo "$output" | grep -q "	payload	$R/Library/Application Support/Dup	"
+  local rp
+  rp="$(cd -P "$R" && pwd -P)"
+  echo "$output" | grep -q "	payload	$rp/Library/Application Support/Dup	"
 }
 
 @test "root: works with a plutil that prints its errors to stdout (macOS 14)" {
