@@ -165,37 +165,8 @@ load 'test_helper'
 }
 
 # ---------------------------------------------------------------------------
-# Risk facets and risk table unification
+# Risk table unification
 # ---------------------------------------------------------------------------
-
-@test "facets: every category defines four valid risk facets" {
-  load_lib
-  local id facets rec loss cost impact
-  for id in $ALL_CATEGORY_IDS; do
-    facets="$(category_risk_facets "$id")"
-    rec="$(echo "$facets" | cut -d'|' -f1)"
-    loss="$(echo "$facets" | cut -d'|' -f2)"
-    cost="$(echo "$facets" | cut -d'|' -f3)"
-    impact="$(echo "$facets" | cut -d'|' -f4)"
-
-    [[ "$rec" =~ ^(auto|re-fetch|rebuild|manual|none)$ ]] || {
-      echo "invalid recoverability for $id: $rec" >&2
-      return 1
-    }
-    [[ "$loss" =~ ^(none|low|medium|high)$ ]] || {
-      echo "invalid data_loss_risk for $id: $loss" >&2
-      return 1
-    }
-    [[ "$cost" =~ ^(none|low|medium|high)$ ]] || {
-      echo "invalid rebuild_cost for $id: $cost" >&2
-      return 1
-    }
-    [[ "$impact" =~ ^(none|low|medium|high)$ ]] || {
-      echo "invalid system_impact for $id: $impact" >&2
-      return 1
-    }
-  done
-}
 
 @test "risk-table: confirm_class and category_info agree on irreversible categories" {
   load_lib
@@ -305,21 +276,8 @@ load 'test_helper'
   done
 }
 
-@test "registry: capability checks return boolean status" {
-  load_lib
-  local id
-  for id in $ALL_CATEGORY_IDS; do
-    if category_capability "$id"; then
-      true
-    else
-      [ "$?" -eq 1 ]
-    fi
-  done
-}
-
-@test "registry: unknown category returns empty info and unknown risk facets" {
+@test "registry: unknown category returns empty info" {
   load_lib
   [ -z "$(category_info "nosuchcategory")" ]
-  [ "$(category_risk_facets "nosuchcategory")" = "unknown|unknown|unknown|unknown" ]
   [ -z "$(category_handler "nosuchcategory")" ]
 }

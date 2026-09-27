@@ -2,7 +2,7 @@
 
 The Xcode project is already at `gui/Mimi/Mimi.xcodeproj`. Do not create a second one. Open that project, select the Mimi scheme, and run it.
 
-The app is a SwiftUI window over the same engine as `bin/mimi`. It scans. It does not clean, restore, purge, or uninstall. Those stay in Terminal until [SECURITY_REMEDIATION_PLAN.md](SECURITY_REMEDIATION_PLAN.md) says the matching phase is done.
+The app is a SwiftUI window over the same engine as `bin/mimi`. It scans. It does not clean, restore, purge, or uninstall. Those stay in Terminal until [SYSTEM_REVIEW_2026-09-27.md](SYSTEM_REVIEW_2026-09-27.md) says the matching phase is done.
 
 ## What you can do in the window
 
@@ -65,6 +65,6 @@ Do not add a control that papers over an open engine bug.
 | `purge .` and restore containment | Fixed in the engine. The app still does not restore or purge |
 | Temp-directory mode bit | A `0700` parent is allowed; a world-writable parent is not |
 | `clear_dir_contents` | The child is re-checked immediately before `rm`. A swap inside `rm` itself is still possible, so the app still does not clean |
-| Plan fields | Actions are length-prefixed. A path containing `::` no longer shifts the inode. Plan files are schema version 2 |
+| Plan fields | Actions are length-prefixed. A path containing `::` no longer shifts the inode. Plan files are schema version 3 |
 
-The phased fix is [SECURITY_REMEDIATION_PLAN.md](SECURITY_REMEDIATION_PLAN.md). The architecture that this window is growing into is [GUI_WRAPPER_PLAN.md](GUI_WRAPPER_PLAN.md).
+The phased fix is [SYSTEM_REVIEW_2026-09-27.md](SYSTEM_REVIEW_2026-09-27.md). The architecture that this window is growing into is [GUI_WRAPPER_PLAN.md](GUI_WRAPPER_PLAN.md).

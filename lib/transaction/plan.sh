@@ -5,12 +5,16 @@
 # Sourced by lib/load.sh; never executed on its own. Defines functions and
 # plan state helpers conforming to schemas/plan-v1.json.
 
-PLAN_SCHEMA_VERSION=2
+# 3: the digest covers the header (expiry, host, user, uid) as well as the
+# actions, and apply re-derives every action (plan_verify_selection).
+PLAN_SCHEMA_VERSION=3
+PLAN_SCHEMA_SUPPORTED=3
 PLAN_ID=""
 PLAN_CREATED_AT=""
 PLAN_EXPIRES_AT=""
 PLAN_HOSTNAME=""
 PLAN_USER=""
+PLAN_UID=""
 PLAN_ACTIONS=()
 PLAN_CANDIDATES=()
 
@@ -29,6 +33,7 @@ plan_init() {
   PLAN_EXPIRES_AT="$(date -u -r "$exp_ts" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "$PLAN_CREATED_AT")"
   PLAN_HOSTNAME="$(hostname 2>/dev/null || echo "localhost")"
   PLAN_USER="${USER:-$(id -un 2>/dev/null || echo "user")}"
+  PLAN_UID="$(id -u 2>/dev/null || echo 0)"
   PLAN_ACTIONS=()
 }
 
@@ -107,8 +112,22 @@ plan_candidates_wanted() {
   [ "$MODE" = "plan" ] || [ "${JSONL_ENABLED:-0}" = 1 ]
 }
 
-plan_candidate_count() {
-  echo "${#PLAN_CANDIDATES[@]}"
+# A category whose cleanup is a delegated command (brew, npm, simctl, ...) has
+# no path to plan. It is recorded once, as a whole-category tool_cleanup
+# action; apply re-runs the category's own cleanup for it (plan_apply_tool).
+#
+#   plan_tool_candidate BYTES_KB
+PLAN_TOOL_CATEGORIES=","
+plan_tool_candidate() {
+  local cat="${CURRENT_CATEGORY_ID:-}" kb="${1:-0}"
+  [ -n "$cat" ] || return 0
+  plan_candidates_wanted || return 0
+  case "$PLAN_TOOL_CATEGORIES" in *",$cat,"*) return 0 ;; esac
+  PLAN_TOOL_CATEGORIES="$PLAN_TOOL_CATEGORIES$cat,"
+  case "$kb" in ''|*[!0-9]*) kb=0 ;; esac
+  plan_candidate_add "$cat" "tool_cleanup" "" "" "$((kb * 1024))" "${CURRENT_CATEGORY_RISK:-safe}" "category cleanup command"
+  [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_candidate "$cat" "" "$kb" "${CURRENT_CATEGORY_RISK:-safe}" "$PLAN_LAST_CID"
+  return 0
 }
 
 plan_build() {
@@ -143,8 +162,9 @@ plan_add_action() {
   PLAN_ACTIONS+=("$(plan_pack "$action_id" "$category" "$operation" "$target_path" "$target_identity" "$expected_bytes" "$risk" "$evidence")")
 }
 
-# SHA-256 over every packed action followed by a newline. The actions are
-# streamed into the hash rather than concatenated into one Bash string first.
+# SHA-256 over the header fields and every packed action, one per line. It
+# detects a plan that was edited or damaged; it is not a signature (anyone can
+# recompute it). Authority comes from plan_verify_selection instead.
 plan_compute_digest() {
   _plan_digest_input | {
     if command -v shasum >/dev/null 2>&1; then
@@ -156,6 +176,9 @@ plan_compute_digest() {
 }
 
 _plan_digest_input() {
+  plan_pack "$PLAN_SCHEMA_VERSION" "$PLAN_ID" "$PLAN_CREATED_AT" "$PLAN_EXPIRES_AT" \
+    "$PLAN_HOSTNAME" "$PLAN_USER" "$PLAN_UID"
+  printf '\n'
   [ "${#PLAN_ACTIONS[@]}" -gt 0 ] || return 0
   printf '%s\n' "${PLAN_ACTIONS[@]}"
 }
@@ -189,7 +212,7 @@ plan_serialize() {
   printf '  "host_binding": {\n'
   printf '    "hostname": "%s",\n' "$(json_escape "$PLAN_HOSTNAME")"
   printf '    "user": "%s",\n' "$(json_escape "$PLAN_USER")"
-  printf '    "uid": %d\n' "$(id -u 2>/dev/null || echo 0)"
+  printf '    "uid": %d\n' "${PLAN_UID:-0}"
   printf '  },\n'
   printf '  "digest": "%s",\n' "$digest"
   printf '  "summary": {\n'
@@ -266,7 +289,7 @@ plan_load() {
   PLAN_ACTIONS=()
   local in_actions=0 in_action=0
   local line act_id="" cat="" op="" p="" ident="" bytes=0 risk="safe" evid=""
-  local cur_schema=0 cur_id="" cur_created="" cur_expires="" cur_host="" cur_user="" cur_digest=""
+  local cur_schema=0 cur_id="" cur_created="" cur_expires="" cur_host="" cur_user="" cur_digest="" cur_uid="" cur_total=""
 
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line#"${line%%[! ]*}"}"
@@ -300,6 +323,12 @@ plan_load() {
       '"user":'*)
         cur_user="${line#*: \"}"
         cur_user="${cur_user%\"*}"
+        ;;
+      '"uid":'*)
+        cur_uid="${line#*:}"; cur_uid="${cur_uid%,}"; cur_uid="${cur_uid// /}"
+        ;;
+      '"total_candidates":'*)
+        cur_total="${line#*:}"; cur_total="${cur_total%,}"; cur_total="${cur_total// /}"
         ;;
       '"digest":'*)
         cur_digest="${line#*: \"}"
@@ -361,18 +390,22 @@ plan_load() {
   PLAN_EXPIRES_AT="$cur_expires"
   PLAN_HOSTNAME="$cur_host"
   PLAN_USER="$cur_user"
+  PLAN_UID="$cur_uid"
   PLAN_DIGEST="$cur_digest"
+  # The reader expects the layout plan_serialize writes. A reformatted file
+  # loses actions silently, so say that rather than report a bad digest.
+  if [ -n "$cur_total" ] && [ "$cur_total" != "${#PLAN_ACTIONS[@]}" ]; then
+    err "plan_load: $file is not in the layout mimi writes (was it reformatted?)"
+    return 1
+  fi
   return 0
 }
 
-plan_validate_schema() {
-  local file="$1"
-  plan_load "$file" || return 1
-  [ "$PLAN_SCHEMA_VERSION" = "2" ] || return 1
-}
-
+# plan_preflight FILE [fresh]
+#   fresh: the plan was built by this process a moment ago (app uninstall),
+#          so re-deriving its selection would only repeat that work.
 plan_preflight() {
-  local plan_file="$1"
+  local plan_file="$1" fresh="${2:-}"
   if [ ! -f "$plan_file" ] || [ ! -r "$plan_file" ]; then
     err "plan preflight: plan file missing or unreadable: $plan_file"
     return 1
@@ -384,7 +417,7 @@ plan_preflight() {
   fi
 
   # 1. Schema version check
-  if [ "$PLAN_SCHEMA_VERSION" != "2" ]; then
+  if [ "$PLAN_SCHEMA_VERSION" != "$PLAN_SCHEMA_SUPPORTED" ]; then
     err "plan preflight: unsupported plan schema version: $PLAN_SCHEMA_VERSION"
     return 1
   fi
@@ -392,8 +425,12 @@ plan_preflight() {
   # 2. Host binding check
   local current_user
   current_user="${USER:-$(id -un 2>/dev/null || echo "user")}"
-  if [ "$PLAN_USER" != "$current_user" ]; then
+  if [ "$PLAN_USER" != "$current_user" ] || [ "$PLAN_UID" != "$(id -u 2>/dev/null)" ]; then
     err "plan preflight: user mismatch (plan created for user '$PLAN_USER', running as '$current_user')"
+    return 1
+  fi
+  if [ "$PLAN_HOSTNAME" != "$(hostname 2>/dev/null || echo localhost)" ]; then
+    err "plan preflight: the plan was made on another Mac ($PLAN_HOSTNAME)"
     return 1
   fi
 
@@ -409,12 +446,13 @@ plan_preflight() {
   local computed_digest
   computed_digest="$(plan_compute_digest)"
   if [ "$computed_digest" != "$PLAN_DIGEST" ]; then
-    err "plan preflight: plan digest mismatch: plan file has been tampered with or corrupted"
+    err "plan preflight: digest mismatch: the plan file was edited or damaged after it was written"
     return 1
   fi
 
   # 5. Target validations (containment, identity, whitelist)
   local item act_id cat op p ident bytes risk evid
+  case " ${PLAN_ACTIONS[*]:-} " in *dev-caches*) dev_caches_register_roots || true ;; esac
   local cur_ident canon
   for item in "${PLAN_ACTIONS[@]}"; do
     plan_read_record "$item" || return 1
@@ -445,7 +483,10 @@ plan_preflight() {
       return 1
     fi
 
-    if is_whitelisted "$canon"; then
+    # A folder whose contents are cleared keeps whitelisted entries inside
+    # it (quarantine_dir_contents skips them); anything else is refused.
+    if { [ "$op" = "clear_dir_contents" ] && whitelist_covers "$canon"; } ||
+       { [ "$op" != "clear_dir_contents" ] && is_whitelisted "$canon"; }; then
       err "plan preflight: target is whitelisted: $p"
       return 1
     fi
@@ -466,5 +507,66 @@ plan_preflight() {
     fi
   done
 
-  return 0
+  [ "$fresh" = "fresh" ] && return 0
+  plan_verify_selection
+}
+
+# A plan only SELECTS among what mimi would pick itself right now. Every path
+# action is re-derived: cleaner categories are scanned again in plan mode, and
+# an uninstall's data is attributed again from the bundle. An action that is
+# not among the fresh results is refused, so an edited or hand-made plan
+# cannot widen what gets removed.
+plan_verify_selection() {
+  local item cats="," current cid
+  for item in ${PLAN_ACTIONS[@]+"${PLAN_ACTIONS[@]}"}; do
+    plan_read_record "$item" || return 1
+    case "$PLAN_F_OP" in retain|tool_cleanup) continue ;; esac
+    case "$PLAN_F_CAT" in uninstall-*) continue ;; esac
+    case "$cats" in *",$PLAN_F_CAT,"*) ;; *) cats="$cats$PLAN_F_CAT," ;; esac
+  done
+
+  if [ "$cats" != "," ]; then
+    current="$(plan_rederive_cids "$cats")"
+    for item in "${PLAN_ACTIONS[@]}"; do
+      plan_read_record "$item" || return 1
+      case "$PLAN_F_OP" in retain|tool_cleanup) continue ;; esac
+      case "$PLAN_F_CAT" in uninstall-*) continue ;; esac
+      # Candidates are recorded by canonical path; compare like with like.
+      cid="$(plan_candidate_id "$PLAN_F_CAT" "$(path_canonicalize "$PLAN_F_PATH" nofollow)")"
+      case $'\n'"$current"$'\n' in
+        *$'\n'"$cid"$'\n'*) ;;
+        *)
+          err "plan preflight: '$PLAN_F_CAT' would not select this now: $PLAN_F_PATH"
+          return 1
+          ;;
+      esac
+    done
+  fi
+
+  uninstall_plan_detect || return 0
+  uninstall_verify_selection
+}
+
+# Candidate ids the given categories (",a,b,") would plan right now, one per
+# line. Runs in a subshell with its output discarded; nothing is changed.
+plan_rederive_cids() {
+  local cats="$1"
+  (
+    local id var item
+    MODE="plan"
+    JSONL_ENABLED=0
+    PLAN_CANDIDATES=()
+    SKIP_LIST=""
+    ONLY_LIST="${cats#,}"
+    ONLY_LIST="${ONLY_LIST%,}"
+    for id in $ALL_CATEGORY_IDS; do
+      case "$cats" in *",$id,"*) ;; *) continue ;; esac
+      var="$(category_include_var "$id")"
+      [ -n "$var" ] && printf -v "$var" '1'
+      run_category "$id"
+    done > /dev/null 2>&1
+    for item in ${PLAN_CANDIDATES[@]+"${PLAN_CANDIDATES[@]}"}; do
+      plan_read_record "$item" && printf '%s\n' "$PLAN_F_ID"
+    done
+  )
 }

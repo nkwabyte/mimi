@@ -108,6 +108,8 @@ report_system_data() {
 # export. Sizes are allocated bytes (what deleting would free); a sparse file
 # also shows what it claims to be. Nothing here is ever removed by mimi —
 # a large file is as likely to be precious as forgotten.
+# report_large_files [MIN_MB]   (the argument is for tests)
+# shellcheck disable=SC2120
 report_large_files() {
   local min_mb="${1:-$REPORT_LARGE_FILE_MB}" f kb shown=0 total=0 extra
   say ""
@@ -163,6 +165,8 @@ _md_date_epoch() {
   date -j -f '%Y-%m-%d %H:%M:%S %z' "$v" +%s 2>/dev/null
 }
 
+# report_stale_downloads [DAYS]   (the argument is for tests)
+# shellcheck disable=SC2120
 report_stale_downloads() {
   local days="${1:-$DOWNLOADS_STALE_DAYS}" dir="$HOME_DIR/Downloads"
   [ -d "$dir" ] || return 0
@@ -296,7 +300,9 @@ report_top_offenders() {
       done
   info "Delete one with: rm -rf <path>   (then \`npm install\` when you next need it)"
 
+  # shellcheck disable=SC2119
   report_large_files
+  # shellcheck disable=SC2119
   report_stale_downloads
 
   # Purgeable space / snapshots: the other half of the "System Data" mystery.

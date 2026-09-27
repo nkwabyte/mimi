@@ -16,8 +16,9 @@
 #
 # so it gets the same digest, expiry, host/user, and file-identity checks as
 # `mimi apply`, and `--plan-only` lets the plan be reviewed and applied later
-# with `mimi apply <file>`. Nothing is deleted: every action is a move into a
-# quarantine run that `mimi restore` undoes until `mimi purge`.
+# with `mimi apply <file>`. An uninstall deletes: the bundle, its LaunchAgents,
+# and (unless --keep-data) its attributable data are removed for good, so it
+# needs the irreversible confirmation. Nothing goes to quarantine.
 #
 # Plan categories, in execution order:
 #
@@ -42,7 +43,6 @@
 # ---------------------------------------------------------------------------
 
 UNINSTALL_DATA_MODE="${UNINSTALL_DATA_MODE:-ask}"   # keep | purge | ask
-UNINSTALL_INCLUDE_DATA=0        # ask-mode decision, made before planning
 UNINSTALL_PLAN_ONLY=0           # --plan-only: save the plan, do not apply
 UNINSTALL_LAUNCHAGENTS=()       # LaunchAgent plists in the current plan
 
@@ -53,6 +53,10 @@ UNINSTALL_CANONICAL=""
 UNINSTALL_PLAN_APP_PATH=""
 UNINSTALL_PLAN_APP_NAME=""
 UNINSTALL_PLAN_BUNDLE_ID=""
+# Signing team and executable name, so attribution after planning uses the
+# same evidence inputs as the planning itself.
+UNINSTALL_PLAN_TEAM_ID=""
+UNINSTALL_PLAN_EXE=""
 UNINSTALL_LEFTOVER_COUNT=0
 
 # ---------------------------------------------------------------------------
@@ -266,14 +270,11 @@ _uninstall_path_ok() {
   return 0
 }
 
-# True when attributable app data is deleted with the bundle.
-# Uninstall wipes that data unless --keep-data says not to. Shared, system,
-# and weak-evidence paths are still retained by the caller.
+# True when attributable app data is deleted with the bundle: always, unless
+# --keep-data. Shared, system, and weak-evidence paths are still retained by
+# the caller.
 uninstall_data_included() {
-  case "$UNINSTALL_DATA_MODE" in
-    keep) return 1 ;;
-    *)    return 0 ;;
-  esac
+  [ "$UNINSTALL_DATA_MODE" != "keep" ]
 }
 
 # Fills PLAN_CANDIDATES from the current APP_INFO_* and EVIDENCE_* state.
@@ -283,7 +284,7 @@ uninstall_build_plan() {
   UNINSTALL_LAUNCHAGENTS=()
   PLAN_CANDIDATES=()
 
-  local canon_app i ev_path ev_root ev_conf ev_reason ev_ident ev_bytes ev_risk
+  local canon_app i ev_path ev_root ev_conf ev_reason ev_ident ev_bytes
   canon_app="$(path_canonicalize "$app_path" nofollow 2>/dev/null || printf '%s' "$app_path")"
 
   # 1. User LaunchAgents first, so nothing relaunches the app mid-way.
@@ -296,7 +297,7 @@ uninstall_build_plan() {
     ev_ident="$(path_identity "$ev_path" 2>/dev/null || echo "unknown")"
     plan_candidate_add "uninstall-launchagent" "wipe" \
       "$ev_path" "$ev_ident" "$(( ${EVIDENCE_SIZES[$i]:-0} * 1024 ))" "irreversible" \
-      "$(_uninstall_evid "LaunchAgent: ${EVIDENCE_REASONS[$i]} [${EVIDENCE_CONFIDENCES[$i]}]; stopped before it is deleted")"
+      "$(_uninstall_evid "LaunchAgent: ${EVIDENCE_REASONS[$i]} [${EVIDENCE_CONFIDENCES[$i]}]; stopped first")"
   done
 
   # 2. The application bundle.
@@ -318,12 +319,8 @@ uninstall_build_plan() {
 
     if evidence_is_selectable "$i" && uninstall_data_included; then
       ev_bytes=$(( ${EVIDENCE_SIZES[$i]:-0} * 1024 ))
-      case "$ev_conf" in
-        authoritative|strong) ev_risk="irreversible" ;;
-        *)                    ev_risk="irreversible" ;;
-      esac
       plan_candidate_add "uninstall-data" "wipe" \
-        "$ev_path" "$ev_ident" "$ev_bytes" "$ev_risk" \
+        "$ev_path" "$ev_ident" "$ev_bytes" "irreversible" \
         "$(_uninstall_evid "${ev_root}: ${ev_reason} [${ev_conf}]")"
     else
       local why
@@ -419,6 +416,40 @@ uninstall_plan_detect() {
   return 1
 }
 
+# Preflight of a saved uninstall plan: attribute the app's data again and
+# refuse any LaunchAgent or data action that is not selectable evidence now.
+uninstall_verify_selection() {
+  local item i found
+  if ! app_inspect_bundle "$UNINSTALL_PLAN_APP_PATH" full > /dev/null 2>&1; then
+    err "plan preflight: cannot inspect $UNINSTALL_PLAN_APP_PATH"
+    return 1
+  fi
+  if [ "$APP_INFO_BUNDLE_ID" != "$UNINSTALL_PLAN_BUNDLE_ID" ]; then
+    err "plan preflight: $UNINSTALL_PLAN_APP_PATH is not $UNINSTALL_PLAN_BUNDLE_ID"
+    return 1
+  fi
+  UNINSTALL_PLAN_TEAM_ID="$SIGNING_TEAM_ID"
+  UNINSTALL_PLAN_EXE="$APP_INFO_EXECUTABLE"
+  collect_app_evidence "$APP_INFO_CANONICAL_PATH" "$APP_INFO_NAME" "$APP_INFO_BUNDLE_ID" \
+    "$UNINSTALL_PLAN_TEAM_ID" "$UNINSTALL_PLAN_EXE" > /dev/null 2>&1
+
+  for item in "${PLAN_ACTIONS[@]}"; do
+    plan_read_record "$item" || return 1
+    [ "$PLAN_F_OP" = "retain" ] && continue
+    case "$PLAN_F_CAT" in uninstall-launchagent|uninstall-data) ;; *) continue ;; esac
+    found=0
+    for ((i = 0; i < EVIDENCE_COUNT; i++)); do
+      evidence_is_selectable "$i" || continue
+      [ "${EVIDENCE_PATHS[$i]}" = "$PLAN_F_PATH" ] && { found=1; break; }
+    done
+    if [ "$found" != 1 ]; then
+      err "plan preflight: not attributable to $UNINSTALL_PLAN_BUNDLE_ID now: $PLAN_F_PATH"
+      return 1
+    fi
+  done
+  return 0
+}
+
 # After the actions ran: the app is gone, every retained item survived, and
 # anything attributable that is still present is reported as a leftover.
 # Returns non-zero when the uninstall is incomplete.
@@ -455,7 +486,8 @@ uninstall_verify_after_apply() {
   # plan's quarantine set nor retained — e.g. recreated by a helper that was
   # still running, or created after the plan was written.
   UNINSTALL_LEFTOVER_COUNT=0
-  collect_app_evidence "$UNINSTALL_PLAN_APP_PATH" "$UNINSTALL_PLAN_APP_NAME" "$UNINSTALL_PLAN_BUNDLE_ID" "" "" > /dev/null 2>&1 || true
+  collect_app_evidence "$UNINSTALL_PLAN_APP_PATH" "$UNINSTALL_PLAN_APP_NAME" "$UNINSTALL_PLAN_BUNDLE_ID" \
+    "$UNINSTALL_PLAN_TEAM_ID" "$UNINSTALL_PLAN_EXE" > /dev/null 2>&1 || true
   local i ep how
   for ((i = 0; i < EVIDENCE_COUNT; i++)); do
     evidence_is_selectable "$i" || continue
@@ -466,7 +498,7 @@ uninstall_verify_after_apply() {
       [ "$PLAN_F_PATH" = "$ep" ] || continue
       case "$PLAN_F_OP" in
         retain) how="kept"; break ;;
-        quarantine|remove_path|clear_dir_contents) how="could not be moved"; break ;;
+        quarantine|wipe|remove_path|clear_dir_contents) how="could not be removed"; break ;;
       esac
     done
     [ "$how" = "kept" ] && continue
@@ -505,10 +537,9 @@ uninstall_apply() {
     err "uninstall: could not save the plan to $plan_file"
     return "$EXIT_FAILURE"
   fi
-  UNINSTALL_PLAN_FILE="$plan_file"
-  if ! plan_preflight "$plan_file"; then
+  if ! plan_preflight "$plan_file" fresh; then
     err "uninstall: plan preflight failed; nothing was moved"
-    return "$EXIT_USAGE"
+    return "$EXIT_PLAN_REFUSED"
   fi
   plan_execute_loaded
 }
@@ -876,7 +907,7 @@ _looks_like_bundle_id_target() {
 }
 
 uninstall_system_request() {
-  local target="$1" bid="" bundled tool listing req n=0
+  local target="$1" bid="" bundled listing req n=0
   # Candidate listing is read-only and runs as the user. The bundled script
   # is fine for that. It is never the program named after sudo.
   bundled="$(mimi_root_tool_bundled)" || { err "libexec/mimi-root-apply is missing from this installation"; return "$EXIT_FAILURE"; }
@@ -1000,6 +1031,8 @@ mimi_app_uninstall() {
   # --- Evidence ---
   collect_app_evidence "$APP_INFO_CANONICAL_PATH" "$APP_INFO_NAME" "$APP_INFO_BUNDLE_ID" \
     "$SIGNING_TEAM_ID" "$APP_INFO_EXECUTABLE"
+  UNINSTALL_PLAN_TEAM_ID="$SIGNING_TEAM_ID"
+  UNINSTALL_PLAN_EXE="$APP_INFO_EXECUTABLE"
 
   # --- P4-T03: build and show the plan ---
   plan_init
@@ -1051,6 +1084,7 @@ mimi_app_uninstall() {
   fi
 
   # --- P4-T04: save, preflight the saved file, execute ---
+  run_lock || exit "$EXIT_BUSY"
   local apply_rc=0
   uninstall_apply || apply_rc=$?
   say "Plan: $plan_file"

@@ -128,13 +128,14 @@ OPT-IN (destructive / can remove wanted data — off unless requested):
                           LaunchAgents whose names no installed application
                           or installed command-line tool claims. On its own
                           it only reports (and writes a review file).
-  --remove-orphans        Move EVERY leftover the scan finds, strong and weak,
+  --remove-orphans        Move every [strong] leftover the scan finds
                           to a quarantine run — no file to edit. Implies
                           --include-orphans; use with clean:
                             mimi clean --only orphans --remove-orphans
                           Undo with `mimi restore orphans-<timestamp>`; free
                           the space with `mimi purge orphans-<timestamp>`.
                           Whitelisted paths are never moved.
+  --include-weak          With --remove-orphans, move the [weak] guesses too.
                           Matching is a name/bundle-id heuristic, reported
                           at two confidence levels:
                             [strong] the folder is named by bundle id
@@ -198,6 +199,9 @@ OPT-IN (destructive / can remove wanted data — off unless requested):
   --no-log                  Do not leave a log file behind at all. Output
                           still goes to the terminal; the transcript lives in
                           a scratch file that is deleted when the run ends.
+  --quarantine-days N       Quarantine runs older than N days are released at
+                          the start of the next run that quarantines
+                          (default 7, 0 = keep until `mimi purge`).
   --keep-logs N             Number of past run logs to keep in
                           ~/Library/Logs/mimi (default 5, 0 = none).
                           Older ones are pruned at the start of every run,
@@ -283,6 +287,8 @@ CONFIRMATIONS:
 EXIT CODES:
   0 success   1 usage error   3 partial failure   4 interrupted
   5 a required confirmation was declined or could not be obtained
+  6 a plan was refused (stale, expired, edited, or selects more than mimi would)
+  7 another mimi run is changing files
 
 EXAMPLES:
   mimi                                   # scan only, see what would be freed

@@ -207,7 +207,6 @@ while [ $# -gt 0 ]; do
     --request-id=*)
       JSON_REQ_ID="${1#*=}"; shift ;;
     --no-color)
-      NO_COLOR=1
       C_RESET=""; C_BOLD=""; C_DIM=""; C_RED=""; C_GREEN=""; C_YELLOW=""; C_BLUE=""; C_CYAN=""
       shift ;;
     --no-prompt)
@@ -344,6 +343,14 @@ while [ $# -gt 0 ]; do
     # Quarantine every leftover the orphan scan finds (strong and weak). Naming
     # the action is its authorization; it also selects the orphans category.
     --remove-orphans) REMOVE_ORPHANS=1; INCLUDE_ORPHANS=1; shift ;;
+    --include-weak) INCLUDE_WEAK_ORPHANS=1; shift ;;
+    --quarantine-days)
+      require_arg "--quarantine-days" "$#" "${2-}"
+      validate_int "--quarantine-days" "$2"
+      QUARANTINE_KEEP_DAYS="$2"; shift 2 ;;
+    --quarantine-days=*)
+      validate_int "--quarantine-days" "${1#*=}"
+      QUARANTINE_KEEP_DAYS="${1#*=}"; shift ;;
     --remove-orphans-from)
       require_arg "--remove-orphans-from" "$#" "${2-}"
       [ -r "$2" ] || die_usage "--remove-orphans-from: cannot read review file '$2'"

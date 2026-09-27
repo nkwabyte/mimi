@@ -149,7 +149,7 @@ mimi plan --only caches --plan-out ~/Desktop/mimi-plan.json
 ```
 
 ### `mimi apply <plan-file>`
-Preflights the execution plan (verifying the cryptographic digest, schema version, host/user binding, expiration, and ensuring target file identities have not changed), prompts for approval (or `--yes`), and moves targets into an isolated quarantine store (`~/.config/mimi/quarantine/<run-id>`) with verified postconditions.
+Preflights the execution plan (digest over the whole file, schema version, user, uid and host, expiration, unchanged file identities, and a fresh re-derivation: every action must be something mimi would select right now), asks the confirmations `clean` would ask (`--yes` covers only recoverable ones), and moves targets into a quarantine run (`~/Library/Application Support/mimi/quarantine/<run-id>`) with verified postconditions. A cleared folder keeps the folder and quarantines its contents; a delegated cleanup (brew, npm, simctl, ...) runs its own command at this point, never during `plan`.
 ```bash
 mimi apply ~/.config/mimi/plans/plan-20260924-120000-1234.json
 ```
@@ -551,7 +551,7 @@ enough to run that category — you do not also need `--only`.
 | `--include-trash` | Empty `~/.Trash`. Irreversible. |
 | `--include-mail` | Clear Mail.app's local "Mail Downloads" cache. |
 | `--include-orphans` | Scan for leftovers no installed app or tool claims. On its own, reports only. See [Possible app leftovers](#possible-app-leftovers). |
-| `--remove-orphans` | With `clean`: move **every** leftover found (strong and weak) to a quarantine run. No file to edit; implies `--include-orphans`. Undo with `restore`, free the space with `purge`. |
+| `--remove-orphans` | With `clean`: move every **[strong]** leftover to a quarantine run (add `--include-weak` for [weak] guesses). No file to edit; implies `--include-orphans`. Undo with `restore`, free the space with `purge`. |
 | `--include-whatsapp` | Remove WhatsApp's expired Status/Stories media only. |
 | `--include-sim-stale` | Delete Simulator devices unused for `--sim-stale-days`. |
 | `--include-claude-cache` | Clear the Claude desktop app's Electron cache dirs. |
@@ -599,6 +599,8 @@ enough to run that category — you do not also need `--only`.
 | `3` | The run finished, but at least one selected action failed or was refused by the system |
 | `4` | A signal (Ctrl-C, `SIGTERM`) stopped the run before it finished |
 | `5` | A required confirmation was declined, or could not be obtained at all |
+| `6` | `apply` refused the plan: edited, expired, from another user or Mac, or selecting more than mimi would now |
+| `7` | Another mimi run is changing files right now |
 
 `2` is deliberately unused — too many tools read it as "usage", and invalid
 usage here is already `1`.
@@ -809,10 +811,11 @@ your `PATH` — claims.
 
 ```bash
 mimi scan  --only orphans --remove-orphans     # preview: what would move
-mimi clean --only orphans --remove-orphans     # move every [strong] and [weak] one
+mimi clean --only orphans --remove-orphans     # move every [strong] one
+mimi clean --only orphans --remove-orphans --include-weak   # and the [weak] ones
 ```
 
-In the menus, tick `orphans` and press `c`: same thing. Everything is **moved
+In the menus, tick `orphans` and press `c`: same thing. The leftovers are **moved
 to a quarantine run** (`orphans-<timestamp>`), not deleted, because the list is
 a guess and a guess has to be undoable:
 

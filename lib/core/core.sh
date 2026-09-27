@@ -7,8 +7,8 @@
 run_category() {
   local id="$1"
   should_run_category "$id" || return 0
-  RAN_ANY=1
   CURRENT_CATEGORY_ID="$id"
+  CURRENT_CATEGORY_RISK="$(category_risk "$id")"
   local handler
   handler="$(category_handler "$id")"
   if [ -n "$handler" ] && declare -f "$handler" >/dev/null 2>&1; then
@@ -26,9 +26,11 @@ run_category() {
 # instead of exiting the whole process.
 run_selected_categories() {
   log_init
+  if [ "$MODE" = "clean" ] && ! run_lock; then
+    return "$EXIT_BUSY"
+  fi
   TOTAL_BEFORE_KB=0
   TOTAL_RECLAIMED_KB=0
-  RAN_ANY=0
 
   if [ "${JSONL_ENABLED:-0}" = 1 ]; then
     json_emit_hello
@@ -117,8 +119,6 @@ run_selected_categories() {
   fi
   # Anything a cleaner must not delete for you still has to be findable.
   if [ "$REPORT_ONLY" = 1 ] || [ "$MODE" = "scan" ]; then
-    local purgeable
-    purgeable="$(df -k / 2>/dev/null | awk 'NR==2{print $4}')"
     say ""
     info "Tip: run ${C_BOLD}mimi --report${C_RESET} for a full breakdown of where the"
     info "rest of your disk went (VM disks, SDKs, model weights, node_modules)."
@@ -218,16 +218,31 @@ run_apply() {
   say "Log: $LOG_FILE"
   warn_if_no_full_disk_access
 
+  run_lock || return "$EXIT_BUSY"
   if ! plan_preflight "$PLAN_FILE"; then
     err "plan preflight failed; refusing to apply"
     if [ "${JSONL_ENABLED:-0}" = 1 ]; then
       json_emit_phase_finished "apply" "failed"
-      json_emit_run_finished "failed" "$EXIT_USAGE" 0 0 0 0 0 1
+      json_emit_run_finished "failed" "$EXIT_PLAN_REFUSED" 0 0 0 0 0 1
     fi
-    return "$EXIT_USAGE"
+    return "$EXIT_PLAN_REFUSED"
   fi
 
-  local action_count="${#PLAN_ACTIONS[@]}"
+  local action_count="${#PLAN_ACTIONS[@]}" gate_ids="" id
+  # The same questions `clean` would ask. --yes answers only the recoverable
+  # ones; a risky or irreversible category in a plan still needs its typed
+  # confirmation or --force-risky, exactly as it would outside a plan.
+  gate_ids="$(plan_confirm_ids)"
+  for id in $gate_ids; do
+    if ! confirm_action_ok "$id" "This plan includes '$id' actions ($(confirm_class "$id"))."; then
+      if [ "${JSONL_ENABLED:-0}" = 1 ]; then
+        json_emit_phase_finished "apply" "cancelled"
+        json_emit_run_finished "cancelled" "$EXIT_CANCELLED" 0 0 0 0 0 0
+      fi
+      return "$EXIT_CANCELLED"
+    fi
+    CONFIRM_PREAPPROVED="$CONFIRM_PREAPPROVED$id,"
+  done
   if [ "$ASSUME_YES" != 1 ]; then
     local gate_rc=0
     confirm "About to apply plan $(basename "$PLAN_FILE") ($action_count action(s)) — proceed?" || gate_rc=$?
@@ -242,6 +257,50 @@ run_apply() {
   fi
 
   plan_execute_loaded
+}
+
+# Confirmation ids a loaded plan needs beyond the ordinary prompt, one per
+# line: "uninstall" for any permanent deletion, and every risky or
+# irreversible category it touches.
+plan_confirm_ids() {
+  local item seen=","
+  for item in ${PLAN_ACTIONS[@]+"${PLAN_ACTIONS[@]}"}; do
+    plan_read_record "$item" || continue
+    local id=""
+    if [ "$PLAN_F_OP" = "wipe" ]; then
+      id="uninstall"
+    elif confirm_is_gated "$PLAN_F_CAT" && confirm_is_forceable "$PLAN_F_CAT"; then
+      id="$PLAN_F_CAT"
+    fi
+    [ -n "$id" ] || continue
+    case "$seen" in *",$id,"*) continue ;; esac
+    seen="$seen$id,"
+    printf '%s\n' "$id"
+  done
+}
+
+# Run the delegated cleanup command of one category (brew, npm, simctl, ...).
+# Only the category's own code decides what runs; the plan only names the
+# category. Path actions of the same category are handled by the plan
+# itself, so clear_dir_contents and remove_path stand aside meanwhile.
+plan_apply_tool() {
+  local cat="$1" handler var saved_mode="$MODE"
+  handler="$(category_handler "$cat")"
+  if [ -z "$handler" ]; then
+    record_action failed
+    err "plan names an unknown category: $cat"
+    return 1
+  fi
+  var="$(category_include_var "$cat")"
+  [ -n "$var" ] && printf -v "$var" '1'
+  MODE="clean"
+  APPLY_TOOL_ONLY=1
+  CURRENT_CATEGORY_ID="$cat"
+  "$handler"
+  CURRENT_CATEGORY_ID=""
+  APPLY_TOOL_ONLY=0
+  MODE="$saved_mode"
+  return 0
 }
 
 # Execute the actions of an already-preflighted plan (PLAN_ACTIONS) into a
@@ -278,6 +337,7 @@ plan_execute_loaded() {
     esac
   done
   if [ "$needs_quarantine" = 1 ]; then
+    quarantine_expire_runs
     quarantine_init_run "$PLAN_ID" || {
       err "failed to initialize quarantine run"
       return "$EXIT_FAILURE"
@@ -286,6 +346,7 @@ plan_execute_loaded() {
 
   TOTAL_BEFORE_KB=0
   TOTAL_RECLAIMED_KB=0
+  TOTAL_QUARANTINED_KB=0
   ACTION_OK=0
   ACTION_SKIPPED=0
   ACTION_DENIED=0
@@ -314,10 +375,12 @@ plan_execute_loaded() {
         if [ "$cat" = "uninstall-launchagent" ] && [ -f "$p" ]; then
           unload_launch_agent "$p" || true
         fi
+        local wipe_kb
+        wipe_kb="$(dir_size_kb "$p")"
         if plan_wipe_target "$cat" "$p" "$ident"; then
           record_action ok
-          TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + (bytes / 1024)))
-          [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "ok" "$p" "$bytes"
+          TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + wipe_kb))
+          [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "ok" "$p" "$((wipe_kb * 1024))"
           ok "removed: $p"
         else
           record_action failed
@@ -325,14 +388,25 @@ plan_execute_loaded() {
           err "failed to remove: $p"
         fi
         ;;
-      remove_path|clear_dir_contents|quarantine)
+      clear_dir_contents)
+        if quarantine_dir_contents "$act_id" "$cat" "$p" "$ident"; then
+          record_action ok
+          ok "quarantined the contents of: $p ($(human_kb "$QUARANTINE_DIR_KB"))"
+        else
+          record_action failed
+          err "some of the contents of $p could not be quarantined"
+        fi
+        TOTAL_QUARANTINED_KB=$((TOTAL_QUARANTINED_KB + QUARANTINE_DIR_KB))
+        [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "quarantined" "$p" "$((QUARANTINE_DIR_KB * 1024))"
+        ;;
+      remove_path|quarantine)
         if [ "$cat" = "uninstall-launchagent" ] && [ -f "$p" ]; then
           unload_launch_agent "$p" || true
         fi
         if quarantine_target "$act_id" "$cat" "$p" "$ident" "$bytes"; then
           record_action ok
-          TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + (bytes / 1024)))
-          [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "ok" "$p" "$bytes"
+          TOTAL_QUARANTINED_KB=$((TOTAL_QUARANTINED_KB + (bytes / 1024)))
+          [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "quarantined" "$p" "$bytes"
           ok "quarantined: $p"
         else
           record_action failed
@@ -344,7 +418,7 @@ plan_execute_loaded() {
         # Verified after the loop; nothing is done to it.
         ;;
       tool_cleanup)
-        record_action ok
+        plan_apply_tool "$cat"
         ;;
     esac
   done
@@ -356,7 +430,9 @@ plan_execute_loaded() {
 
   section "Apply summary"
   say "Actions: ${ACTION_OK} succeeded, ${ACTION_SKIPPED} skipped, ${ACTION_DENIED} denied, ${ACTION_FAILED} failed"
+  [ "$TOTAL_RECLAIMED_KB" -gt 0 ] && say "Freed now: $(human_kb "$TOTAL_RECLAIMED_KB")"
   if [ "$needs_quarantine" = 1 ]; then
+    say "Moved to quarantine: $(human_kb "$TOTAL_QUARANTINED_KB") (freed when purged, or after ${QUARANTINE_KEEP_DAYS} day(s))"
     say "Quarantine run ID: ${C_BOLD}$QUARANTINE_CURRENT_RUN_ID${C_RESET}"
     say "Quarantine directory: $QUARANTINE_CURRENT_RUN_DIR"
     say ""
@@ -397,6 +473,7 @@ run_restore() {
     err "restore requires a run ID or quarantine directory"
     return "$EXIT_USAGE"
   fi
+  run_lock || return "$EXIT_BUSY"
   say "${C_BOLD}${SCRIPT_NAME}${C_RESET} — restoring quarantine run: ${C_BOLD}$RUN_ID${C_RESET}"
   if quarantine_restore_run "$RUN_ID"; then
     ok "restore completed successfully"
@@ -413,6 +490,7 @@ run_purge() {
     err "purge requires a run ID or quarantine directory"
     return "$EXIT_USAGE"
   fi
+  run_lock || return "$EXIT_BUSY"
   # F-03: purge is irreversible — --yes does NOT authorize this.
   # Only --force-risky purge (for scripts/CI) or a typed terminal confirmation
   # (the word "purge") can proceed. confirm_action_ok enforces this via the

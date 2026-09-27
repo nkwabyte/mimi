@@ -137,6 +137,7 @@
           "status": { "type": "string" },
           "exit_code": { "type": "integer" },
           "reclaimed_kb": { "type": "integer" },
+          "quarantined_kb": { "type": "integer" },
           "scanned_kb": { "type": "integer" },
           "actions_ok": { "type": "integer" },
           "actions_skipped": { "type": "integer" },

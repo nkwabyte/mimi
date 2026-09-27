@@ -136,7 +136,7 @@ assert_not_a_candidate() {
   run_clean --help
   echo "$output" | grep -q 'On its own'
   echo "$output" | grep -q 'it only reports'
-  echo "$output" | grep -q -- '--remove-orphans        Move EVERY leftover'
+  echo "$output" | grep -q -- '--remove-orphans        Move every \[strong\] leftover'
   echo "$output" | grep -q 'to a quarantine run'
 }
 
@@ -374,22 +374,32 @@ orphan_run_id() {
   printf '%s\n' "$1" | grep -o 'orphans-[0-9]\{8\}-[0-9]\{6\}' | head -1
 }
 
-@test "remove-orphans: moves strong and weak leftovers to quarantine without a review file" {
+@test "remove-orphans: weak guesses stay unless --include-weak" {
+  # The CLI runs see an incomplete app index (the mocked Spotlight is empty),
+  # so every candidate is [weak] here.
+  local weak="$(APPSUP)/Zzqqxx9BareName"
+  mkdir -p "$weak"
+  printf 'x\n' > "$weak/data"
+
+  run_clean --clean --yes --only orphans --remove-orphans
+  [ "$status" -eq 0 ]
+  [ -f "$weak/data" ]
+  echo "$output" | grep -q -- "--include-weak"
+}
+
+@test "remove-orphans: --include-weak moves weak guesses too, without a review file" {
   local strong weak
   strong="$(CONTAINERS)/com.zzqqxx9.vvbbnn7"
   weak="$(APPSUP)/Zzqqxx9BareName"
   mkdir -p "$strong" "$weak"
-  printf 'x\n' > "$strong/data"
-  printf 'x\n' > "$weak/data"
-
-  run_clean --clean --yes --only orphans --remove-orphans
+  run_clean --clean --yes --only orphans --remove-orphans --include-weak
   [ "$status" -eq 0 ]
   [ ! -e "$strong" ]
   [ ! -e "$weak" ]
   local run_id
   run_id="$(orphan_run_id "$output")"
   [ -n "$run_id" ]
-  [ "$(ls "$FAKE_HOME/.config/mimi/quarantine/$run_id" | grep -c '__orphan-')" -eq 2 ]
+  [ "$(ls "$FAKE_HOME/Library/Application Support/mimi/quarantine/$run_id" | grep -c '__orphan-')" -eq 2 ]
   echo "$output" | grep -q "restore $run_id"
 }
 
@@ -400,7 +410,7 @@ orphan_run_id() {
   mkdir -p "$strong" "$weak"
   printf 'keep\n' > "$weak/data"
 
-  run_clean --clean --yes --only orphans --remove-orphans
+  run_clean --clean --yes --only orphans --remove-orphans --include-weak
   local run_id
   run_id="$(orphan_run_id "$output")"
   [ ! -e "$weak" ]
@@ -413,7 +423,7 @@ orphan_run_id() {
 
 @test "remove-orphans: needs neither --force-risky nor a terminal" {
   mkdir -p "$(APPSUP)/Zzqqxx9BareName"
-  run_clean --clean --yes --only orphans --remove-orphans
+  run_clean --clean --yes --only orphans --remove-orphans --include-weak
   [ "$status" -eq 0 ]
   [ ! -e "$(APPSUP)/Zzqqxx9BareName" ]
   ! echo "$output" | grep -q -- '--force-risky'
@@ -421,7 +431,7 @@ orphan_run_id() {
 
 @test "remove-orphans: whitelisted leftovers stay where they are" {
   mkdir -p "$(APPSUP)/Zzqqxx9Keep" "$(APPSUP)/Zzqqxx9Drop"
-  run_clean --clean --yes --only orphans --remove-orphans --whitelist "$(APPSUP)/Zzqqxx9Keep"
+  run_clean --clean --yes --only orphans --remove-orphans --include-weak --whitelist "$(APPSUP)/Zzqqxx9Keep"
   [ "$status" -eq 0 ]
   [ -d "$(APPSUP)/Zzqqxx9Keep" ]
   [ ! -e "$(APPSUP)/Zzqqxx9Drop" ]
@@ -440,21 +450,25 @@ orphan_run_id() {
   printf '<?xml version="1.0"?><plist version="1.0"><dict><key>Label</key><string>com.zzqqxx9.agent</string></dict></plist>\n' \
     > "$FAKE_HOME/Library/LaunchAgents/com.zzqqxx9.agent.plist"
   export MOCK_CALL_LOG="$TEST_TMPDIR/calls"
-  run_clean --clean --yes --only orphans --remove-orphans
+  run_clean --clean --yes --only orphans --remove-orphans --include-weak
   [ "$status" -eq 0 ]
   [ ! -e "$FAKE_HOME/Library/LaunchAgents/com.zzqqxx9.agent.plist" ]
   grep -q "launchctl bootout gui/.*/com.zzqqxx9.agent" "$MOCK_CALL_LOG"
 }
 
-@test "remove-orphans: ticking orphans in the menus quarantines them on clean" {
-  mkdir -p "$(APPSUP)/Zzqqxx9BareName"
+@test "remove-orphans: ticking orphans in the menus quarantines the strong ones on clean" {
+  local strong weak
+  strong="$(CONTAINERS)/com.zzqqxx9.vvbbnn7"
+  weak="$(APPSUP)/Zzqqxx9BareName"
+  mkdir -p "$strong" "$weak"
   source_lib
-  install_apps
+  install_apps "$FAKE_HOME/Applications/Other.app|com.example.other"
   INCLUDE_ORPHANS=1
   ONLY_LIST="orphans"
   SKIP_LIST=""
   tui_run_clean < /dev/null > "$TEST_TMPDIR/out" 2>&1 || true
-  [ ! -e "$(APPSUP)/Zzqqxx9BareName" ]
+  [ ! -e "$strong" ]
+  [ -d "$weak" ]
   grep -q "moved to quarantine run orphans-" "$TEST_TMPDIR/out"
   [ "$REMOVE_ORPHANS" = 0 ]
 }

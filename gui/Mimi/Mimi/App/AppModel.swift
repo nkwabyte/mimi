@@ -30,14 +30,15 @@ enum ScanProfile: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Matches `mimi --profile list`. Scanning never deletes anything.
     var detail: String {
         switch self {
         case .safe:
-            "Regenerable caches. This scan does not delete anything."
+            "Browser, app, developer, and package caches that rebuild on their own. Scanning deletes nothing."
         case .developer:
-            "Safe categories, plus Xcode DerivedData and simulator caches. Nothing is deleted."
+            "Safe, plus Xcode archives, old DeviceSupport, Docker build cache, and superseded IDE and toolchain versions. Scanning deletes nothing."
         case .aggressive:
-            "Broad caches, logs, and local snapshots. This window still only scans."
+            "Developer, plus all app caches and logs, old Homebrew versions, local snapshots, and model caches. Scanning deletes nothing."
         }
     }
 }

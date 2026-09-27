@@ -357,6 +357,8 @@ unlock() {
   expected="$(printf '%s\n' \
     'find "$LOG_DIR" -maxdepth 1 -name '"'"'orphans-review-*.txt'"'"' -mtime +30 -delete 2>/dev/null' \
     'rm -f "$LOG_FILE"' \
+    'rm -f "$RUN_LOCK_DIR/pid"' \
+    'rm -f "$dir/pid"' \
     'rm -f "$f"' \
     'rm -f "$tmp"' \
     'rm -f "$tmp"' | sort)"

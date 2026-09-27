@@ -74,6 +74,8 @@ confirm_is_forceable() {
 # uses an ordinary y/N for each item. Typing the word is a statement about the
 # class of action; the per-item prompt is about which items.
 CONFIRM_TYPED_DONE=""
+# Ids approved once for the whole run, by apply. Comma-terminated.
+CONFIRM_PREAPPROVED=","
 
 # ---------------------------------------------------------------------------
 # Can we actually ask?
@@ -102,11 +104,9 @@ confirm_can_prompt() {
 # exists to remove.
 normalize_force_risky_list() {
   local src="$1" raw="$2" out="" item
-  local oldifs="$IFS"
-  IFS=','
-  set -- $raw
-  IFS="$oldifs"
-  for item in "$@"; do
+  local -a items=()
+  IFS=',' read -r -a items <<< "$raw"
+  for item in ${items[@]+"${items[@]}"}; do
     item="${item#"${item%%[![:space:]]*}"}"
     item="${item%"${item##*[![:space:]]}"}"
     [ -z "$item" ] && continue
@@ -150,15 +150,7 @@ confirm_forceable_ids() {
 }
 
 force_risky_authorized() {
-  local needle="$1" item
-  [ -n "$FORCE_RISKY_LIST" ] || return 1
-  local oldifs="$IFS"
-  IFS=','
-  set -- $FORCE_RISKY_LIST
-  IFS="$oldifs"
-  for item in "$@"; do
-    [ "$item" = "$needle" ] && return 0
-  done
+  case ",$FORCE_RISKY_LIST," in *",$1,"*) return 0 ;; esac
   return 1
 }
 
@@ -228,6 +220,9 @@ confirm() {
 confirm_action() {
   local id="$1" prompt="$2" class
   class="$(confirm_class "$id")"
+
+  # Already approved for this whole run (apply asks once per category).
+  case ",$CONFIRM_PREAPPROVED," in *",$id,"*) return 0 ;; esac
 
   if [ "$class" = recoverable ]; then
     confirm "$prompt"
