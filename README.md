@@ -225,14 +225,16 @@ mimi clean
 # 3. Clean with safe developer profile (includes Xcode DerivedData, build artifacts)
 mimi --cleaner --profile developer
 
-# 4. Generate an immutable, reviewable plan before touching any file
+# 4. Write a reviewable plan (runs no cleanup command, deletes nothing)
 mimi plan
-# Validate and execute the plan with automatic quarantine:
+# Re-check it and carry it out; removed files go to a quarantine run:
 mimi apply ~/.config/mimi/plans/plan-*.json
 
-# 5. Restore or purge a quarantined run
+# 5. Undo a quarantine run, or release its space now (runs older than
+#    --quarantine-days, default 7, are released automatically)
 mimi restore <run-id>
 mimi purge <run-id>
+mimi history                             # what ran, and what can still be restored
 
 # 6. Inventory and inspect applications (read-only, zero mutation)
 mimi apps list
@@ -254,6 +256,7 @@ mimi app uninstall Slack --purge-data
 bin/mimi            # entry point: finds lib/, loads it, parses args, dispatches
 install.sh          # symlinks bin/mimi onto your PATH
 clean.sh            # deprecated shim for the tool's previous name
+libexec/            # mimi-root-apply (the only code that runs as root) and its launcher
 lib/
   load.sh           # single entry point: sources modules in order
   core/             # globals, util, validate, config, orchestrator (core.sh)
@@ -262,9 +265,9 @@ lib/
   apps/             # installed app inventory (inventory.sh), evidence (evidence.sh), inspect (inspect.sh)
   cleaners/         # category registry, clean handlers, orphan analysis
   ui/               # log, JSON Lines protocol v1, usage/help, report, interactive TUI
-schemas/            # JSON Schema specifications (protocol-v1.json, plan-v1.json)
-tests/              # bats suite; ./tests/run
-docs/               # architectural scratchpad, usage reference
+schemas/            # JSON Schemas: protocol, plan (schema 3), history, apps list, app inspect
+tests/              # bats suite; ./tests/run (review_fixes.bats guards the 2026-09 review)
+docs/               # usage reference, system review, design notes
 gui/Mimi/           # SwiftUI app. Scan only; it does not delete
 ```
 
@@ -293,7 +296,9 @@ Orphan review files written under the old name are still accepted.
 Use `--whitelist` to pass one or more entries that should never be touched,
 no matter what category runs:
 
-- An absolute path (or `~/...`) protects everything under it.
+- An absolute path (or `~/...`) protects everything under it. A folder that
+  *contains* a whitelisted path is cleaned around it: the whitelisted entry
+  and its parents stay, everything else in the folder goes.
 - A plain word or glob (e.g. `com.adobe.*`, `Steam*`) protects any
   `orphans` candidate whose inferred name/bundle-id matches it, regardless
   of where it's found — handy since orphan leftovers for one app can be
@@ -324,6 +329,8 @@ mimi --cleaner --whitelist-preset xcode-simulator
 | `xcode-simulator` | `~/Library/Developer/CoreSimulator` and `~/Library/Developer/Xcode/iOS DeviceSupport` — keeps every simulator runtime, device, and device-support symbol set intact |
 | `xcode-derived` | `~/Library/Developer/Xcode/DerivedData` |
 | `node` | Yarn cache, `~/.npm`, and the pnpm store |
+| `browsers` | Chrome, Firefox, Brave, Edge and Arc profile data |
+| `ml` | Hugging Face, torch, Ollama and LM Studio model caches |
 
 Presets and `--whitelist` can be combined and used multiple times.
 
@@ -368,7 +375,7 @@ and default on/off state. As of writing:
 | `sim-stale` | risky | **off** | iOS Simulator devices unused for `--sim-stale-days` (keeps recently-booted ones) |
 | `android` | risky | **off** | Unreferenced Android system images and stale AVDs |
 | `trash` | irreversible | **off** | Empties `~/.Trash` (requires confirmation or `--force-risky trash`) |
-| `orphans` | irreversible | **off** | Possible app leftovers: reports them; with `--remove-orphans` moves them all to quarantine |
+| `orphans` | irreversible | **off** | Possible app leftovers: reports them; with `--remove-orphans` moves the `[strong]` ones to quarantine (`--include-weak` adds the rest) |
 | `ios-backups` | irreversible | **off** | Local iPhone/iPad backups in MobileSync (requires confirmation or `--force-risky ios-backups`) |
 
 ## Preset profiles
@@ -393,22 +400,24 @@ Precedence: `--only` > `--profile` > config `SELECTED_CATEGORIES` > config `PROF
 
 To guarantee safety, predictability, and undo capability, `mimi` supports an immutable plan and quarantine workflow:
 
-1. **Plan** (`mimi plan`): Discovers cleanup targets and writes an execution plan (`schemas/plan-v1.json`): every action, its evidence, and a digest over the whole file. Runs no cleanup command and deletes nothing.
+1. **Plan** (`mimi plan`): Discovers cleanup targets and writes an execution plan (`schemas/plan-v1.json`, schema 3, mode `0600`, valid 24 hours): every action, its evidence, and a digest over the whole file. Runs no cleanup command and deletes nothing. Categories that clean with their own tool (`brew`, `npm`, `simctl`, `docker`, …) are recorded as one `tool_cleanup` action each.
    ```bash
    mimi plan --profile developer
    ```
-2. **Apply** (`mimi apply <plan-file>`): Refuses a plan that was edited, expired, made for another user or Mac, or that selects anything mimi would not select right now (it re-derives every action), asks the same confirmations `clean` would, then moves targets into a quarantine run (`~/Library/Application Support/mimi/quarantine/<run-id>`, excluded from Time Machine). Runs older than `--quarantine-days` (default 7) are released automatically.
+2. **Apply** (`mimi apply <plan-file>`): Refuses a plan that was edited, expired, made for another user or Mac, or that selects anything mimi would not select right now (it re-derives every action) and exits `6`. It then asks the same confirmations `clean` would — `--yes` covers only recoverable categories — and moves targets into a quarantine run named after the plan (`~/Library/Application Support/mimi/quarantine/<plan-id>`, excluded from Time Machine and Spotlight). A folder being cleared keeps the folder and quarantines its contents. `tool_cleanup` actions run their tool now. The summary reports space *moved to quarantine* separately from space *freed*. Runs older than `--quarantine-days` (default 7, `0` = never) are released at the start of the next run that quarantines.
    ```bash
    mimi apply ~/.config/mimi/plans/plan-20260924-120000-1234.json
    ```
 3. **Restore** (`mimi restore <run-id>`): Restores any quarantined run back to its original filesystem paths if needed.
    ```bash
-   mimi restore run-20260924-120000-1234
+   mimi restore plan-20260924-120000-1234
    ```
-4. **Purge** (`mimi purge <run-id>`): Permanently deletes quarantined files after explicit verification.
+4. **Purge** (`mimi purge <run-id>`): Permanently deletes a quarantine run. Irreversible: it needs the typed word `purge` at a terminal, or `--force-risky purge`.
    ```bash
-   mimi purge run-20260924-120000-1234
+   mimi purge plan-20260924-120000-1234
    ```
+
+Only one run that changes files can happen at a time: a second `clean`, `apply`, `restore`, `purge` or uninstall exits `7` while another holds the lock. Quarantine runs that existed under `~/.config/mimi/quarantine` are moved to the new location on first use.
 
 ## Automation and machine protocol (JSON Lines)
 
@@ -418,8 +427,9 @@ To guarantee safety, predictability, and undo capability, `mimi` supports an imm
 mimi --jsonl --scan --only caches
 ```
 
-* **Stdout**: Strictly formatted, newline-delimited JSON events (`hello`, `phase_started`, `candidate`, `action_result`, `phase_finished`, `run_finished`).
-* **Stderr**: Human-readable logs and diagnostics.
+* **Stdout**: Strictly formatted, newline-delimited JSON events (`hello`, `phase_started`, `candidate`, `action_result`, `warning`, `permission_required`, `phase_finished`, `run_finished`). Every control character in a path is escaped, so each line is valid JSON.
+* **Stderr**: Human-readable logs and diagnostics. Outside `--jsonl`, warnings and errors also go to stderr, so `mimi scan > report.txt` keeps them on screen.
+* `run_finished` reports `reclaimed_kb` (space freed now) and `quarantined_kb` (space moved to quarantine, freed when purged) separately.
 * Zero external runtimes needed (no `jq` or `python` required at runtime).
 
 ## Browser and Electron caches (`browsers`, `electron`)
@@ -517,9 +527,10 @@ compares every entry against every app actually installed on your Mac
 (found via Spotlight, so it doesn't matter where the app lives). Anything
 left over with no matching installed app is a candidate.
 
-> **To remove them all:** `mimi clean --only orphans --remove-orphans` (or tick
-> `orphans` in the menus and press `c`). Every leftover, `[strong]` and
-> `[weak]`, is **moved to a quarantine run** rather than deleted —
+> **To remove them:** `mimi clean --only orphans --remove-orphans` (or tick
+> `orphans` in the menus and press `c`). Every `[strong]` leftover is
+> **moved to a quarantine run** rather than deleted; `[weak]` guesses stay
+> unless you add `--include-weak` —
 > `mimi restore orphans-<timestamp>` puts it all back,
 > `mimi purge orphans-<timestamp>` releases the space. Without
 > `--remove-orphans`, the category only reports.
@@ -599,8 +610,10 @@ them: this is not a general "delete these paths" flag.
 # 1. Preview only — nothing is touched
 mimi scan --only orphans --remove-orphans
 
-# 2a. Move everything found to quarantine (undo with restore):
+# 2a. Move the [strong] ones to quarantine (undo with restore):
 mimi clean --only orphans --remove-orphans
+#     …and the [weak] guesses too, if you have checked them:
+mimi clean --only orphans --remove-orphans --include-weak
 
 # 2b. …or remove a hand-picked subset: delete the lines you want to KEEP from
 #     the generated review file, then:
@@ -715,6 +728,8 @@ mimi --list
 | `--report` | Print where your disk space actually went, then exit. Deletes nothing. |
 | `--no-log` | Leave no log file behind at all |
 | `--keep-logs N` | Past run logs to keep (default 5, 0 = none). Older ones are pruned every run |
+| `--quarantine-days N` | Release quarantine runs older than N days at the next run that quarantines (default 7, 0 = keep until `mimi purge`) |
+| `--no-color` | No ANSI colours (also off when stdout is not a terminal, or `NO_COLOR` is set) |
 | `--include-timemachine` | Thin local Time Machine APFS snapshots (opt-in) |
 | `--include-device-support` | Prune old Xcode iOS DeviceSupport symbols (opt-in) |
 | `--include-homebrew-old` | Prune old installed Homebrew formulae/casks and unused deps (opt-in) |
@@ -863,11 +878,23 @@ an authorization removes nothing at all rather than stopping half way.
   `/Users`, or your home directory itself, regardless of category logic
   or whitelist bugs.
 - **Never runs as root / never asks for sudo.** Everything it touches is
-  writable by your own user account.
+  writable by your own user account. System items of an app are handled
+  only by `libexec/mimi-root-apply`, which you run yourself through `sudo`
+  after `mimi app uninstall <app> --system` prints the command.
 - **Every run is logged** to `~/Library/Logs/mimi/clean-<timestamp>.log`,
-  including which files were removed and any errors encountered.
+  including which files were removed and any errors encountered. The log
+  folder is `0700` and each log `0600`, since they list paths in your home.
 - Cache/log directories have their *contents* removed, not the directory
-  itself — apps that expect the folder to exist keep working.
+  itself — apps that expect the folder to exist keep working. The same holds
+  when a plan is applied.
+- **`mimi plan` changes nothing.** It runs no cleanup command; tool-based
+  categories run their command only at `apply`.
+- **A plan cannot widen what is removed.** `apply` re-derives every action
+  and refuses the whole plan if any action is not something mimi would select
+  now, or if the file was edited.
+- **Quarantine copies are never lost.** A move across volumes copies,
+  compares, then removes the original; if the original cannot be removed
+  completely, the complete copy is kept and recorded.
 - **Paths are resolved before they are trusted.** Symlinks are followed and
   `..` is rejected, so nothing can be reached by spelling a path a different
   way, and a symlinked cache directory is never followed out of the places
@@ -897,6 +924,8 @@ Actions: 412 succeeded, 7 skipped, 3 permission-denied, 0 failed
 | `3` | Finished, but at least one action failed or was refused by the system |
 | `4` | A signal stopped the run before it finished |
 | `5` | A confirmation was declined, or could not be obtained at all |
+| `6` | `apply` refused the plan |
+| `7` | Another mimi run is changing files |
 
 A `3` usually means Full Disk Access is not granted. It is reported rather
 than hidden, because "the tool did not do what you asked" is something a

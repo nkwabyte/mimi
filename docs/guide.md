@@ -66,5 +66,9 @@ Do not add a control that papers over an open engine bug.
 | Temp-directory mode bit | A `0700` parent is allowed; a world-writable parent is not |
 | `clear_dir_contents` | The child is re-checked immediately before `rm`. A swap inside `rm` itself is still possible, so the app still does not clean |
 | Plan fields | Actions are length-prefixed. A path containing `::` no longer shifts the inode. Plan files are schema version 3 |
+| `mimi plan` | Read-only since the review fixes: no category runs its cleanup command during a plan. A Plan button is now safe to add |
+| `mimi apply` | Asks the per-category confirmations and re-derives every action. The app must pass `--force-risky` only for categories the user explicitly confirmed in the window |
+| Engine output | Every control character is escaped; an undecodable line becomes a warning, not a failed scan. `run_finished` carries `quarantined_kb` |
+| Concurrency | A mutating engine run exits `7` while another holds the lock; show that as "busy", not as a failure |
 
 The phased fix is [SYSTEM_REVIEW_2026-09-27.md](SYSTEM_REVIEW_2026-09-27.md). The architecture that this window is growing into is [GUI_WRAPPER_PLAN.md](GUI_WRAPPER_PLAN.md).
