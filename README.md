@@ -273,7 +273,7 @@ gui/Mimi/           # SwiftUI app. Scan only; it does not delete
 
 ## macOS app
 
-Open `gui/Mimi/Mimi.xcodeproj` in Xcode and run the Mimi scheme. The window scans with the same engine as the command-line tool and lists what it found. It does not clean, restore, purge, or uninstall. Those actions stay in Terminal until the work in [docs/SYSTEM_REVIEW_2026-09-27.md](docs/SYSTEM_REVIEW_2026-09-27.md) is done. Details are in [docs/guide.md](docs/guide.md).
+Open `gui/Mimi/Mimi.xcodeproj` in Xcode and run the Mimi scheme. To sign it, copy `gui/Mimi/Config/Local.xcconfig.example` to `Local.xcconfig` in the same folder and put your team id in it; that file is not committed. The window scans with the same engine as the command-line tool and lists what it found. It does not clean, restore, purge, or uninstall. Those actions stay in Terminal until the work in [docs/SYSTEM_REVIEW_2026-09-27.md](docs/SYSTEM_REVIEW_2026-09-27.md) is done. Details are in [docs/guide.md](docs/guide.md).
 
 No extra Swift package is required. The app uses SwiftUI, Observation, and Swift Testing, which ship with the SDK.
 
