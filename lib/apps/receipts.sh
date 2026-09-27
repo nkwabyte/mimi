@@ -147,7 +147,15 @@ _rcpt_owners() {
       # The item itself, or anything inside it, belongs to another package.
       q = p
       while (q != "" && q != "/") {
-        if (q in I) { key = q SUBSEP $1; if (!(key in done)) { done[key] = 1; O[q] = (q in O) ? O[q] "," $1 : $1 } }
+        # if/else, not `O[q] = (q in O) ? ...`: mawk creates O[q] before
+        # testing it, which put a leading comma on the first owner.
+        if (q in I) {
+          key = q SUBSEP $1
+          if (!(key in done)) {
+            done[key] = 1
+            if (q in O) O[q] = O[q] "," $1; else O[q] = $1
+          }
+        }
         sub(/\/[^\/]*$/, "", q)
       }
     }

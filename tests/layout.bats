@@ -103,6 +103,7 @@ normalise_entrypoint_output() {
 }
 
 @test "layout: running under /bin/bash really means bash 3.2" {
+  require_macos
   # The suite's 3.2 guarantee depends on the shim sourcing rather than
   # exec'ing: an exec would hand the entry point to whatever `env bash` finds
   # first, which on a dev machine is usually Homebrew's bash 5.

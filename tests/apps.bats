@@ -346,7 +346,10 @@ print(json.dumps(r) if not isinstance(r, str) else r)
 
 # Every file under DIR with its size and mtime — a fingerprint for "nothing changed".
 tree_fingerprint() {
-  find "$1" -exec stat -f '%N %z %m %i' {} \; | sort | cksum
+  local f
+  find "$1" | while IFS= read -r f; do
+    printf '%s %s %s %s\n' "$f" "$(file_size "$f")" "$(file_mtime "$f")" "$(file_identity "$f")"
+  done | sort | cksum
 }
 
 # ---------------------------------------------------------------------------
@@ -422,7 +425,7 @@ tree_fingerprint() {
   local app="$FAKE_HOME/Applications/TestApp.app"
   create_app "$app" "TestApp" "com.example.testapp" "1.0"
   local expect_id
-  expect_id="$(stat -f '%d:%i' "$app")"
+  expect_id="$(file_identity "$app")"
 
   run /bin/bash "$MIMI_BIN" apps list --json
   [ "$status" -eq 0 ]
@@ -644,6 +647,7 @@ PLIST
 }
 
 @test "evidence: a LaunchAgent that runs the app's binary is strong even with an unrelated name" {
+  require_tool plutil
   local app="$FAKE_HOME/Applications/Agent.app"
   create_app "$app" "Agent" "com.example.agent" "1.0"
   mkdir -p "$FAKE_HOME/Library/LaunchAgents"
@@ -1046,7 +1050,7 @@ mock_receipt() {
     "exclusive:/Library/Application Support/Acme/Core:" \
     "exclusive:/Library/LaunchDaemons/com.acme.helper.plist:" \
     "shared:/Library/Application Support/Acme/Shared/license.dat:com.acme.suite.extras" | sort > "$TEST_TMPDIR/want"
-  sed -i '' '/^$/d' "$TEST_TMPDIR/got"
+  sed_i '/^$/d' "$TEST_TMPDIR/got"
   diff "$TEST_TMPDIR/want" "$TEST_TMPDIR/got"
 }
 

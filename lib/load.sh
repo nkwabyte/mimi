@@ -16,6 +16,7 @@ _mimi_lib_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" > /dev/null 2>&1 && pwd)
 
 for _mimi_module in \
   core/globals.sh \
+  core/platform.sh \
   ui/log.sh \
   core/util.sh \
   ui/json.sh \

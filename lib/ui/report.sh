@@ -162,7 +162,7 @@ _md_date_epoch() {
   case "$v" in
     ''|'(null)') return 1 ;;
   esac
-  date -j -f '%Y-%m-%d %H:%M:%S %z' "$v" +%s 2>/dev/null
+  date_to_epoch "$v" 2>/dev/null
 }
 
 # report_stale_downloads [DAYS]   (the argument is for tests)
@@ -193,7 +193,7 @@ report_stale_downloads() {
     fi
     [ "$last" -lt "$cutoff" ] || continue
     kb="$(dir_size_kb "$e")"
-    rows+=("$kb"$'\t'"$(date -r "$last" '+%Y-%m-%d')"$'\t'"$src"$'\t'"$e")
+    rows+=("$kb"$'\t'"$(epoch_format "$last" '+%Y-%m-%d')"$'\t'"$src"$'\t'"$e")
   done
 
   local total=0 n=0 line d s p

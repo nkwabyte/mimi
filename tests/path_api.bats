@@ -198,8 +198,10 @@ real() {
   mkdir -p "$FAKE_HOME/Library/Caches/swap"
   local before after
   before="$(path_identity "$FAKE_HOME/Library/Caches/swap")"
+  # Made before the original goes, so it cannot reuse the original's inode.
+  mkdir -p "$FAKE_HOME/Library/Caches/swap.new"
   rm -rf "$FAKE_HOME/Library/Caches/swap"
-  mkdir -p "$FAKE_HOME/Library/Caches/swap"
+  mv "$FAKE_HOME/Library/Caches/swap.new" "$FAKE_HOME/Library/Caches/swap"
   after="$(path_identity "$FAKE_HOME/Library/Caches/swap")"
   [ "$before" != "$after" ]
 }
@@ -340,6 +342,7 @@ real() {
 }
 
 @test "authorize: /var is still caught after resolving to /private/var" {
+  require_macos
   source_lib
   authorize_fails "/var"
   [ "$PATH_DENY_REASON" = "forbidden" ]
@@ -582,9 +585,12 @@ real() {
       printf '1'
       return 0
     fi
+    # The replacement is made before the original goes, so it cannot reuse
+    # the original's inode (Linux file systems hand a freed inode back).
+    mkdir -p "$FAKE_HOME/Library/Caches/victim.new/.swapped"
+    printf 'planted\n' > "$FAKE_HOME/Library/Caches/victim.new/planted"
     rm -rf "$FAKE_HOME/Library/Caches/victim"
-    mkdir -p "$FAKE_HOME/Library/Caches/victim/.swapped"
-    printf 'planted\n' > "$FAKE_HOME/Library/Caches/victim/planted"
+    mv "$FAKE_HOME/Library/Caches/victim.new" "$FAKE_HOME/Library/Caches/victim"
     printf '1'
   }
 
@@ -604,9 +610,11 @@ real() {
       printf '1'
       return 0
     fi
+    # Made before the original goes, so it cannot reuse the original's inode.
+    mkdir -p "$FAKE_HOME/Library/Caches/victim.new"
+    printf 'planted\n' > "$FAKE_HOME/Library/Caches/victim.new/planted"
     rm -rf "$FAKE_HOME/Library/Caches/victim"
-    mkdir -p "$FAKE_HOME/Library/Caches/victim"
-    printf 'planted\n' > "$FAKE_HOME/Library/Caches/victim/planted"
+    mv "$FAKE_HOME/Library/Caches/victim.new" "$FAKE_HOME/Library/Caches/victim"
     printf '1'
   }
 

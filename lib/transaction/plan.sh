@@ -30,7 +30,7 @@ plan_init() {
   local now_ts
   now_ts="$(date +%s 2>/dev/null || echo 0)"
   local exp_ts=$((now_ts + 86400))
-  PLAN_EXPIRES_AT="$(date -u -r "$exp_ts" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "$PLAN_CREATED_AT")"
+  PLAN_EXPIRES_AT="$(epoch_format "$exp_ts" +"%Y-%m-%dT%H:%M:%SZ" -u 2>/dev/null || echo "$PLAN_CREATED_AT")"
   PLAN_HOSTNAME="$(hostname 2>/dev/null || echo "localhost")"
   PLAN_USER="${USER:-$(id -un 2>/dev/null || echo "user")}"
   PLAN_UID="$(id -u 2>/dev/null || echo 0)"

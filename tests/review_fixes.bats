@@ -65,7 +65,7 @@ read_only_call() {
   run_mimi plan --only caches --no-color
   local plan
   plan="$(plan_path_from "$output")"
-  sed -i.bak 's/"expires_at": ".*"/"expires_at": "2099-01-01T00:00:00Z"/' "$plan"
+  sed_i 's/"expires_at": ".*"/"expires_at": "2099-01-01T00:00:00Z"/' "$plan"
 
   run_mimi apply "$plan" --yes --no-color
   [ "$status" -eq 6 ]
@@ -121,12 +121,8 @@ read_only_call() {
   mkdir -p "$target"
   printf 'x\n' > "$target/data"
   # Pretend the quarantine is on another volume, and the removal fails.
-  stat() {
-    if [ "$1" = "-f" ] && [ "$2" = "%d" ]; then
-      case "$3" in "$QUARANTINE_DIR"*) printf '2\n' ;; *) printf '1\n' ;; esac
-      return 0
-    fi
-    command stat "$@"
+  file_device() {
+    case "$1" in "$QUARANTINE_DIR"*) printf '2\n' ;; *) printf '1\n' ;; esac
   }
   fs_remove() { FS_REMOVE_STATUS="denied"; return 1; }
 
@@ -195,8 +191,8 @@ assert any("\x01" in p and "\x1b" in p for p in paths), paths
   ! echo "$output" | grep -q "opt-in only"
   local log
   log="$(ls "$FAKE_HOME/Library/Logs/mimi"/clean-*.log | head -1)"
-  [ "$(stat -f '%Lp' "$FAKE_HOME/Library/Logs/mimi")" = "700" ]
-  [ "$(stat -f '%Lp' "$log")" = "600" ]
+  [ "$(file_mode "$FAKE_HOME/Library/Logs/mimi")" = "700" ]
+  [ "$(file_mode "$log")" = "600" ]
 }
 
 @test "O-7: the engine's exit handler keeps an exit trap that was already set" {
