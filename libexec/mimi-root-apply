@@ -116,18 +116,62 @@ die()  { printf 'mimi-root-apply: %s\n' "$*" >&2; exit 1; }
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'mimi-root-apply: warning: %s\n' "$*" >&2; }
 
+# True when NODE is not a symlink, is owned by EXPECTED, and is not
+# group- or world-writable. Kept in step with _root_tool_node_ok in
+# lib/apps/uninstall.sh: this file sources nothing.
+_node_trusted() {
+  local node="$1" expected="$2" owner mode
+  [ -e "$node" ] && [ ! -L "$node" ] || return 1
+  owner="$(/usr/bin/stat -f '%u' "$node" 2>/dev/null)" || return 1
+  mode="$(/usr/bin/stat -f '%Lp' "$node" 2>/dev/null)" || return 1
+  [ "$owner" = "$expected" ] || return 1
+  [ $((8#$mode & 022)) -eq 0 ] || return 1
+}
+
+# True when this script is the kind of file sudo may run. In test mode the
+# current user stands in for root, and the walk stops at MIMI_ROOT_PREFIX
+# so the fixture's real parents (/var, /tmp) are not required to be "root".
+_self_trusted() {
+  local path="$1" expected dir stop
+  if [ "$TEST_MODE" = 1 ]; then
+    expected="$EUID_NOW"
+    stop="${P:-}"
+    stop="${stop%/}"
+  else
+    expected=0
+    stop="/"
+  fi
+  [ -f "$path" ] && [ ! -L "$path" ] && [ -x "$path" ] || return 1
+  _node_trusted "$path" "$expected" || return 1
+  dir="$(/usr/bin/dirname "$path")"
+  while [ -n "$dir" ] && [ "$dir" != "$stop" ] && [ "$dir" != "/" ]; do
+    _node_trusted "$dir" "$expected" || return 1
+    dir="$(/usr/bin/dirname "$dir")"
+  done
+  if [ -n "$stop" ] && [ "$stop" != "/" ]; then
+    _node_trusted "$stop" "$expected" || return 1
+  fi
+  return 0
+}
+
 require_root() {
-  [ "$TEST_MODE" = 1 ] && return 0
+  local self
+  self="${BASH_SOURCE[0]}"
+  # Test mode is not root. The ownership check still runs when a test asks
+  # for it, so a writable copy is refused without needing a real euid of 0.
+  if [ "$TEST_MODE" = 1 ]; then
+    if [ "${MIMI_ROOT_CHECK_TRUST:-0}" = 1 ] && ! _self_trusted "$self"; then
+      die "refusing to run: this copy is not a trusted root-owned tool ($self). Install with: sudo \"$self\" --install"
+    fi
+    return 0
+  fi
   [ "$EUID_NOW" = 0 ] || die "this needs root: run it with sudo"
   [ -n "${SUDO_UID:-}" ] || die "run it through sudo, so the requesting user is known"
-  # Anything that can write to this file can run code as root through it.
-  local self owner mode
-  self="${BASH_SOURCE[0]}"
-  owner="$(/usr/bin/stat -f '%u' "$self")"
-  mode="$(/usr/bin/stat -f '%Lp' "$self")"
-  if [ "$owner" != 0 ] || [ $((8#$mode & 022)) != 0 ]; then
-    warn "this copy ($self) is writable by a non-root user. For a hardened setup:"
-    warn "  sudo install -o root -g wheel -m 0755 \"$self\" /usr/local/libexec/mimi-root-apply"
+  # Checked after we know we are root. An in-script check cannot protect a
+  # file that was rewritten before bash started; mimi therefore never prints
+  # sudo of the bundled copy. This refuses the case where someone does.
+  if ! _self_trusted "$self"; then
+    die "refusing to run: $self is not root-owned mode 0755 with trusted parents. The trusted path is $HARDENED. Install it with: sudo \"$self\" --install"
   fi
 }
 
@@ -688,6 +732,10 @@ cmd_install() {
   self="${BASH_SOURCE[0]}"
   [ "$self" != "$HARDENED" ] || die "this is already the installed copy; run --install from the new version"
   /bin/mkdir -p "$HARDENED_DIR" || die "cannot create $HARDENED_DIR"
+  # The directory itself must not be group- or world-writable, or the
+  # trusted-copy check will refuse it. In test mode the current user is
+  # the stand-in for root, so chown is unnecessary.
+  /bin/chmod 0755 "$HARDENED_DIR" 2>/dev/null || true
   tmp="$HARDENED_DIR/.mimi-root-apply.$$"
   if [ "$TEST_MODE" = 1 ]; then
     /usr/bin/install -m 0755 "$self" "$tmp" || die "install failed"
