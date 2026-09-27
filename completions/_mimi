@@ -16,6 +16,7 @@ subcommands=(
   'history:what mimi did and what can be restored'
   'apps:inventory installed applications'
   'app:inspect or uninstall one application'
+  'uninstall:pick installed apps to uninstall'
 )
 
 _mimi_runs() {
@@ -90,5 +91,6 @@ case $state in
       restore|purge) _mimi_runs ;;
       app) (( CURRENT == 2 )) && _values 'action' inspect uninstall list || _files -g '*.app(-/)' ;;
       apps) _values 'action' list ;;
+      uninstall) _files -g '*.app(-/)' ;;
     esac ;;
 esac

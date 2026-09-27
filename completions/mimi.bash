@@ -6,7 +6,7 @@
 
 _mimi_categories="browsers electron dev-caches caches tmp logs diagnostics dsstore quicklook xcode-derived xcode-archives sim-caches sim-unavailable device-support homebrew homebrew-old npm yarn pnpm cocoapods gradle pip timemachine docker docker-cache mail trash orphans whatsapp sim-stale claude-cache android ide-stale ml-caches ios-backups toolchains"
 _mimi_options="--aggressive --android-stale-days --app-root --app-target --apply --cask --clean --cleaner --downloads-stale-days --force-risky --help --include-android --include-caches --include-claude-cache --include-device-support --include-docker --include-docker-cache --include-homebrew-old --include-ide-stale --include-ios-backups --include-logs --include-mail --include-ml-caches --include-orphans --include-sim-stale --include-timemachine --include-toolchains --include-trash --include-weak --include-whatsapp --interactive --json --jsonl --keep-data --keep-device-support --keep-logs --keep-toolchains --large-file-mb --limit --list --no-color --no-log --no-prompt --only --plan --plan-only --plan-out --profile --purge --purge-data --quarantine-days --remove-orphans --remove-orphans-from --report --request-id --restore --scan --sim-stale-days --skip --source --system --tmp-stale-days --vendor-uninstaller --verbose --version --whitelist --whitelist-preset --yes --zap"
-_mimi_subcommands="scan clean plan apply restore purge history apps app"
+_mimi_subcommands="scan clean plan apply restore purge history apps app uninstall"
 
 _mimi_runs() {
   local d

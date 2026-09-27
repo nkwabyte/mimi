@@ -851,11 +851,14 @@ interactive_settings_numeric() {
 }
 
 # ---------------------------------------------------------------------------
-# Application picker. Space toggles, u deletes the ticked apps and their
-# attributable files. System and other ineligible apps are not listed.
+# Application picker: `mimi uninstall`, and "Uninstall applications" in the
+# menu. The same keys as the category picker: space selects, a all, x none,
+# q back; enter uninstalls what is selected after one typed confirmation.
+# System and other ineligible apps are not listed.
 # ---------------------------------------------------------------------------
 
 APP_PICK_ON=()
+APP_PICK_MSG=""
 
 # Keep only apps this screen can uninstall. The inventory itself still
 # records system apps; this screen does not show them.
@@ -888,24 +891,48 @@ _apps_only_selectable() {
   APP_INV_COUNT=$n
 }
 
-_apps_draw() {
-  local cur="$1" top="$2" vh="$3" cols="${4:-}"
-  local i mark name src path line count on=0 dw
-  count="${#APP_INV_PATHS[@]}"
-  [ -n "$cols" ] || cols="$(term_cols)"
-  dw=$(( cols - 46 ))
-  [ "$dw" -lt 12 ] && dw=12
+_apps_selected_count() {
+  local i on=0
   for i in "${!APP_PICK_ON[@]}"; do
     [ "${APP_PICK_ON[$i]}" = 1 ] && on=$((on + 1))
   done
-  printf '%s\n' "${C_BOLD}Uninstall applications${C_RESET}  ${C_DIM}(${on} selected)${C_RESET}"
-  if [ "$cols" -ge 78 ]; then
-    printf '%s\n' "${C_DIM}  ↑/↓ move   space toggle   u uninstall   q back${C_RESET}"
+  printf '%s' "$on"
+}
+
+# ○ not selected, ● selected.
+_apps_mark() {
+  if [ "${APP_PICK_ON[$1]}" = 1 ]; then
+    printf '%s' "${C_GREEN}●${C_RESET}"
   else
-    printf '%s\n' "${C_DIM}  ↑↓ space u q${C_RESET}"
+    printf '%s' "○"
   fi
-  printf '%s\n' "${C_DIM}  Uninstall deletes the app and its own files. It cannot be undone.${C_RESET}"
-  printf '\n'
+}
+
+# Draws exactly vh + 5 lines: header, keys, warning, status, the rows, and a
+# footer. A fixed height keeps tui_paint's cursor arithmetic right.
+_apps_draw() {
+  local cur="$1" top="$2" vh="$3" cols="${4:-}"
+  local i name src path line count dw
+  count="${#APP_INV_PATHS[@]}"
+  [ -n "$cols" ] || cols="$(term_cols)"
+  # "❯ ● " + 28 name + 9 source = 41 columns before the path. Rows must not
+  # wrap, so the path is cut to what is left.
+  dw=$(( cols - 42 ))
+  [ "$dw" -lt 10 ] && dw=10
+  printf '%s\n' "${C_BOLD}Uninstall applications${C_RESET}  ${C_DIM}($(_apps_selected_count)/${count} selected)${C_RESET}"
+  if [ "$cols" -ge 84 ]; then
+    printf '%s\n' "${C_DIM}  ↑/↓ move   space select   enter uninstall   a all   x none   q back${C_RESET}"
+  elif [ "$cols" -ge 60 ]; then
+    printf '%s\n' "${C_DIM}  ↑↓ move  space select  ⏎ uninstall  q back${C_RESET}"
+  else
+    printf '%s\n' "${C_DIM}  ↑↓ space ⏎ q${C_RESET}"
+  fi
+  printf '%s\n' "${C_DIM}  Deletes the app and its own files. It cannot be undone.${C_RESET}"
+  if [ -n "$APP_PICK_MSG" ]; then
+    printf '%s\n' "${C_YELLOW}  ${APP_PICK_MSG}${C_RESET}"
+  else
+    printf '\n'
+  fi
   local end=$((top + vh))
   [ "$end" -gt "$count" ] && end="$count"
   i="$top"
@@ -913,14 +940,9 @@ _apps_draw() {
     name="${APP_INV_NAMES[$i]}"
     src="${APP_INV_SOURCES[$i]}"
     path="${APP_INV_PATHS[$i]}"
-    [ ${#name} -gt 22 ] && name="${name:0:19}..."
+    [ ${#name} -gt 28 ] && name="${name:0:25}..."
     [ ${#path} -gt "$dw" ] && path="…${path: -$((dw - 1))}"
-    if [ "${APP_PICK_ON[$i]}" = 1 ]; then
-      mark="${C_GREEN}[x]${C_RESET}"
-    else
-      mark="[ ]"
-    fi
-    printf -v line '%s %-22s %-8s %s' "$mark" "$name" "$src" "$path"
+    printf -v line '%s %-28s %-8s %s' "$(_apps_mark "$i")" "$name" "$src" "$path"
     if [ "$i" = "$cur" ]; then
       printf '%s\n' "${C_BOLD}${C_CYAN}❯ ${C_RESET}${C_BOLD}${line}${C_RESET}"
     else
@@ -930,6 +952,8 @@ _apps_draw() {
   done
   if [ "$count" -gt "$vh" ]; then
     printf '%s\n' "${C_DIM}  — showing $((top + 1))-$end of $count —${C_RESET}"
+  else
+    printf '\n'
   fi
   return 0
 }
@@ -939,20 +963,52 @@ _apps_toggle() {
   if [ "${APP_PICK_ON[$i]}" = 1 ]; then APP_PICK_ON[$i]=0; else APP_PICK_ON[$i]=1; fi
 }
 
-_apps_wipe_selected() {
-  local i n=0 path rc=0
+_apps_set_all() {
+  local i
+  for i in "${!APP_INV_PATHS[@]}"; do APP_PICK_ON[$i]="$1"; done
+}
+
+# Lists the selected apps and asks for the typed word once for all of them.
+# Reads through the TUI input seam, so tests can answer it; --force-risky
+# uninstall on the command line answers it for scripts.
+_apps_confirm_selected() {
+  local i n reply
+  n="$(_apps_selected_count)"
+  say ""
+  say "${C_BOLD}Uninstall $n application(s):${C_RESET}"
   for i in "${!APP_PICK_ON[@]}"; do
-    [ "${APP_PICK_ON[$i]}" = 1 ] && n=$((n + 1))
+    [ "${APP_PICK_ON[$i]}" = 1 ] && say "  ● ${APP_INV_NAMES[$i]}  ${C_DIM}${APP_INV_PATHS[$i]}${C_RESET}"
   done
-  if [ "$n" -eq 0 ]; then
+  say "Each app, its LaunchAgents and the data mimi can tie to it are deleted."
+  say "Shared items and your documents are kept."
+  if force_risky_authorized uninstall; then
+    warn "uninstall: authorized by ${FORCE_RISKY_SOURCE:---force-risky}"
+    return 0
+  fi
+  say "${C_BOLD}This cannot be undone.${C_RESET} Type ${C_BOLD}uninstall${C_RESET} to confirm, anything else to cancel."
+  if ! tui_available && ! confirm_can_prompt; then
+    confirm_report_unavailable uninstall
+    return 1
+  fi
+  _tui_read -r -p "> " reply 2>/dev/null || reply=""
+  [ "$reply" = uninstall ] && return 0
+  say "Cancelled. Nothing was deleted."
+  return 1
+}
+
+# Uninstalls every selected app, one after the other. The typed word was
+# given once for the whole selection, so each app runs pre-authorized.
+_apps_wipe_selected() {
+  local i path rc=0
+  if [ "$(_apps_selected_count)" -eq 0 ]; then
     warn "nothing selected"
     return 1
   fi
-  say "Permanently deleting $n application(s) and their own files."
+  _apps_confirm_selected || return "$EXIT_CANCELLED"
   local saved_yes="$ASSUME_YES" saved_force="$FORCE_RISKY_LIST" saved_src="${FORCE_RISKY_SOURCE:-}"
   ASSUME_YES=1
-  FORCE_RISKY_LIST="uninstall"
-  FORCE_RISKY_SOURCE="your app selection"
+  FORCE_RISKY_LIST="${FORCE_RISKY_LIST:+$FORCE_RISKY_LIST,}uninstall"
+  FORCE_RISKY_SOURCE="your confirmation"
   for i in "${!APP_PICK_ON[@]}"; do
     [ "${APP_PICK_ON[$i]}" = 1 ] || continue
     path="${APP_INV_PATHS[$i]}"
@@ -961,7 +1017,8 @@ _apps_wipe_selected() {
     # exit inside mimi_app_uninstall leaves this subshell only.
     (
       APP_TARGET="$path"
-      UNINSTALL_DATA_MODE=purge
+      # --keep-data on the command line keeps it; otherwise data goes too.
+      [ "$UNINSTALL_DATA_MODE" = keep ] || UNINSTALL_DATA_MODE=purge
       JSONL_ENABLED=0
       mimi_app_uninstall
     ) || rc=$?
@@ -972,33 +1029,42 @@ _apps_wipe_selected() {
   return "$rc"
 }
 
+# shellcheck disable=SC2120  # the menu calls it bare; core.sh passes "command"
+# interactive_uninstall_apps [command]
+#
+# From the menu it pauses after uninstalling and returns to the menu. As the
+# `mimi uninstall` command ("command") it returns the uninstall's status.
 interactive_uninstall_apps() {
+  local as_command=0
+  [ "${1:-}" = command ] && as_command=1
   say "Looking for installed applications…"
   inventory_scan_apps pick
   _apps_only_selectable
   if [ "${APP_INV_COUNT:-0}" -eq 0 ]; then
     warn "no applications that can be uninstalled"
-    interactive_pause
+    [ "$as_command" = 1 ] || interactive_pause
     return 0
   fi
-  local i
+  local i rc=0
   APP_PICK_ON=()
-  for i in "${!APP_INV_PATHS[@]}"; do APP_PICK_ON[$i]=0; done
+  APP_PICK_MSG=""
+  _apps_set_all 0
 
   if ! tui_available; then
     local sel idx
     while true; do
       say ""
-      say "${C_BOLD}Uninstall applications${C_RESET} (number=toggle, u=uninstall, b=back)"
+      say "${C_BOLD}Uninstall applications${C_RESET} (number=select, u=uninstall, b=back)"
       for i in "${!APP_INV_PATHS[@]}"; do
-        local marker="[ ]"
-        [ "${APP_PICK_ON[$i]}" = 1 ] && marker="[x]"
-        printf '  %3d) %s %-22s %s\n' "$((i + 1))" "$marker" "${APP_INV_NAMES[$i]}" "${APP_INV_PATHS[$i]}"
+        printf '  %3d) %s %-28s %s\n' "$((i + 1))" "$(_apps_mark "$i")" "${APP_INV_NAMES[$i]}" "${APP_INV_PATHS[$i]}"
       done
-      read -r -p "> " sel </dev/tty
+      read -r -p "> " sel </dev/tty || return 0
       case "$sel" in
-        u|U) _apps_wipe_selected; interactive_pause; return 0 ;;
-        b|B) return 0 ;;
+        u|U)
+          _apps_wipe_selected || rc=$?
+          [ "$as_command" = 1 ] || interactive_pause
+          return "$rc" ;;
+        b|B|q|Q) return 0 ;;
         [0-9]*)
           idx=$((sel - 1))
           if [ "$idx" -ge 0 ] && [ "$idx" -lt "${#APP_INV_PATHS[@]}" ]; then
@@ -1018,25 +1084,43 @@ interactive_uninstall_apps() {
   while true; do
     rows="$(term_rows)"
     cols="$(term_cols)"
-    vh=$((rows - 6))
+    vh=$((rows - 7))
     [ "$vh" -lt 3 ] && vh=3
-    if [ "$cur" -lt "$top" ]; then top="$cur"; fi
-    if [ "$cur" -ge $((top + vh)) ]; then top=$((cur - vh + 1)); fi
+    [ "$vh" -gt "$count" ] && vh="$count"
+    [ "$cur" -lt "$top" ] && top="$cur"
+    [ "$cur" -ge $((top + vh)) ] && top=$((cur - vh + 1))
+    [ "$top" -lt 0 ] && top=0
     frame="$(_apps_draw "$cur" "$top" "$vh" "$cols")"
     tui_paint "$drawn" "$frame"
     drawn=$((vh + 5))
     key="$(read_key)"
+    APP_PICK_MSG=""
     case "$key" in
-      up|k) [ "$cur" -gt 0 ] && cur=$((cur - 1)) ;;
-      down|j) [ "$cur" -lt $((count - 1)) ] && cur=$((cur + 1)) ;;
-      space) _apps_toggle "$cur" ;;
-      u|U)
+      up|k)    cur=$((cur - 1)); [ "$cur" -lt 0 ] && cur=$((count - 1)) ;;
+      down|j)  cur=$((cur + 1)); [ "$cur" -ge "$count" ] && cur=0 ;;
+      pgup)    cur=$((cur - vh)); [ "$cur" -lt 0 ] && cur=0 ;;
+      pgdn)    cur=$((cur + vh)); [ "$cur" -ge "$count" ] && cur=$((count - 1)) ;;
+      home|g)  cur=0 ;;
+      end|G)   cur=$((count - 1)) ;;
+      space|right) _apps_toggle "$cur" ;;
+      a|A) _apps_set_all 1 ;;
+      x|X|n|N) _apps_set_all 0 ;;
+      enter|u|U)
+        if [ "$(_apps_selected_count)" -eq 0 ]; then
+          APP_PICK_MSG="Nothing selected. Press space on an app to select it."
+          continue
+        fi
+        tui_clear_frame "$drawn"
         tui_end
-        _apps_wipe_selected
-        interactive_pause
-        return 0
+        _apps_wipe_selected || rc=$?
+        [ "$as_command" = 1 ] || interactive_pause
+        return "$rc"
         ;;
-      q|quit|escape) tui_end; return 0 ;;
+      q|Q|b|B|esc|quit)
+        tui_clear_frame "$drawn"
+        tui_end
+        return 0 ;;
+      *) ;;
     esac
   done
 }

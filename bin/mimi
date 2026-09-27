@@ -109,6 +109,16 @@ while [ $# -gt 0 ]; do
         MODE="apps"
       fi
       ;;
+    # `mimi uninstall` picks from the installed apps; `mimi uninstall <app>`
+    # is `mimi app uninstall <app>`.
+    uninstall)
+      MODE="app_uninstall"
+      shift
+      if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
+        APP_TARGET="$1"
+        shift
+      fi
+      ;;
     apply)
       require_arg "apply" "$#" "${2-}"
       MODE="apply"
