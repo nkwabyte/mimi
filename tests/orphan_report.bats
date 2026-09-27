@@ -456,15 +456,19 @@ orphan_run_id() {
   grep -q "launchctl bootout gui/.*/com.zzqqxx9.agent" "$MOCK_CALL_LOG"
 }
 
-@test "remove-orphans: ticking orphans in the menus quarantines them on clean" {
-  mkdir -p "$(APPSUP)/Zzqqxx9BareName"
+@test "remove-orphans: ticking orphans in the menus quarantines the strong ones on clean" {
+  local strong weak
+  strong="$(CONTAINERS)/com.zzqqxx9.vvbbnn7"
+  weak="$(APPSUP)/Zzqqxx9BareName"
+  mkdir -p "$strong" "$weak"
   source_lib
-  install_apps
+  install_apps "$FAKE_HOME/Applications/Other.app|com.example.other"
   INCLUDE_ORPHANS=1
   ONLY_LIST="orphans"
   SKIP_LIST=""
   tui_run_clean < /dev/null > "$TEST_TMPDIR/out" 2>&1 || true
-  [ ! -e "$(APPSUP)/Zzqqxx9BareName" ]
+  [ ! -e "$strong" ]
+  [ -d "$weak" ]
   grep -q "moved to quarantine run orphans-" "$TEST_TMPDIR/out"
   [ "$REMOVE_ORPHANS" = 0 ]
 }
