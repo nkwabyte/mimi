@@ -1,0 +1,11 @@
+// Signing settings for every target in the Mimi project.
+//
+// The team id is personal, so it is not committed. Copy
+// Local.xcconfig.example to Local.xcconfig in this folder and put your
+// team id there. Without it Xcode asks for a team before signing; CI builds
+// with code signing turned off.
+
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM =
+
+#include? "Local.xcconfig"

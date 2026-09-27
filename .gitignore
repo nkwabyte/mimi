@@ -87,3 +87,6 @@ docs/SECURITY_REMEDIATION_PLAN.md
 
 # Per-user Xcode state
 xcuserdata/
+
+# Personal signing team for the app (see gui/Mimi/Config/Signing.xcconfig)
+/gui/Mimi/Config/Local.xcconfig
