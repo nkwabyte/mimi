@@ -241,8 +241,9 @@ mimi apps list
 mimi app inspect Slack
 mimi app inspect "com.tinyspeck.slackmacgap" --json
 
-# 7. Uninstall an app and its remnants (permanent; typed confirmation)
-mimi app uninstall Slack --purge-data
+# 7. Uninstall apps and their remnants (permanent; typed confirmation)
+mimi uninstall                           # pick from a list: space selects, enter uninstalls
+mimi app uninstall Slack                 # or name one app directly
 ```
 
 `--scan` (or `mimi scan`, the default) **never deletes anything**. You always have to pass

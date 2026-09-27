@@ -32,6 +32,11 @@ SUBCOMMANDS:
                           (read-only). Target resolves by exact path, bundle ID,
                           cask token, then name; ambiguity stops with the choices.
                           --json emits schemas/app-inspect-v1.json.
+  uninstall               List the installed apps (system apps left out) and pick
+                          the ones to remove: space selects (○ / ●), a all,
+                          x none, enter uninstalls them after you type
+                          `uninstall` once, q quits. Needs a terminal.
+                          `mimi uninstall <target>` is `mimi app uninstall`.
   app uninstall <target>  Delete an app and its attributable files. This is permanent.
                           Target: app name, bundle ID, cask token, or exact path.
                           Shared, system, and weakly matched files are kept.

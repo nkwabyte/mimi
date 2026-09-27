@@ -974,7 +974,7 @@ uninstall_system_request() {
 mimi_app_uninstall() {
   local target="${APP_TARGET:-}"
   if [ -z "$target" ]; then
-    die_usage "app uninstall requires an application name, bundle ID, cask token, or path"
+    die_usage "app uninstall requires an application name, bundle ID, cask token, or path (run 'mimi uninstall' in a terminal to pick from a list)"
   fi
 
   log_init
