@@ -34,7 +34,7 @@
 # --force-risky takes the same names as --only/--skip; `orphans` gates the
 # removal of a reviewed remnants file, which is the only way the orphan
 # scanner's output can ever delete anything.
-CONFIRM_GATED_IDS="docker mail trash orphans sim-stale android ml-caches ios-backups app-terminate vendor-uninstaller"
+CONFIRM_GATED_IDS="docker mail trash orphans sim-stale android ml-caches ios-backups app-terminate vendor-uninstaller purge"
 
 # confirm_class <action-id> -> recoverable | risky | irreversible
 #
@@ -46,6 +46,7 @@ confirm_class() {
     trash)        printf '%s' "irreversible" ;;   # ~/.Trash is the last copy
     ios-backups)  printf '%s' "irreversible" ;;   # the only local copy of a phone
     orphans)      printf '%s' "irreversible" ;;   # reviewed remnants, deleted outright
+    purge)        printf '%s' "irreversible" ;;   # F-03: quarantine purge is permanent
     docker)       printf '%s' "risky" ;;          # named volumes hold real data
     mail)         printf '%s' "risky" ;;          # a POP attachment has no server copy
     sim-stale)    printf '%s' "risky" ;;          # custom devices are not recreated

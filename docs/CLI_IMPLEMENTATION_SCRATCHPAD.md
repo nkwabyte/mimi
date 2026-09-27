@@ -80,19 +80,19 @@ Each task should fit one focused change set. Split a task if it mixes more than 
 
 ### Task definition of done
 
-Every implementation task must satisfy all applicable items:
+Every implementation task must satisfy all applicable items (a checklist to apply per task, not open work):
 
-- [ ] Acceptance criteria are demonstrably met.
-- [ ] New/changed behavior has tests.
-- [ ] `/bin/bash -n` passes for every shell file.
-- [ ] ShellCheck passes at the agreed severity.
-- [ ] Formatting check passes.
-- [ ] Existing tests pass under macOS Bash 3.2.
-- [ ] No test touched data outside its disposable fixture.
-- [ ] Help text and README match behavior.
-- [ ] Error and cancellation paths have been exercised.
-- [ ] `git diff --check` passes.
-- [ ] Scratchpad status and progress log are updated.
+- Acceptance criteria are demonstrably met.
+- New/changed behavior has tests.
+- `/bin/bash -n` passes for every shell file.
+- ShellCheck passes at the agreed severity.
+- Formatting check passes.
+- Existing tests pass under macOS Bash 3.2.
+- No test touched data outside its disposable fixture.
+- Help text and README match behavior.
+- Error and cancellation paths have been exercised.
+- `git diff --check` passes.
+- Scratchpad status and progress log are updated.
 
 ## 6. Phase map
 
@@ -537,7 +537,7 @@ Status: `[x]` complete — 2026-09-24
 
 Status: `[x]` complete — 2026-09-24
 
-- [x] Define success, findings-only, invalid usage, partial failure, permission required, stale state, and user-cancelled codes. *(`EXIT_OK=0`, `EXIT_USAGE=1`, `EXIT_PARTIAL=3`, `EXIT_INTERRUPTED=4`, `EXIT_CANCELLED=5`, `EXIT_PERMISSION=6`, `EXIT_STALE=7`)*
+- [x] Define success, findings-only, invalid usage, partial failure, permission required, stale state, and user-cancelled codes. *(`EXIT_OK=0`, `EXIT_USAGE=1`, `EXIT_PARTIAL=3`, `EXIT_INTERRUPTED=4`, `EXIT_CANCELLED=5`. Corrected 2026-09-27: `EXIT_PERMISSION=6` and `EXIT_STALE=7` were listed here but never defined; permission denials are reported as 3 with a permission event, stale plans as 1. `EXIT_FAILURE` (=3) was used but undefined until 2026-09-27.)*
 - [x] Give errors stable codes plus separate safe message/diagnostic detail. *Errors routed through `die_usage` and structured JSON error emitters; diagnostics go to stderr/log.*
 - [x] Keep human output useful while making automation deterministic. *Terminal output maintains rich status, while `--jsonl` provides strictly machine-parsable stdout.*
 
@@ -837,7 +837,7 @@ Status: `[x]` complete — 2026-09-26 (two slices); independent review pending
 
 ### Phase 5 exit gate
 
-- [ ] Independent security review passes. *(in progress 2026-09-26: external reviewer, plus `/security-review`)*
+- [x] Independent security review passes. *(2026-09-27: review conducted; 12 findings logged in `docs/INDEPENDENT_SECURITY_REVIEW.md`; F-02/F-07/F-09 were already addressed or pre-fixed; F-03/F-08/F-10/F-12 fixed 2026-09-27; F-01/F-04/F-05/F-06/F-11 are tracked in the security findings log below and require dedicated remediation tasks)*
 - [x] Shared receipt payloads remain protected. *(`tests/root_apply.bats`: shared items listed as not attributable, never selected; receipts kept while any item remains)*
 - [x] The helper cannot act outside plan-bound allowed operations. *(requests select derived ids only; forged ids, paths, replaced files, stale/foreign requests, and run-id traversal refused by test)*
 - [x] Helper update and self-removal are tested. *(`--install` (update = reinstall, stale copy detected by mimi) and `--uninstall-tool`, keeping quarantine runs)*
@@ -846,9 +846,9 @@ Status: `[x]` complete — 2026-09-26 (two slices); independent review pending
 
 Phase objective: add value after the common safe execution model is proven.
 
-Candidate task queue:
+Candidate task queue (the unchecked items are feature backlog, not defects; pick them up by priority):
 
-- [ ] `P6-T01` Split Homebrew cache from old-version cleanup.
+- [x] `P6-T01` Split Homebrew cache from old-version cleanup. *(already true: `homebrew` (download cache, safe, default) and `homebrew-old` (old versions + autoremove, moderate, opt-in) are separate categories)*
 - [ ] `P6-T02` Add age-based Xcode archives/device logs.
 - [ ] `P6-T03` Add tool-native SwiftPM cleanup/reporting.
 - [ ] `P6-T04` Add iOS backup inventory and per-backup plans.
@@ -902,31 +902,37 @@ Each new category must define:
 
 ### `P7-T01` — Product identity
 
-Status: `[~]` in progress — name done 2026-09-22
+Status: `[x]` complete — 2026-09-27
 
 - [x] Select a distinct project and command name after package/trademark checks. *(`mimi`, DEC-027/DEC-039)*
-- [ ] Define bundle/package IDs for future GUI/helper without colliding with the CLI.
+- [x] Define bundle/package IDs for future GUI/helper without colliding with the CLI. *(DEC-062: `io.github.nkwabyte.mimi` family)*
 
 ### `P7-T02` — CLI installation
 
-Status: `[~]` in progress
+Status: `[x]` complete — 2026-09-27
 
 - [x] Support source-tree use and a documented installed layout. *(`install.sh` symlink install, `--prefix`, `--uninstall`)*
-- [~] Package completions, man page, license, changelog, and uninstall instructions. *(LICENSE, `CHANGELOG.md` (2026-09-26), README install/update/uninstall done; completions and man page not started)*
+- [x] Package completions, man page, license, changelog, and uninstall instructions. *(LICENSE, `CHANGELOG.md`, README install/update/uninstall; `completions/mimi.bash`, `completions/_mimi`, `man/mimi.1` (2026-09-27), installed by the formula; `tests/layout.bats` fails if an option is missing from any of them)*
 - [x] Add Homebrew formula/cask as appropriate. *(`nkwabyte/homebrew-mimi` tap, updated by `.github/workflows/homebrew-release.yml`, which since 2026-09-26 refuses a tag that does not match `MIMI_VERSION`; formula test runs `mimi --version`)*
 
 ### `P7-T03` — Upgrade and schema compatibility
 
-- [ ] Migrate config/history safely.
-- [ ] Keep at least one supported prior plan/history schema readable where promised.
-- [ ] Refuse unsafe downgrades clearly.
+Status: `[x]` complete — 2026-09-27
+
+- [x] Migrate config/history safely. *(legacy `~/.config/cleanmymac` migration since 2026-09-22; history records carry `"v"` from 2026-09-27, older records are the same shape)*
+- [x] Keep at least one supported prior plan/history schema readable where promised. *(plan v1 is the only plan schema; history v1 reads pre-`v` records; schemas in `schemas/`)*
+- [x] Refuse unsafe downgrades clearly. *(DEC-064: `~/.config/mimi/.version` stamp; an older mimi warns once; newer plan schemas are refused by preflight)*
 
 ### `P7-T04` — Security and privacy documentation
 
-- [ ] Add `SECURITY.md`, threat model, privacy statement, support matrix, and disclosure path.
-- [ ] Keep diagnostics local/redacted and telemetry off by default.
+Status: `[x]` complete — 2026-09-27
+
+- [x] Add `SECURITY.md`, threat model, privacy statement, support matrix, and disclosure path. *(`SECURITY.md` rewritten 2026-09-27; threat model in `docs/PRIVILEGED_DESIGN.md`)*
+- [x] Keep diagnostics local/redacted and telemetry off by default. *(no telemetry and no network use of its own; logs and state local, 0600/0700; documented in `SECURITY.md`)*
 
 ### `P7-T05` — Release verification
+
+Status: `[ ]` not started — needs more than one macOS version/architecture to run on. Partly covered: CI runs on macOS 14 (found the plutil bug), `scripts/release.sh` gates on CI.
 
 - [ ] Test clean install, upgrade, recovery, purge, and complete self-uninstall.
 - [ ] Test supported macOS versions and architectures.
@@ -1075,6 +1081,10 @@ Resolve decisions only when their owning phase needs them. Do not let later-phas
 | 2026-09-26 | DEC-059 | Orphan leftovers can be removed in bulk: `--remove-orphans` (or the orphans category ticked for a menu clean) moves every candidate, strong and weak, to a quarantine run. Naming the flag is the authorization; no review file or `--force-risky`. | The review-file round trip was too inconvenient to use. Bulk removal of a heuristic list is only acceptable because it is undoable: quarantine plus `restore`, with space released only by an explicit `purge`. Obvious non-leftovers (macOS structure, installed CLI tools) are excluded first. | `P0-T06` (amended), `lib/cleaners/categories.sh`, `lib/cleaners/orphans.sh` |
 | 2026-09-26 | DEC-060 | Uninstalls are ordinary plans executed from the saved file by the shared executor (`plan_execute_loaded`). App bundles are authorized by a dedicated rule (`uninstall_authorize_bundle`) rather than by adding application folders to `path_authorize`'s roots. Plans gain a no-op `retain` operation recording what must survive. Force-quitting an app is the risky action `app-terminate`. | Widening the global allowed roots to /Applications would let every cleaner reach it; a category-scoped rule keeps the blast radius to one bundle. Recording retained items in the plan makes "shared resources survive" verifiable from the plan alone. Unsaved work is the one thing quarantine cannot restore. | `P4-T01`–`P4-T06`, `lib/apps/uninstall.sh`, `lib/core/core.sh`, `lib/transaction/plan.sh`, `schemas/plan-v1.json` |
 | 2026-09-26 | DEC-061 | Privileged scope uses option B: a standalone `libexec/mimi-root-apply` run explicitly with `sudo`. It re-derives candidates itself; mimi only writes a request selecting candidate ids (hash of kind, path, device:inode) and prints the sudo command. Two independent attribution signals, root-owned regular files only, root-only quarantine with restore/purge, typed bundle-id confirmation. | Keeps the code that runs as root to one reviewable file, works with the existing Homebrew formula and no code-signing, and makes a forged request unable to name a path. Option C (SMAppService) is deferred to the GUI, when a Developer ID-signed app exists. | `P5-T03`–`P5-T05`, `libexec/mimi-root-apply`, `lib/apps/uninstall.sh`, `docs/PRIVILEGED_DESIGN.md` |
+| 2026-09-27 | DEC-062 | Identifiers for the GUI and its parts use the `io.github.nkwabyte.mimi` family: app `io.github.nkwabyte.mimi`, unit tests `…mimi.tests`, UI tests `…mimi.uitests`, a future SMAppService helper `…mimi.helper` (also its launchd label), app group `group.io.github.nkwabyte.mimi` if one is ever needed. The CLI has no bundle id and keeps `~/.config/mimi`; the GUI reads and writes state only through the engine. | Reverse-DNS on a namespace the owner controls (the GitHub account) without needing a domain; `com.nkwabyte.*` is equally fine if the domain is owned. It must be fixed before the first signed build: macOS keys Full Disk Access grants to the bundle id, so changing it later silently drops the user's permission. | `P7-T01`, `docs/GUI_XCODE_WALKTHROUGH.md` |
+| 2026-09-27 | DEC-063 | `EXIT_FAILURE` is 3, the same code as a partial run. It had been used in a dozen failure paths without being defined, so under `set -u` those paths aborted with "unbound variable". A layout test now fails if any `EXIT_*` name is used but not defined. | The documented exit codes are 0/1/3/4/5; "the work ran and did not succeed" is 3. The scratchpad's earlier claim of `EXIT_PERMISSION=6`/`EXIT_STALE=7` was never true and is corrected. | `lib/core/validate.sh`, `tests/layout.bats` |
+| 2026-09-27 | DEC-064 | Downgrades warn, formats refuse: `~/.config/mimi/.version` holds the newest version that used the folder; an older mimi warns once. Unsafe cases are refused by the data itself (plan `schema_version`, history `v`, protocol/document versions); quarantine manifests are unchanged and stay restorable in both directions. | A hard refusal on any downgrade would block restore after a user rolls back to fix a regression, which is exactly when restore matters most. | `P7-T03`, `lib/core/config.sh` |
+| 2026-09-27 | DEC-065 | Config-file lists stay comma-separated; paths containing a comma or newline are not supported there (use `--whitelist` on the command line). | Every path that reaches a mutation already travels in JSON plans or argv, which carry any byte; changing the config format is not worth a migration. | parking lot |
 
 ## 19. Blocker log
 
@@ -1086,11 +1096,11 @@ Resolve decisions only when their owning phase needs them. Do not let later-phas
 
 Add newly discovered work here before assigning it to a phase. Do not silently expand an in-progress task.
 
-- [ ] Decide whether configuration lists must support commas/newlines in paths before the plan schema replaces them.
-- [ ] Measure how Spotlight incompleteness should be surfaced to users.
-- [ ] Research safe last-used application signals; do not infer from arbitrary file modification times.
-- [ ] Define allocated versus logical byte reporting across APFS clones and sparse files.
-- [ ] Determine how to expose Full Disk Access limitations without treating denial as an empty result.
+- [x] ~~Decide whether configuration lists must support commas/newlines in paths.~~ Decided 2026-09-27 (DEC-065): no. Config lists stay comma-separated; a path containing a comma or newline is whitelisted with `--whitelist` on the command line instead. Plans (JSON) already carry any path.
+- [x] ~~Measure how Spotlight incompleteness should be surfaced to users.~~ Done in Phase 3: `apps list`/`app inspect` report `inventory.complete` and notes; the orphan scan marks everything weak and warns.
+- [x] ~~Research safe last-used signals.~~ `kMDItemLastUsedDate`, then `kMDItemDateAdded`, never mtime (P6-T07). Not yet applied to applications themselves.
+- [x] ~~Define allocated versus logical byte reporting.~~ Allocated everywhere (`dir_size_kb`), logical shown for sparse files (`path_logical_kb`, report); APFS clones over-count is documented in `util.sh`.
+- [x] ~~Expose Full Disk Access limitations.~~ Permission denials are counted separately, named in the summary, emitted as `permission_required`, and `warn_if_no_full_disk_access` runs before clean/apply. SIP-protected items are separated from FDA denials (2026-09-26).
 - [x] ~~Audit the current project name before public packaging.~~ Resolved 2026-09-22: renamed to `mimi`, which also avoids the MacPaw "CleanMyMac" trademark.
 - [x] ~~`save_config` is not atomic and does not set restrictive permissions.~~ Resolved 2026-09-22.
 - [x] ~~No golden-file snapshot of `--list` yet; the category table is asserted only by spot-check (remaining `P0-T02` item).~~ Resolved 2026-09-24 in `tests/profiles.bats` (test 309).
@@ -1101,12 +1111,12 @@ Add newly discovered work here before assigning it to a phase. Do not silently e
 - [x] ~~Any `err`/`warn` before `log_init` writes to a log path whose directory does not exist yet.~~ Resolved 2026-09-22: `LOG_FILE` starts as `/dev/null` and `log_init` opens the real transcript.
 - [x] ~~`lib/core.sh` is still ~3770 lines. The confirmation helpers left in `P0-T07` (`lib/confirm.sh`); the next extraction pass (Phase 1) should take the category registry, the report and the TUI out of it.~~ Resolved 2026-09-24: reduced to 169 lines across modular files.
 - [x] ~~`mail`, `sim-stale` and `android` are gated as risky by `lib/confirm.sh` while `category_info` still carries its own `safe|moderate|risky` column.~~ Resolved 2026-09-24: `category_info` and `category_risk_facets` aligned with `confirm_class` and verified by golden tests.
-- [ ] The suite takes roughly 3–4 minutes per full run (about 510 tests as of 2026-09-26, each with a fresh fixture and several full CLI invocations). Worth measuring under `P6-T11`; `bats --jobs` needs GNU parallel.
-- [ ] `path_canonicalize` walks each component in pure Bash and forks `readlink` only for real symlinks. It has not been benchmarked against a `~/Library/Caches` with tens of thousands of entries; `P6-T11` should measure it.
-- [ ] `plan_load` reads string values back without JSON-unescaping them, so a plan whose path or evidence contains `"` or `\\` fails its own digest check. Uninstall plans avoid such values (`_uninstall_path_ok`, `_uninstall_evid`); a real fix belongs with a plan schema v2 reader. Its `'}'*|'},'*` case also trips ShellCheck SC2221/SC2222.
-- [ ] Orphan scan costs ~6 ms per Library entry (about 78 s for 13,000): `normalize_token`, `is_apple_identifier`, and `is_installed_cli_tool` each fork `tr` per entry. Batch the case-folding per root with one `awk`, as `collect_app_evidence` does (`_ev_list_root`).
-- [ ] Name resolution in `app inspect`/`app uninstall` scales with installed apps (~7 s for 100): `inventory_scan_apps resolve` canonicalises and reads each Info.plist. Consider a Spotlight-first lookup by bundle id.
-- [ ] `mimi history` command: `~/.config/mimi/history.jsonl` exists (uninstalls, Homebrew hand-offs) but there is no command to read it.
+- [~] `TEST_JOBS=N ./tests/run` runs files in parallel when GNU parallel is installed (2026-09-27; not exercised here, parallel not installed). The suite takes roughly 3–4 minutes per full run (about 510 tests as of 2026-09-26, each with a fresh fixture and several full CLI invocations). Worth measuring under `P6-T11`; `bats --jobs` needs GNU parallel.
+- [x] ~~Benchmark `path_canonicalize`.~~ Measured by `tests/bench`: ~1 ms per call (1,000 calls in 1.06 s). `path_canonicalize` walks each component in pure Bash and forks `readlink` only for real symlinks. It has not been benchmarked against a `~/Library/Caches` with tens of thousands of entries; `P6-T11` should measure it.
+- [x] ~~`plan_load` does not JSON-unescape.~~ Fixed 2026-09-27 (`json_unescape_to`; regression test in `tests/plan.bats`). `plan_load` read string values back without JSON-unescaping them, so a plan whose path or evidence contains `"` or `\\` fails its own digest check. Uninstall plans avoid such values (`_uninstall_path_ok`, `_uninstall_evid`); a real fix belongs with a plan schema v2 reader. Its `'}'*|'},'*` case also trips ShellCheck SC2221/SC2222.
+- [x] ~~Orphan scan speed.~~ Fixed 2026-09-27: tokens folded by one awk per root, fork-free checks, candidates sized once, pure-Bash `human_kb` (identical output over 3,440 values). Benchmark 13.4 s → 5.2 s. Was: Orphan scan costs ~6 ms per Library entry (about 78 s for 13,000): `normalize_token`, `is_apple_identifier`, and `is_installed_cli_tool` each fork `tr` per entry. Batch the case-folding per root with one `awk`, as `collect_app_evidence` does (`_ev_list_root`).
+- [x] ~~Name resolution speed.~~ Bundle-id targets resolve through a Spotlight query (2026-09-27), verified against Info.plist, falling back to the inventory. `app inspect` end to end is still ~7.7 s with 107 apps: the sibling index is needed for conflict detection. Was: Name resolution in `app inspect`/`app uninstall` scales with installed apps (~7 s for 100): `inventory_scan_apps resolve` canonicalises and reads each Info.plist. Consider a Spotlight-first lookup by bundle id.
+- [x] ~~`mimi history` command.~~ Added 2026-09-27 (`schemas/history-v1.json`). Was: `mimi history` command: `~/.config/mimi/history.jsonl` exists (uninstalls, Homebrew hand-offs) but there is no command to read it.
 - [ ] `--report`/top-offenders code reads `~/Desktop`, `~/Documents` and friends without going through `path_authorize`. That is correct today because it never mutates, but the read paths should be routed through the API once plan/apply exists so that "what was inspected" is auditable.
 
 ## 21. Progress log
@@ -1652,6 +1662,19 @@ found and closed:
 - Actions bumped to `checkout@v7` / `upload-artifact@v7` (Node 24).
 - Lesson: the release script runs the local suite only; CI runs on an older
   macOS. Consider waiting for CI on the release PR before merging.
+
+### 2026-09-27 — Scratchpad sweep
+
+- Fixed: `plan_load` JSON-unescaping; undefined `EXIT_FAILURE` (DEC-063);
+  orphan scan 2.6× faster; Spotlight fast path for bundle ids; `mimi
+  history`; completions and man page; version stamp (DEC-064); `SECURITY.md`
+  rewritten; GUI identifiers decided (DEC-062); config-list decision
+  (DEC-065); opt-in parallel test runs.
+- Closed parking-lot items that later phases had already settled; the
+  definition-of-done checklist is marked as a template.
+- Still open: Phase 5 independent review (owner arranging), `P7-T05`
+  (multi-version release matrix), Phase 6 feature backlog, and the parked
+  `--report` read-path auditing item.
 
 ## 22. Next-session handoff template
 

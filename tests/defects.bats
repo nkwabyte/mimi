@@ -370,3 +370,22 @@ PLIST
   source_lib
   [ "$(path_logical_kb "$FAKE_HOME/Library/Caches")" = "0" ]
 }
+
+@test "version stamp: a newer mimi's folder makes an older one warn; nothing is created on a first run" {
+  rm -rf "$FAKE_HOME/.config/mimi"
+  run_mimi scan --only dsstore --no-log
+  [ ! -e "$FAKE_HOME/.config/mimi/.version" ]
+
+  mkdir -p "$FAKE_HOME/.config/mimi"
+  run_mimi scan --only dsstore --no-log
+  local v
+  v="$(sed -n 's/^MIMI_VERSION="\(.*\)"$/\1/p' "$MIMI_LIB/core/globals.sh")"
+  [ "$(cat "$FAKE_HOME/.config/mimi/.version")" = "$v" ]
+
+  printf '99.0.0\n' > "$FAKE_HOME/.config/mimi/.version"
+  run_mimi scan --only dsstore --no-log
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "older than mimi 99.0.0"
+  # The newer stamp is kept.
+  [ "$(cat "$FAKE_HOME/.config/mimi/.version")" = "99.0.0" ]
+}

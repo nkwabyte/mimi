@@ -119,15 +119,28 @@ app_process_list_pids() {
 
 app_process_request_quit() {
   local bundle_id="$1"
-  [ -z "$bundle_id" ] && return 1
+  [ -n "$bundle_id" ] || return 1
+
+  # Strict bundle ID grammar to prevent AppleScript injection
+  case "$bundle_id" in
+    *[!a-zA-Z0-9.-]*)
+      verbose "process: invalid characters in bundle id: $bundle_id"
+      return 1
+      ;;
+  esac
 
   if ! command -v osascript >/dev/null 2>&1; then
     verbose "process: osascript unavailable, cannot send AppleEvent quit"
     return 1
   fi
 
-  # AppleScript quit is best-effort; we do not treat a refusal as fatal.
-  osascript -e "tell application id \"$bundle_id\" to quit" 2>/dev/null || true
+  # Pass as argument to AppleScript rather than string interpolation
+  osascript - "$bundle_id" <<'APPLESCRIPT' 2>/dev/null || true
+on run argv
+  set bundleId to item 1 of argv
+  tell application id bundleId to quit
+end run
+APPLESCRIPT
   return 0
 }
 

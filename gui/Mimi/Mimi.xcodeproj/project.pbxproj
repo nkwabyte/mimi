@@ -1,0 +1,580 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 110;
+	objects = {
+
+/* Begin PBXContainerItemProxy section */
+		BC5646B53068D135003051E2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BC56469F3068D134003051E2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BC5646A63068D134003051E2;
+			remoteInfo = Mimi;
+		};
+		BC5646BF3068D135003051E2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = BC56469F3068D134003051E2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BC5646A63068D134003051E2;
+			remoteInfo = Mimi;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		BC5646A73068D134003051E2 /* Mimi.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Mimi.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BC5646B43068D135003051E2 /* MimiTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MimiTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		BC5646BE3068D135003051E2 /* MimiUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MimiUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		BC5646A93068D134003051E2 /* Mimi */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Mimi;
+			sourceTree = "<group>";
+		};
+		BC5646B73068D135003051E2 /* MimiTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MimiTests;
+			sourceTree = "<group>";
+		};
+		BC5646C13068D135003051E2 /* MimiUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MimiUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BC5646A43068D134003051E2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		BC5646B13068D135003051E2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		BC5646BB3068D135003051E2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		BC56469E3068D134003051E2 = {
+			isa = PBXGroup;
+			children = (
+				BC5646A93068D134003051E2 /* Mimi */,
+				BC5646B73068D135003051E2 /* MimiTests */,
+				BC5646C13068D135003051E2 /* MimiUITests */,
+				BC5646A83068D134003051E2 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		BC5646A83068D134003051E2 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BC5646A73068D134003051E2 /* Mimi.app */,
+				BC5646B43068D135003051E2 /* MimiTests.xctest */,
+				BC5646BE3068D135003051E2 /* MimiUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		BC5646A63068D134003051E2 /* Mimi */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BC5646C63068D135003051E2 /* Build configuration list for PBXNativeTarget "Mimi" */;
+			buildPhases = (
+				BC5646A33068D134003051E2 /* Sources */,
+				BC5646A43068D134003051E2 /* Frameworks */,
+				BC5646A53068D134003051E2 /* Resources */,
+				BC5646D13068D136003051E2 /* Copy Engine */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				BC5646A93068D134003051E2 /* Mimi */,
+			);
+			name = Mimi;
+			productName = Mimi;
+			productReference = BC5646A73068D134003051E2 /* Mimi.app */;
+			productType = "com.apple.product-type.application";
+		};
+		BC5646B33068D135003051E2 /* MimiTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BC5646C93068D135003051E2 /* Build configuration list for PBXNativeTarget "MimiTests" */;
+			buildPhases = (
+				BC5646B03068D135003051E2 /* Sources */,
+				BC5646B13068D135003051E2 /* Frameworks */,
+				BC5646B23068D135003051E2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BC5646B63068D135003051E2 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				BC5646B73068D135003051E2 /* MimiTests */,
+			);
+			name = MimiTests;
+			productName = MimiTests;
+			productReference = BC5646B43068D135003051E2 /* MimiTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		BC5646BD3068D135003051E2 /* MimiUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BC5646CC3068D135003051E2 /* Build configuration list for PBXNativeTarget "MimiUITests" */;
+			buildPhases = (
+				BC5646BA3068D135003051E2 /* Sources */,
+				BC5646BB3068D135003051E2 /* Frameworks */,
+				BC5646BC3068D135003051E2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BC5646C03068D135003051E2 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				BC5646C13068D135003051E2 /* MimiUITests */,
+			);
+			name = MimiUITests;
+			productName = MimiUITests;
+			productReference = BC5646BE3068D135003051E2 /* MimiUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		BC56469F3068D134003051E2 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					BC5646A63068D134003051E2 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					BC5646B33068D135003051E2 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = BC5646A63068D134003051E2;
+					};
+					BC5646BD3068D135003051E2 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = BC5646A63068D134003051E2;
+					};
+				};
+			};
+			buildConfigurationList = BC5646A23068D134003051E2 /* Build configuration list for PBXProject "Mimi" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = BC56469E3068D134003051E2;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = BC5646A83068D134003051E2 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				BC5646A63068D134003051E2 /* Mimi */,
+				BC5646B33068D135003051E2 /* MimiTests */,
+				BC5646BD3068D135003051E2 /* MimiUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BC5646A53068D134003051E2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		BC5646B23068D135003051E2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		BC5646BC3068D135003051E2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		BC5646D13068D136003051E2 /* Copy Engine */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Engine";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\nROOT=\"$SRCROOT/../..\"\nDEST=\"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Resources/engine\"\nrm -rf \"$DEST\"\nmkdir -p \"$DEST/bin\" \"$DEST/lib\" \"$DEST/libexec\"\ncp \"$ROOT/bin/mimi\" \"$DEST/bin/mimi\"\ncp -R \"$ROOT/lib/.\" \"$DEST/lib/\"\ncp -R \"$ROOT/libexec/.\" \"$DEST/libexec/\"\nchmod 755 \"$DEST/bin/mimi\" \"$DEST/libexec/mimi-root-apply\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BC5646A33068D134003051E2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		BC5646B03068D135003051E2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		BC5646BA3068D135003051E2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BC5646B63068D135003051E2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BC5646A63068D134003051E2 /* Mimi */;
+			targetProxy = BC5646B53068D135003051E2 /* PBXContainerItemProxy */;
+		};
+		BC5646C03068D135003051E2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BC5646A63068D134003051E2 /* Mimi */;
+			targetProxy = BC5646BF3068D135003051E2 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		BC5646C43068D135003051E2 /* Debug configuration for PBXProject "Mimi" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = TU22TRH4UF;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		BC5646C53068D135003051E2 /* Release configuration for PBXProject "Mimi" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = TU22TRH4UF;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		BC5646C73068D135003051E2 /* Debug configuration for PBXNativeTarget "Mimi" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TU22TRH4UF;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Mimi scans your Mac for junk files and developer caches.";
+				INFOPLIST_KEY_NSSupportsAutomaticTermination = NO;
+				INFOPLIST_KEY_NSSupportsSuddenTermination = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.nkwabyte.Mimi;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		BC5646C83068D135003051E2 /* Release configuration for PBXNativeTarget "Mimi" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TU22TRH4UF;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Mimi scans your Mac for junk files and developer caches.";
+				INFOPLIST_KEY_NSSupportsAutomaticTermination = NO;
+				INFOPLIST_KEY_NSSupportsSuddenTermination = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.nkwabyte.Mimi;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		BC5646CA3068D135003051E2 /* Debug configuration for PBXNativeTarget "MimiTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TU22TRH4UF;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.nkwabyte.MimiTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Mimi.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Mimi";
+			};
+			name = Debug;
+		};
+		BC5646CB3068D135003051E2 /* Release configuration for PBXNativeTarget "MimiTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TU22TRH4UF;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.nkwabyte.MimiTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Mimi.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Mimi";
+			};
+			name = Release;
+		};
+		BC5646CD3068D135003051E2 /* Debug configuration for PBXNativeTarget "MimiUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TU22TRH4UF;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.nkwabyte.MimiUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = Mimi;
+			};
+			name = Debug;
+		};
+		BC5646CE3068D135003051E2 /* Release configuration for PBXNativeTarget "MimiUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TU22TRH4UF;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.nkwabyte.MimiUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = Mimi;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		BC5646A23068D134003051E2 /* Build configuration list for PBXProject "Mimi" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC5646C43068D135003051E2 /* Debug configuration for PBXProject "Mimi" */,
+				BC5646C53068D135003051E2 /* Release configuration for PBXProject "Mimi" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		BC5646C63068D135003051E2 /* Build configuration list for PBXNativeTarget "Mimi" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC5646C73068D135003051E2 /* Debug configuration for PBXNativeTarget "Mimi" */,
+				BC5646C83068D135003051E2 /* Release configuration for PBXNativeTarget "Mimi" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		BC5646C93068D135003051E2 /* Build configuration list for PBXNativeTarget "MimiTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC5646CA3068D135003051E2 /* Debug configuration for PBXNativeTarget "MimiTests" */,
+				BC5646CB3068D135003051E2 /* Release configuration for PBXNativeTarget "MimiTests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		BC5646CC3068D135003051E2 /* Build configuration list for PBXNativeTarget "MimiUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC5646CD3068D135003051E2 /* Debug configuration for PBXNativeTarget "MimiUITests" */,
+				BC5646CE3068D135003051E2 /* Release configuration for PBXNativeTarget "MimiUITests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = BC56469F3068D134003051E2 /* Project object */;
+	validationLevel = 1;
+}

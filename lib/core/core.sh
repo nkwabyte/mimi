@@ -295,6 +295,7 @@ plan_execute_loaded() {
     p="${item#*::*::*::}"; p="${p%%::*}"
     ident="${item#*::*::*::*::}"; ident="${ident%%::*}"
     bytes="${item#*::*::*::*::*::}"; bytes="${bytes%%::*}"
+    case "$bytes" in *[!0-9]*|"") bytes=0 ;; esac
     risk="${item#*::*::*::*::*::*::}"; risk="${risk%%::*}"
     evid="${item##*::}"
 
@@ -383,13 +384,14 @@ run_purge() {
     err "purge requires a run ID or quarantine directory"
     return "$EXIT_USAGE"
   fi
-  if [ "$ASSUME_YES" != 1 ]; then
-    local gate_rc=0
-    confirm "Permanently purge quarantine run '$RUN_ID'? This is irreversible — proceed?" || gate_rc=$?
-    if [ "$gate_rc" != 0 ]; then
-      warn "purge cancelled"
-      return "$EXIT_CANCELLED"
-    fi
+  # F-03: purge is irreversible — --yes does NOT authorize this.
+  # Only --force-risky purge (for scripts/CI) or a typed terminal confirmation
+  # (the word "purge") can proceed. confirm_action_ok enforces this via the
+  # 'purge' registry entry in lib/safety/confirm.sh.
+  local prompt
+  prompt="Permanently purge quarantine run '${RUN_ID}'? This is irreversible."
+  if ! confirm_action_ok "purge" "$prompt"; then
+    return "$EXIT_CANCELLED"
   fi
   if quarantine_purge_run "$RUN_ID"; then
     ok "purged quarantine run: $RUN_ID"
@@ -434,6 +436,7 @@ main() {
     plan) run_plan ;;
     apply) run_apply ;;
     restore) run_restore ;;
+    history) mimi_history ;;
     purge) run_purge ;;
     *) run_selected_categories ;;
   esac

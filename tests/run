@@ -77,5 +77,13 @@ if [ $# -gt 0 ]; then
   bats --tap "${FILES[@]}"
 else
   echo "==> Running all tests in $TESTS_DIR"
-  bats --tap "$TESTS_DIR"/*.bats
+  # Opt-in parallelism: TEST_JOBS=8 ./tests/run. Every test builds its own
+  # fixture, so files can run side by side; bats needs GNU parallel for it.
+  if [ -n "${TEST_JOBS:-}" ] && command -v parallel > /dev/null 2>&1; then
+    echo "==> $TEST_JOBS parallel jobs"
+    bats --tap --jobs "$TEST_JOBS" "$TESTS_DIR"/*.bats
+  else
+    [ -n "${TEST_JOBS:-}" ] && echo "==> TEST_JOBS ignored: GNU parallel is not installed (brew install parallel)"
+    bats --tap "$TESTS_DIR"/*.bats
+  fi
 fi

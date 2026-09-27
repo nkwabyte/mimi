@@ -725,8 +725,8 @@ EOF
   [ "$status" -eq 0 ]
   [ -e "$app" ]
 
-  # Purge.
-  run /bin/bash "$MIMI_BIN" purge "$run_id" --yes
+  # Purge. --yes cannot authorize an irreversible purge (F-03); use --force-risky.
+  run /bin/bash "$MIMI_BIN" purge "$run_id" --force-risky purge
   [ "$status" -eq 0 ]
   [ ! -d "$FAKE_HOME/.config/mimi/quarantine/$run_id" ]
 }
@@ -1020,7 +1020,8 @@ assert rec["type"] == "cask-uninstall" and rec["exit"] == 0 and rec["zap"] == 1,
   create_app "$FAKE_HOME/Applications/Broken Cask.app" "Broken Cask" "com.example.broken" "1.0"
   export MOCK_FAIL_CMDS="brew uninstall*"
   run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Broken Cask.app" --cask --yes
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 3 ]
+  ! echo "$output" | grep -q "unbound variable"
   echo "$output" | grep -q "Homebrew cask uninstall failed"
   grep -q '"type":"cask-uninstall","status":"failed"' "$FAKE_HOME/.config/mimi/history.jsonl"
 }
@@ -1148,4 +1149,39 @@ vendor_fixture() {
   run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Plainer.app" --vendor-uninstaller --force-risky vendor-uninstaller
   [ "$status" -eq 1 ]
   echo "$output" | grep -q "no vendor uninstaller found"
+}
+
+# ---------------------------------------------------------------------------
+# mimi history
+# ---------------------------------------------------------------------------
+
+@test "history: lists uninstalls and restorable quarantine runs, in text and JSON" {
+  create_app "$FAKE_HOME/Applications/Histo.app" "Histo" "com.example.histo" "1.0"
+  run /bin/bash "$MIMI_BIN" app uninstall "$FAKE_HOME/Applications/Histo.app" --yes
+  [ "$status" -eq 0 ]
+
+  run /bin/bash "$MIMI_BIN" history
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "uninstall .* ok .*Histo (run uninstall-"
+  echo "$output" | grep -q "uninstall-[0-9-]* .* 1 item(s)"
+
+  run --separate-stderr /bin/bash "$MIMI_BIN" history --json
+  [ "$status" -eq 0 ]
+  echo "$output" | /usr/bin/python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["schema"] == "mimi.history/1"
+r = d["records"][-1]
+assert r["v"] == 1 and r["type"] == "uninstall" and r["bundle_id"] == "com.example.histo", r
+q = d["quarantine_runs"]
+assert len(q) == 1 and q[0]["items"] == 1 and q[0]["restored"] == 0, q
+'
+}
+
+@test "history: empty history and --limit validation" {
+  run /bin/bash "$MIMI_BIN" history
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "nothing recorded yet"
+  run /bin/bash "$MIMI_BIN" history --limit abc
+  [ "$status" -eq 1 ]
 }

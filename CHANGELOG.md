@@ -6,6 +6,27 @@ and a release tag must match it.
 
 ## [Unreleased]
 
+### Added
+
+- `mimi history`: what mimi has done and which quarantine runs can still be
+  restored (`--limit N`, `--json` → `schemas/history-v1.json`).
+- Shell completions for bash and zsh, and a `mimi(1)` man page, installed by
+  the Homebrew formula.
+- An older mimi run after a newer one now says so, once.
+
+### Fixed
+
+- Failure paths that should exit with status 3 (a plan that could not be
+  saved, a failed Homebrew hand-off, …) aborted with "unbound variable".
+- A plan whose path contains `"` or `\` failed its own integrity check.
+- The leftover scan is about 2.5× faster; `app inspect <bundle id>` resolves
+  through Spotlight instead of listing every installed app first.
+
+### Changed
+
+- `SECURITY.md` rewritten: supported versions and platforms, private
+  reporting, the privilege model, and a privacy statement.
+
 ## [0.2.1] - 2026-09-26
 
 ### Fixed

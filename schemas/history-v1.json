@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MimiHistoryV1",
+  "description": "Output of `mimi history --json`: records from ~/.config/mimi/history.jsonl (newest last) and the user-scope quarantine runs that can still be restored.",
+  "type": "object",
+  "required": ["schema", "records", "quarantine_runs"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "type": "string", "const": "mimi.history/1" },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["at", "type", "status"],
+        "properties": {
+          "v": { "type": "integer", "description": "Record version; absent on records written before version 1 existed (same shape)." },
+          "at": { "type": "string" },
+          "type": { "enum": ["uninstall", "cask-uninstall", "vendor-uninstaller", "system-request"] },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    "quarantine_runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["run_id", "items", "restored", "size_kb"],
+        "additionalProperties": false,
+        "properties": {
+          "run_id": { "type": "string" },
+          "items": { "type": "integer", "minimum": 0 },
+          "restored": { "type": "integer", "minimum": 0 },
+          "size_kb": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}
