@@ -17,12 +17,22 @@ jobs:
     steps:
       - name: Determine release tag
         id: vars
+        env:
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          TAG="${EVENT_TAG:-$INPUT_TAG}"
           if [ -z "$TAG" ]; then
             echo "ERROR: No tag specified or available in event." >&2
             exit 1
           fi
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *)
+              echo "ERROR: tag '$TAG' is not valid semantic version (vX.Y.Z)." >&2
+              exit 1
+              ;;
+          esac
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           VERSION="${TAG#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -34,10 +44,13 @@ jobs:
           path: mimi-src
 
       - name: Refuse a tag that does not match MIMI_VERSION
+        env:
+          RELEASE_TAG: ${{ steps.vars.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.vars.outputs.version }}
         run: |
           CODE_VERSION="$(sed -n 's/^MIMI_VERSION="\(.*\)"$/\1/p' mimi-src/lib/core/globals.sh)"
-          if [ "$CODE_VERSION" != "${{ steps.vars.outputs.version }}" ]; then
-            echo "ERROR: tag ${{ steps.vars.outputs.tag }} does not match MIMI_VERSION=\"$CODE_VERSION\" in lib/core/globals.sh." >&2
+          if [ "$CODE_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "ERROR: tag $RELEASE_TAG does not match MIMI_VERSION=\"$CODE_VERSION\" in lib/core/globals.sh." >&2
             echo "Bump MIMI_VERSION (and CHANGELOG.md) before tagging." >&2
             exit 1
           fi
@@ -45,9 +58,10 @@ jobs:
 
       - name: Compute SHA-256 Checksum
         id: checksum
+        env:
+          RELEASE_TAG: ${{ steps.vars.outputs.tag }}
         run: |
-          TAG="${{ steps.vars.outputs.tag }}"
-          URL="https://github.com/nkwabyte/mimi/archive/refs/tags/${TAG}.tar.gz"
+          URL="https://github.com/nkwabyte/mimi/archive/refs/tags/${RELEASE_TAG}.tar.gz"
           echo "Downloading archive from $URL"
           SHA256="$(curl -sSfL "$URL" | sha256sum | awk '{print $1}')"
           if [ -z "$SHA256" ] || [ "${#SHA256}" -ne 64 ]; then
@@ -78,6 +92,9 @@ jobs:
 
             def install
               prefix.install "bin", "lib", "libexec", "schemas"
+              bash_completion.install "completions/mimi.bash" => "mimi"
+              zsh_completion.install "completions/_mimi"
+              man1.install "man/mimi.1"
             end
 
             test do
@@ -88,6 +105,8 @@ jobs:
 
       - name: Commit and push changes
         working-directory: homebrew-mimi
+        env:
+          RELEASE_TAG: ${{ steps.vars.outputs.tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -95,6 +114,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "Formula already up-to-date with this version and checksum."
           else
-            git commit -m "Update mimi formula to ${{ steps.vars.outputs.tag }}"
+            git commit -m "Update mimi formula to ${RELEASE_TAG}"
             git push origin main
           fi

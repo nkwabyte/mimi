@@ -35,6 +35,20 @@ json_escape_to() {
   printf -v "$1" '%s' "$__s"
 }
 
+# json_unescape_to VAR STRING — the inverse of json_escape for the escapes it
+# produces (\\ \" \n \r \t), without a subshell. Used when reading a plan
+# back, so its digest is recomputed over the original values.
+json_unescape_to() {
+  local __s="$2" __bs=$'\001'
+  __s="${__s//\\\\/$__bs}"
+  __s="${__s//\\\"/\"}"
+  __s="${__s//\\n/$'\n'}"
+  __s="${__s//\\r/$'\r'}"
+  __s="${__s//\\t/$'\t'}"
+  __s="${__s//$__bs/\\}"
+  printf -v "$1" '%s' "$__s"
+}
+
 json_now_iso() {
   date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ"
 }

@@ -240,6 +240,12 @@ plan_load() {
       '"plan_id":'*)
         cur_id="${line#*: \"}"
         cur_id="${cur_id%\"*}"
+        case "$cur_id" in
+          */*|*..*|"")
+            err "plan_load: invalid plan_id: $cur_id"
+            return 1
+            ;;
+        esac
         ;;
       '"created_at":'*)
         cur_created="${line#*: \"}"
@@ -281,14 +287,25 @@ plan_load() {
       '"target_identity":'*)
         ident="${line#*: \"}"; ident="${ident%\"*}" ;;
       '"expected_bytes":'*)
-        bytes="${line#*:}"; bytes="${bytes%,}"; bytes="${bytes// /}" ;;
+        bytes="${line#*:}"; bytes="${bytes%,}"; bytes="${bytes// /}"
+        case "$bytes" in *[!0-9]*|"") bytes=0 ;; esac
+        ;;
       '"risk":'*)
         risk="${line#*: \"}"; risk="${risk%\"*}" ;;
       '"evidence":'*)
         evid="${line#*: \"}"; evid="${evid%\"*}" ;;
-      '}'*|'},'*)
+      '}'*)
         if [ "$in_action" = 1 ]; then
           if [ -n "$act_id" ]; then
+            # Values were written JSON-escaped; restore the originals so the
+            # recomputed digest matches (a path with " or \ used to fail).
+            json_unescape_to act_id "$act_id"
+            json_unescape_to cat "$cat"
+            json_unescape_to op "$op"
+            json_unescape_to p "$p"
+            json_unescape_to ident "$ident"
+            json_unescape_to risk "$risk"
+            json_unescape_to evid "$evid"
             PLAN_ACTIONS+=("${act_id}::${cat}::${op}::${p}::${ident}::${bytes}::${risk}::${evid}")
           fi
           in_action=0
@@ -390,7 +407,8 @@ plan_preflight() {
     fi
 
     if is_whitelisted "$canon"; then
-      warn "plan preflight: target is whitelisted: $p"
+      err "plan preflight: target is whitelisted: $p"
+      return 1
     fi
 
     # Target identity check

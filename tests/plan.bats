@@ -277,7 +277,24 @@ assert data["plan_id"] == "test-plan-save"
 
   local plan2_id
   plan2_id="$(sed -n 's/.*"plan_id": "\([^"]*\)".*/\1/p' "$plan2" | head -1)"
-  run_clean --purge "$plan2_id" --yes
+  # purge is irreversible; --yes cannot authorize it (F-03). Use --force-risky.
+  run_clean --purge "$plan2_id" --force-risky purge
   [ "$status" -eq 0 ]
   [ ! -d "$FAKE_HOME/.config/mimi/quarantine/$plan2_id" ]
+}
+
+@test "plan: a path containing a quote or backslash survives save and preflight" {
+  load_lib
+  LOG_FILE="$TEST_TMPDIR/test.log"; : > "$LOG_FILE"
+  local odd="$FAKE_HOME/Library/Caches/we\"ird\\name"
+  mkdir -p "$odd"
+  plan_init
+  PLAN_CANDIDATES=()
+  plan_candidate_add caches remove_path "$odd" "$(stat -f '%d:%i' "$odd")" 4096 safe "evidence with \"quotes\""
+  plan_build ""
+  plan_save "$TEST_TMPDIR/odd.json"
+  plan_preflight "$TEST_TMPDIR/odd.json"
+  [ "${PLAN_ACTIONS[0]#*::*::*::}" != "${PLAN_ACTIONS[0]}" ]
+  local p="${PLAN_ACTIONS[0]#*::*::*::}"; p="${p%%::*}"
+  [ "$p" = "$odd" ]
 }

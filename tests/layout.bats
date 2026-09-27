@@ -377,3 +377,38 @@ normalise_entrypoint_output() {
   # And mimi never calls sudo.
   ! grep -rnE '(^|[;&|(]|\$\()[[:space:]]*sudo[[:space:]]' "$MIMI_LIB" "$MIMI_BIN"
 }
+
+@test "exit codes: every EXIT_* name that is used is defined" {
+  local used defined missing=""
+  used="$(grep -rhoE '\$\{?EXIT_[A-Z_]+' "$MIMI_BIN" "$MIMI_LIB" | tr -d '${' | sort -u)"
+  defined="$(grep -rhoE '^EXIT_[A-Z_]+=' "$MIMI_LIB" | tr -d '=' | sort -u)"
+  for n in $used; do
+    echo "$defined" | grep -qx "$n" || missing="$missing $n"
+  done
+  [ -z "$missing" ] || { echo "used but never defined:$missing" >&2; return 1; }
+}
+
+@test "completions and man page: every option the parser accepts is in all three" {
+  local opts o missing=""
+  opts="$(grep -oE '^    [^()]+\)' "$MIMI_BIN" | grep -e '-' | tr -d ' )' | tr '|' '\n' \
+    | sed 's/=\*$//' | grep -E '^--' | sort -u)"
+  [ -n "$opts" ]
+  # The man page escapes "-" as "\-".
+  local man
+  man="$(sed 's/\\-/-/g' "$REPO_ROOT/man/mimi.1")"
+  for o in $opts; do
+    grep -q -- "$o" "$REPO_ROOT/completions/mimi.bash" || missing="$missing bash:$o"
+    grep -q -- "$o" "$REPO_ROOT/completions/_mimi" || missing="$missing zsh:$o"
+    printf '%s' "$man" | grep -q -- "$o" || missing="$missing man:$o"
+  done
+  [ -z "$missing" ] || { echo "missing:$missing" >&2; return 1; }
+}
+
+@test "completions: both scripts parse, and bash completes subcommands and categories" {
+  /bin/bash -n "$REPO_ROOT/completions/mimi.bash"
+  zsh -n "$REPO_ROOT/completions/_mimi"
+  run /bin/bash -c '. "$1"; COMP_WORDS=(mimi hi); COMP_CWORD=1; _mimi; printf "%s\n" "${COMPREPLY[@]}"' _ "$REPO_ROOT/completions/mimi.bash"
+  [ "$output" = "history" ]
+  run /bin/bash -c '. "$1"; COMP_WORDS=(mimi --only caches,xc); COMP_CWORD=2; _mimi; printf "%s\n" "${COMPREPLY[@]}"' _ "$REPO_ROOT/completions/mimi.bash"
+  [ "$(echo "$output" | sort | tr '\n' ' ')" = "caches,xcode-archives caches,xcode-derived " ]
+}

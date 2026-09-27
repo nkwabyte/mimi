@@ -1040,7 +1040,11 @@ category selection answers all of them; see [Choose categories](#choose-categori
 
 ## Safety model
 
-- **Never runs as root**, never uses `sudo`.
+- **mimi never runs as root and never calls `sudo`.** System items are
+  handled only by `libexec/mimi-root-apply`, a separate standalone tool you
+  run yourself with `sudo` after `mimi app uninstall <app> --system` prints
+  the command (see [System items](#mimi-app-uninstall-target) and
+  [PRIVILEGED_DESIGN.md](PRIVILEGED_DESIGN.md)).
 - **Hard-coded refusal list.** `/`, `/System`, `/Library`, `/Applications`,
   `/usr`, `/bin`, `/sbin`, `/etc`, `/var`, `/private`, `/Users` and `$HOME`
   itself can never be the target of a removal, regardless of category or

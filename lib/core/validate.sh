@@ -25,6 +25,12 @@ EXIT_USAGE=1
 # 2 is deliberately unused: too many tools read it as "usage", and DEC-004
 # already settled that invalid usage here exits 1.
 EXIT_PARTIAL=3       # the run finished, but at least one selected action failed
+# A step that was asked for could not be carried out (a plan could not be
+# saved, a quarantine run could not be created, a delegated tool failed).
+# Same code as a partial run: from the caller's side, the work ran and did
+# not succeed. It was used before it was defined, so under `set -u` those
+# paths died with "unbound variable" instead of reporting the failure.
+EXIT_FAILURE=3
 EXIT_INTERRUPTED=4   # a signal stopped the run before it finished
 # 5 is authorization, not usage: the command line was well-formed and the
 # answer was simply "no" — either because a human said so at a prompt, or
