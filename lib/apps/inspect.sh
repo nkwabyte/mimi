@@ -81,6 +81,50 @@ _resolve_collect() {
   done
 }
 
+_resolve_bundle_id_fast() {
+  local bid="$1"
+  [ -n "$bid" ] || return 1
+  [ "${APP_ROOTS_EXPLICIT:-0}" -eq 0 ] || return 1
+  command -v mdfind >/dev/null 2>&1 || return 1
+
+  local hits=() p canon
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    canon="$(path_canonicalize "$p" 2>/dev/null || true)"
+    [ -n "$canon" ] || continue
+    [ -d "$canon" ] || continue
+    [ -f "$canon/Contents/Info.plist" ] || continue
+
+    if [ "${#APP_SEARCH_ROOTS[@]}" -gt 0 ]; then
+      local root c in_roots=0
+      for root in "${APP_SEARCH_ROOTS[@]}"; do
+        c="$(path_canonicalize "$root" 2>/dev/null || true)"
+        [ -n "$c" ] || c="$root"
+        case "$canon" in
+          "$c"/*) in_roots=1; break ;;
+        esac
+      done
+      [ "$in_roots" -eq 1 ] || continue
+    fi
+
+    app_inspect_bundle "$canon" identity || continue
+    [ "$APP_INFO_BUNDLE_ID" = "$bid" ] || continue
+
+    hits+=("$canon")
+  done < <(mdfind "kMDItemCFBundleIdentifier == '$bid'" 2>/dev/null)
+
+  case "${#hits[@]}" in
+    1)
+      RESOLVED_APP_PATH="${hits[0]}"
+      RESOLVED_APP_METHOD="bundle_id"
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 resolve_app_target() {
   local target="$1"
   RESOLVED_APP_PATH=""
@@ -116,6 +160,17 @@ resolve_app_target() {
     RESOLVED_APP_PATH="$canon"
     RESOLVED_APP_METHOD="path"
     return 0
+  fi
+
+  # Fast bundle-id lookup via Spotlight before scanning full inventory
+  if [ "${APP_ROOTS_EXPLICIT:-0}" -eq 0 ]; then
+    case "$target" in
+      *.*)
+        if _resolve_bundle_id_fast "$target"; then
+          return 0
+        fi
+        ;;
+    esac
   fi
 
   # 2–4 need the inventory; identity-only depth keeps this fast.

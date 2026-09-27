@@ -544,8 +544,10 @@ cat_orphans() {
   fi
 
   local i size total_kb=0 strong_count=0 weak_count=0
+  ORPHAN_CANDIDATE_SIZES=()
   for ((i = 0; i < n; i++)); do
     size="$(dir_size_kb "${ORPHAN_CANDIDATE_PATHS[$i]}")"
+    ORPHAN_CANDIDATE_SIZES[$i]="$size"
     total_kb=$((total_kb + size))
     if [ "${ORPHAN_CANDIDATE_TIERS[$i]}" = "strong" ]; then
       strong_count=$((strong_count + 1))

@@ -266,12 +266,13 @@ _uninstall_path_ok() {
   return 0
 }
 
-# True when user data goes into this plan.
+# True when attributable app data is deleted with the bundle.
+# Uninstall wipes that data unless --keep-data says not to. Shared, system,
+# and weak-evidence paths are still retained by the caller.
 uninstall_data_included() {
   case "$UNINSTALL_DATA_MODE" in
-    purge) return 0 ;;
-    keep)  return 1 ;;
-    *)     [ "$UNINSTALL_INCLUDE_DATA" = 1 ] ;;
+    keep) return 1 ;;
+    *)    return 0 ;;
   esac
 }
 
@@ -293,16 +294,16 @@ uninstall_build_plan() {
     _uninstall_path_ok "$ev_path" || continue
     UNINSTALL_LAUNCHAGENTS+=("$ev_path")
     ev_ident="$(path_identity "$ev_path" 2>/dev/null || echo "unknown")"
-    plan_candidate_add "uninstall-launchagent" "quarantine" \
-      "$ev_path" "$ev_ident" "$(( ${EVIDENCE_SIZES[$i]:-0} * 1024 ))" "moderate" \
-      "$(_uninstall_evid "LaunchAgent: ${EVIDENCE_REASONS[$i]} [${EVIDENCE_CONFIDENCES[$i]}]; stopped before it is moved")"
+    plan_candidate_add "uninstall-launchagent" "wipe" \
+      "$ev_path" "$ev_ident" "$(( ${EVIDENCE_SIZES[$i]:-0} * 1024 ))" "irreversible" \
+      "$(_uninstall_evid "LaunchAgent: ${EVIDENCE_REASONS[$i]} [${EVIDENCE_CONFIDENCES[$i]}]; stopped before it is deleted")"
   done
 
   # 2. The application bundle.
   local bundle_ident
   bundle_ident="$(path_identity "$canon_app" 2>/dev/null || echo "unknown")"
-  plan_candidate_add "uninstall-app" "quarantine" \
-    "$canon_app" "$bundle_ident" "$(( ${APP_INFO_SIZE_KB:-0} * 1024 ))" "moderate" \
+  plan_candidate_add "uninstall-app" "wipe" \
+    "$canon_app" "$bundle_ident" "$(( ${APP_INFO_SIZE_KB:-0} * 1024 ))" "irreversible" \
     "$(_uninstall_evid "app bundle: $app_name ($bundle_id)")"
 
   # 3. Attributable user data, or 4. retain it.
@@ -318,16 +319,16 @@ uninstall_build_plan() {
     if evidence_is_selectable "$i" && uninstall_data_included; then
       ev_bytes=$(( ${EVIDENCE_SIZES[$i]:-0} * 1024 ))
       case "$ev_conf" in
-        authoritative|strong) ev_risk="safe" ;;
-        *)                    ev_risk="moderate" ;;
+        authoritative|strong) ev_risk="irreversible" ;;
+        *)                    ev_risk="irreversible" ;;
       esac
-      plan_candidate_add "uninstall-data" "quarantine" \
+      plan_candidate_add "uninstall-data" "wipe" \
         "$ev_path" "$ev_ident" "$ev_bytes" "$ev_risk" \
         "$(_uninstall_evid "${ev_root}: ${ev_reason} [${ev_conf}]")"
     else
       local why
       if evidence_is_selectable "$i"; then
-        why="kept: user data is not part of this uninstall (--purge-data includes it)"
+        why="kept: --keep-data left user data in place"
       else
         case "${EVIDENCE_CLASSES[$i]}" in
           review) why="kept: weak evidence, never removed automatically" ;;
@@ -348,15 +349,16 @@ uninstall_print_plan() {
   local total_bytes=0 total_actions=0 kept=0
   local item cat op p bytes risk evid tag
 
-  printf '\n%sMoved to quarantine (restorable until purge):%s\n' "$C_BOLD" "$C_RESET"
+  printf '\n%sDeleted permanently:%s\n' "$C_BOLD" "$C_RESET"
   for item in "${PLAN_ACTIONS[@]}"; do
-    cat="${item#*::}"; cat="${cat%%::*}"
-    op="${item#*::*::}"; op="${op%%::*}"
+    plan_read_record "$item" || continue
+    cat="$PLAN_F_CAT"
+    op="$PLAN_F_OP"
     [ "$op" = "retain" ] && { kept=$((kept + 1)); continue; }
-    p="${item#*::*::*::}"; p="${p%%::*}"
-    bytes="${item#*::*::*::*::*::}"; bytes="${bytes%%::*}"
-    risk="${item#*::*::*::*::*::*::}"; risk="${risk%%::*}"
-    evid="${item##*::}"
+    p="$PLAN_F_PATH"
+    bytes="$PLAN_F_BYTES"
+    risk="$PLAN_F_RISK"
+    evid="$PLAN_F_EVID"
     total_bytes=$((total_bytes + bytes))
     total_actions=$((total_actions + 1))
     case "$risk" in
@@ -371,19 +373,19 @@ uninstall_print_plan() {
   if [ "$kept" -gt 0 ]; then
     printf '\n%sKept (verified to survive the uninstall):%s\n' "$C_BOLD" "$C_RESET"
     for item in "${PLAN_ACTIONS[@]}"; do
-      op="${item#*::*::}"; op="${op%%::*}"
+      plan_read_record "$item" || continue
+      op="$PLAN_F_OP"
       [ "$op" = "retain" ] || continue
-      p="${item#*::*::*::}"; p="${p%%::*}"
-      evid="${item##*::}"
+      p="$PLAN_F_PATH"
+      evid="$PLAN_F_EVID"
       printf '  %s[kept]%s     %s\n' "$C_DIM" "$C_RESET" "$p"
       printf '             %s\n' "$evid"
     done
   fi
 
-  printf '\n  Total: %d item(s) to quarantine, estimated %s; %d item(s) kept.\n' \
+  printf '\n  Total: %d item(s) deleted, estimated %s; %d item(s) kept.\n' \
     "$total_actions" "$(human_kb "$((total_bytes / 1024))")" "$kept"
-  printf '  Nothing is deleted: %s restore <run-id> undoes it until %s purge <run-id>.\n\n' \
-    "$SCRIPT_NAME" "$SCRIPT_NAME"
+  printf '  This cannot be undone. Shared, system, and weakly matched files are kept.\n\n'
 }
 
 # ---------------------------------------------------------------------------
@@ -400,10 +402,11 @@ uninstall_plan_detect() {
   local item cat p evid rest
   for item in "${PLAN_ACTIONS[@]:-}"; do
     [ -n "$item" ] || continue
-    cat="${item#*::}"; cat="${cat%%::*}"
+    plan_read_record "$item" || continue
+    cat="$PLAN_F_CAT"
     [ "$cat" = "uninstall-app" ] || continue
-    p="${item#*::*::*::}"; p="${p%%::*}"
-    evid="${item##*::}"
+    p="$PLAN_F_PATH"
+    evid="$PLAN_F_EVID"
     UNINSTALL_PLAN_APP_PATH="$p"
     # "app bundle: <name> (<bundle id>)"
     rest="${evid#app bundle: }"
@@ -432,10 +435,11 @@ uninstall_verify_after_apply() {
   fi
 
   for item in "${PLAN_ACTIONS[@]}"; do
-    op="${item#*::*::}"; op="${op%%::*}"
+    plan_read_record "$item" || continue
+    op="$PLAN_F_OP"
     [ "$op" = "retain" ] || continue
-    p="${item#*::*::*::}"; p="${p%%::*}"
-    ident="${item#*::*::*::*::}"; ident="${ident%%::*}"
+    p="$PLAN_F_PATH"
+    ident="$PLAN_F_IDENT"
     if [ -e "$p" ] || [ -L "$p" ]; then
       retained=$((retained + 1))
     else
@@ -458,9 +462,11 @@ uninstall_verify_after_apply() {
     ep="${EVIDENCE_PATHS[$i]}"
     how="new since the plan was made"
     for item in "${PLAN_ACTIONS[@]}"; do
-      case "$item" in
-        *"::retain::$ep::"*) how="kept"; break ;;
-        *"::quarantine::$ep::"*) how="could not be moved"; break ;;
+      plan_read_record "$item" || continue
+      [ "$PLAN_F_PATH" = "$ep" ] || continue
+      case "$PLAN_F_OP" in
+        retain) how="kept"; break ;;
+        quarantine|remove_path|clear_dir_contents) how="could not be moved"; break ;;
       esac
     done
     [ "$how" = "kept" ] && continue
@@ -483,7 +489,8 @@ uninstall_verify_after_apply() {
 _uninstall_plan_has_category() {
   local want="$1" item cat
   for item in "${PLAN_ACTIONS[@]:-}"; do
-    cat="${item#*::}"; cat="${cat%%::*}"
+    plan_read_record "$item" || continue
+    cat="$PLAN_F_CAT"
     [ "$cat" = "$want" ] && return 0
   done
   return 1
@@ -776,24 +783,86 @@ mimi_root_tool_hardened() {
   printf '%s/usr/local/libexec/mimi/mimi-root-apply' "$prefix"
 }
 
-# The copy to run: the hardened one while it is identical to the bundled
-# one, otherwise the bundled one. Sets ROOT_TOOL_NOTE to advice, if any.
+# Expected owner of a trusted copy: root, or the current user when the
+# root tool is running against a fixture (MIMI_ROOT_TEST).
+_root_tool_expected_owner() {
+  if [ "${MIMI_ROOT_TEST:-0}" = 1 ]; then
+    id -u
+  else
+    printf '0'
+  fi
+}
+
+# True when NODE is a non-symlink owned by the expected owner and not
+# group- or world-writable.
+_root_tool_node_ok() {
+  local node="$1" expected="$2" owner mode
+  [ -e "$node" ] && [ ! -L "$node" ] || return 1
+  owner="$(stat -f '%u' "$node" 2>/dev/null)" || return 1
+  mode="$(stat -f '%Lp' "$node" 2>/dev/null)" || return 1
+  [ "$owner" = "$expected" ] || return 1
+  [ $((8#$mode & 022)) -eq 0 ] || return 1
+}
+
+# True when PATH is a regular executable whose entire parent chain, down to
+# / (or the test prefix), is owned by the expected owner and not writable
+# by group or other. A symlink anywhere in that chain fails.
+_root_tool_trusted() {
+  local path="$1" expected dir stop
+  expected="$(_root_tool_expected_owner)"
+  [ -f "$path" ] && [ ! -L "$path" ] && [ -x "$path" ] || return 1
+  _root_tool_node_ok "$path" "$expected" || return 1
+  if [ "${MIMI_ROOT_TEST:-0}" = 1 ] && [ -n "${MIMI_ROOT_PREFIX:-}" ]; then
+    stop="${MIMI_ROOT_PREFIX%/}"
+  else
+    stop="/"
+  fi
+  dir="$(dirname "$path")"
+  while [ -n "$dir" ] && [ "$dir" != "$stop" ] && [ "$dir" != "/" ]; do
+    _root_tool_node_ok "$dir" "$expected" || return 1
+    dir="$(dirname "$dir")"
+  done
+  if [ "$stop" != "/" ]; then
+    _root_tool_node_ok "$stop" "$expected" || return 1
+  fi
+  return 0
+}
+
+# The only path that may be passed to sudo: the hardened copy, and only
+# while it is byte-identical to this installation and trusted. Never the
+# bundled file. Sets ROOT_TOOL_PATH on success and ROOT_TOOL_NOTE when it
+# refuses. Call it directly, not inside $(), so the note survives.
 ROOT_TOOL_NOTE=""
+ROOT_TOOL_PATH=""
 mimi_root_tool() {
   local bundled hardened
   ROOT_TOOL_NOTE=""
+  ROOT_TOOL_PATH=""
   bundled="$(mimi_root_tool_bundled)" || return 1
   hardened="$(mimi_root_tool_hardened)"
-  if [ -x "$hardened" ]; then
-    if cmp -s "$bundled" "$hardened"; then
-      printf '%s' "$hardened"
-      return 0
+  if [ -e "$hardened" ] || [ -L "$hardened" ]; then
+    if [ -L "$hardened" ] || [ ! -f "$hardened" ] || ! cmp -s "$bundled" "$hardened"; then
+      ROOT_TOOL_NOTE="The copy at $hardened is out of date or not the file this mimi ships. Update it with: sudo \"$bundled\" --install"
+      return 1
     fi
-    ROOT_TOOL_NOTE="The root-owned copy at $hardened is out of date (mimi was upgraded). Update it with: sudo \"$bundled\" --install"
-  else
-    ROOT_TOOL_NOTE="This copy of the root tool is owned by your user account, so anything running as you could change what sudo runs. Once, install a root-owned copy: sudo \"$bundled\" --install"
+    if ! _root_tool_trusted "$hardened"; then
+      ROOT_TOOL_NOTE="The copy at $hardened is not a trusted root-owned file. Its owner, mode, or a parent directory would let another user change what sudo runs. Reinstall with: sudo \"$bundled\" --install"
+      return 1
+    fi
+    # sudo runs the launcher, which execs the bash helper with a fixed
+    # environment. The bash file itself is not the sudo target.
+    local launcher
+    launcher="$(dirname "$hardened")/mimi-root-launch"
+    if ! _root_tool_trusted "$launcher"; then
+      ROOT_TOOL_NOTE="The trusted helper is installed, but its launcher is missing or not trusted. Reinstall with: sudo \"$bundled\" --install"
+      return 1
+    fi
+    ROOT_TOOL_PATH="$launcher"
+    printf '%s' "$launcher"
+    return 0
   fi
-  printf '%s' "$bundled"
+  ROOT_TOOL_NOTE="No trusted root-owned copy is installed. Once, install one with: sudo \"$bundled\" --install"
+  return 1
 }
 
 # True for something shaped like a bundle id (com.vendor.app).
@@ -807,9 +876,10 @@ _looks_like_bundle_id_target() {
 }
 
 uninstall_system_request() {
-  local target="$1" bid="" tool listing req n=0
-  mimi_root_tool > /dev/null || { err "libexec/mimi-root-apply is missing from this installation"; return "$EXIT_FAILURE"; }
-  tool="$(mimi_root_tool)"
+  local target="$1" bid="" bundled tool listing req n=0
+  # Candidate listing is read-only and runs as the user. The bundled script
+  # is fine for that. It is never the program named after sudo.
+  bundled="$(mimi_root_tool_bundled)" || { err "libexec/mimi-root-apply is missing from this installation"; return "$EXIT_FAILURE"; }
 
   # The app may already be gone: a bundle id is enough for system cleanup.
   if _looks_like_bundle_id_target "$target"; then
@@ -820,8 +890,8 @@ uninstall_system_request() {
   fi
 
   section "System items for $bid"
-  "$tool" --candidates "$bid" || return "$EXIT_USAGE"
-  listing="$("$tool" --candidates "$bid" --tsv)" || return "$EXIT_USAGE"
+  "$bundled" --candidates "$bid" || return "$EXIT_USAGE"
+  listing="$("$bundled" --candidates "$bid" --tsv)" || return "$EXIT_USAGE"
 
   local -a ids=()
   local id kind path label reason
@@ -849,14 +919,18 @@ uninstall_system_request() {
 
   say ""
   say "Request written: $req (valid for 1 hour)"
-  say "To stop these jobs and move the $n item(s) to a root-only quarantine, run:"
-  say ""
-  say "  ${C_BOLD}sudo \"$tool\" \"$req\"${C_RESET}"
-  say ""
-  say "It lists the items again and asks you to type ${C_BOLD}$bid${C_RESET} before it acts."
-  say "Undo later with: sudo \"$tool\" --restore <run-id>"
-  if [ -n "$ROOT_TOOL_NOTE" ]; then
+  # Direct call: a command substitution would drop ROOT_TOOL_NOTE.
+  mimi_root_tool >/dev/null || true
+  if [ -n "$ROOT_TOOL_PATH" ]; then
+    say "To stop these jobs and move the $n item(s) to a root-only quarantine, run:"
     say ""
+    say "  ${C_BOLD}sudo \"$ROOT_TOOL_PATH\" \"$req\"${C_RESET}"
+    say ""
+    say "It lists the items again and asks you to type ${C_BOLD}$bid${C_RESET} before it acts."
+    say "Undo later with: sudo \"$ROOT_TOOL_PATH\" --restore <run-id>"
+  else
+    say "No sudo command was printed. The request selects candidate ids only;"
+    say "it is not safe to run the copy of the tool that lives in this installation as root."
     warn "$ROOT_TOOL_NOTE"
   fi
   return "$EXIT_OK"
@@ -927,34 +1001,6 @@ mimi_app_uninstall() {
   collect_app_evidence "$APP_INFO_CANONICAL_PATH" "$APP_INFO_NAME" "$APP_INFO_BUNDLE_ID" \
     "$SIGNING_TEAM_ID" "$APP_INFO_EXECUTABLE"
 
-  # --- Data mode decision (ask mode asks once, before the plan is fixed) ---
-  UNINSTALL_INCLUDE_DATA=0
-  if [ "$UNINSTALL_DATA_MODE" = "ask" ]; then
-    local n_data=0 kb_data=0 i
-    for ((i = 0; i < EVIDENCE_COUNT; i++)); do
-      evidence_is_selectable "$i" || continue
-      [ "${EVIDENCE_ROOTS[$i]}" = "LaunchAgents" ] && continue
-      n_data=$((n_data + 1))
-      kb_data=$((kb_data + ${EVIDENCE_SIZES[$i]:-0}))
-    done
-    if [ "$n_data" -gt 0 ]; then
-      if [ "$ASSUME_YES" != 1 ] && [ "${JSONL_ENABLED:-0}" != 1 ] && confirm_can_prompt; then
-        say ""
-        say "$APP_INFO_NAME has $n_data item(s) of its own user data ($(human_kb "$kb_data")):"
-        for ((i = 0; i < EVIDENCE_COUNT; i++)); do
-          evidence_is_selectable "$i" || continue
-          [ "${EVIDENCE_ROOTS[$i]}" = "LaunchAgents" ] && continue
-          say "    ${EVIDENCE_PATHS[$i]}"
-        done
-        local data_rc=0
-        confirm_prompt_yesno "Also move this data to quarantine?" || data_rc=$?
-        [ "$data_rc" = 0 ] && UNINSTALL_INCLUDE_DATA=1
-      else
-        info "User data ($n_data item(s), $(human_kb "$kb_data")) is kept. Pass --purge-data to include it."
-      fi
-    fi
-  fi
-
   # --- P4-T03: build and show the plan ---
   plan_init
   uninstall_build_plan "$APP_INFO_CANONICAL_PATH" "$APP_INFO_NAME" "$APP_INFO_BUNDLE_ID"
@@ -964,13 +1010,14 @@ mimi_app_uninstall() {
   if [ "${JSONL_ENABLED:-0}" = 1 ]; then
     local item cat op p bytes risk
     for item in "${PLAN_ACTIONS[@]}"; do
-      cat="${item#*::}"; cat="${cat%%::*}"
-      op="${item#*::*::}"; op="${op%%::*}"
-      p="${item#*::*::*::}"; p="${p%%::*}"
-      bytes="${item#*::*::*::*::*::}"; bytes="${bytes%%::*}"
-      risk="${item#*::*::*::*::*::*::}"; risk="${risk%%::*}"
+      plan_read_record "$item" || continue
+      cat="$PLAN_F_CAT"
+      op="$PLAN_F_OP"
+      p="$PLAN_F_PATH"
+      bytes="$PLAN_F_BYTES"
+      risk="$PLAN_F_RISK"
       [ "$op" = "retain" ] && continue
-      json_emit_candidate "$cat" "$p" "$((bytes / 1024))" "$risk" "${item%%::*}"
+      json_emit_candidate "$cat" "$p" "$((bytes / 1024))" "$risk" "$PLAN_F_ID"
     done
   fi
 
@@ -991,11 +1038,10 @@ mimi_app_uninstall() {
     exit "$EXIT_OK"
   fi
 
-  # --- Confirmation (recoverable: everything goes to quarantine) ---
+  # --- Confirmation. Deletion is irreversible; --yes cannot approve it. ---
   local gate_rc=0
-  confirm "Move \"$APP_INFO_NAME\" and the items above to quarantine?" || gate_rc=$?
+  confirm_action_ok "uninstall" "Permanently delete \"$APP_INFO_NAME\" and the items above? This cannot be undone." || gate_rc=$?
   if [ "$gate_rc" -ne 0 ]; then
-    [ "$gate_rc" = 2 ] && err "no terminal to confirm on: pass --yes to approve (nothing is deleted; it can be restored)"
     warn "uninstall cancelled"
     if [ "${JSONL_ENABLED:-0}" = 1 ]; then
       json_emit_phase_finished "uninstall" "cancelled"

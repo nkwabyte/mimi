@@ -39,6 +39,8 @@ echo "==> Syntax check: /bin/bash -n on every shell file"
 _syntax_failed=0
 for _f in "$REPO_ROOT/clean.sh" "$REPO_ROOT/bin/mimi" "$REPO_ROOT"/lib/*.sh "$REPO_ROOT"/lib/*/*.sh "$REPO_ROOT"/scripts/*.sh "$REPO_ROOT"/libexec/*; do
   [ -f "$_f" ] || continue
+  # libexec/ also holds the C source of the root launcher; only shell is checked here.
+  case "$_f" in *.c) continue ;; esac
   if ! /bin/bash -n "$_f"; then
     echo "ERROR: ${_f#"$REPO_ROOT"/} failed /bin/bash -n syntax check." >&2
     _syntax_failed=1
@@ -77,5 +79,13 @@ if [ $# -gt 0 ]; then
   bats --tap "${FILES[@]}"
 else
   echo "==> Running all tests in $TESTS_DIR"
-  bats --tap "$TESTS_DIR"/*.bats
+  # Opt-in parallelism: TEST_JOBS=8 ./tests/run. Every test builds its own
+  # fixture, so files can run side by side; bats needs GNU parallel for it.
+  if [ -n "${TEST_JOBS:-}" ] && command -v parallel > /dev/null 2>&1; then
+    echo "==> $TEST_JOBS parallel jobs"
+    bats --tap --jobs "$TEST_JOBS" "$TESTS_DIR"/*.bats
+  else
+    [ -n "${TEST_JOBS:-}" ] && echo "==> TEST_JOBS ignored: GNU parallel is not installed (brew install parallel)"
+    bats --tap "$TESTS_DIR"/*.bats
+  fi
 fi

@@ -1,0 +1,241 @@
+.TH MIMI 1 "September 2026" "mimi 0.2.1" "User Commands"
+.SH NAME
+mimi \- Safe macOS system cleaner and app uninstaller
+.SH SYNOPSIS
+.B mimi
+[\fISUBCOMMAND\fR] [\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B mimi
+is a conservative, transactional macOS system cleanup tool and reversible application uninstaller.
+.SH SUBCOMMANDS
+.TP
+.B scan
+Scan selected categories for junk files and caches without mutating anything.
+.TP
+.B clean
+Quarantine or delete files in selected categories.
+.TP
+.B plan
+Generate a transaction plan without modifying files.
+.TP
+.B apply
+Apply a previously generated transaction plan.
+.TP
+.B restore
+Restore files from a quarantine run.
+.TP
+.B purge
+Permanently remove a quarantine run and free its space.
+.TP
+.B history
+List previous uninstall and quarantine operations.
+.TP
+.B apps
+Inspect and list installed applications.
+.TP
+.B app
+Inspect or uninstall an application.
+.SH OPTIONS
+.TP
+.B \-\-aggressive
+Run the aggressive profile.
+.TP
+.B \-\-android\-stale\-days \fIDAYS\fR
+Retention threshold for stale Android emulator images.
+.TP
+.B \-\-app\-root \fIPATH\fR
+Add a custom application search directory.
+.TP
+.B \-\-app\-target \fITARGET\fR
+Target application bundle or identifier.
+.TP
+.B \-\-apply \fIPLAN_FILE\fR
+Apply an execution plan.
+.TP
+.B \-\-cask
+Use Homebrew cask uninstall integration.
+.TP
+.B \-\-clean
+Run in clean mode.
+.TP
+.B \-\-cleaner
+Interactive cleaner menu.
+.TP
+.B \-\-downloads\-stale\-days \fIDAYS\fR
+Days before downloads are reported as stale.
+.TP
+.B \-\-force\-risky \fIACTIONS\fR
+Authorize specific risky or irreversible actions (e.g. docker, mail, trash, orphans, purge).
+.TP
+.B \-\-help
+Show usage help and exit.
+.TP
+.B \-\-include\-android
+Include Android SDK caches and stale AVDs.
+.TP
+.B \-\-include\-caches
+Include user application caches.
+.TP
+.B \-\-include\-claude\-cache
+Include Claude local VM agent cache.
+.TP
+.B \-\-include\-device\-support
+Include iOS DeviceSupport symbols.
+.TP
+.B \-\-include\-docker
+Include Docker data.
+.TP
+.B \-\-include\-docker\-cache
+Include Docker builder and layer caches.
+.TP
+.B \-\-include\-homebrew\-old
+Include old Homebrew package versions.
+.TP
+.B \-\-include\-ide\-stale
+Include stale IDE caches and indexes.
+.TP
+.B \-\-include\-ios\-backups
+Include iOS device backup files.
+.TP
+.B \-\-include\-logs
+Include system and application logs.
+.TP
+.B \-\-include\-mail
+Include Mail download attachments cache.
+.TP
+.B \-\-include\-ml\-caches
+Include Hugging Face and Ollama ML models.
+.TP
+.B \-\-include\-orphans
+Include orphaned application remnant files.
+.TP
+.B \-\-include\-sim\-stale
+Include stale iOS Simulator devices.
+.TP
+.B \-\-include\-timemachine
+Include local Time Machine snapshot thinning.
+.TP
+.B \-\-include\-toolchains
+Include Kotlin and Gradle native toolchains.
+.TP
+.B \-\-include\-trash
+Include emptying the Trash.
+.TP
+.B \-\-include\-whatsapp
+Include WhatsApp media cache.
+.TP
+.B \-\-interactive
+Launch interactive terminal UI.
+.TP
+.B \-\-json
+Emit JSON formatted output.
+.TP
+.B \-\-jsonl
+Emit line-delimited JSON protocol stream.
+.TP
+.B \-\-keep\-data
+Retain application support data during uninstall.
+.TP
+.B \-\-keep\-device\-support \fICOUNT\fR
+Number of recent DeviceSupport symbol versions to keep.
+.TP
+.B \-\-keep\-logs \fIDAYS\fR
+Days of application logs to retain.
+.TP
+.B \-\-keep\-toolchains \fICOUNT\fR
+Number of toolchains to keep.
+.TP
+.B \-\-large\-file\-mb \fIMB\fR
+Size threshold for large files in report mode.
+.TP
+.B \-\-limit \fIN\fR
+Limit number of records in history output.
+.TP
+.B \-\-list
+List all available categories and risk classifications.
+.TP
+.B \-\-no\-color
+Disable ANSI color escape sequences.
+.TP
+.B \-\-no\-log
+Do not write transcripts to disk.
+.TP
+.B \-\-no\-prompt
+Non-interactive execution mode.
+.TP
+.B \-\-only \fICATEGORIES\fR
+Comma-separated list of category IDs to run.
+.TP
+.B \-\-plan
+Create a plan before executing.
+.TP
+.B \-\-plan\-only
+Generate plan and exit without applying.
+.TP
+.B \-\-plan\-out \fIPATH\fR
+Save plan JSON to specified file path.
+.TP
+.B \-\-profile \fIPROFILE\fR
+Run preset profile (safe, developer, aggressive).
+.TP
+.B \-\-purge \fIRUN_ID\fR
+Purge quarantine run by ID.
+.TP
+.B \-\-purge\-data
+Quarantine application support data during uninstall.
+.TP
+.B \-\-remove\-orphans
+Quarantine all uninstalled app remnants.
+.TP
+.B \-\-remove\-orphans\-from \fIFILE\fR
+Remove remnant paths listed in a reviewed file.
+.TP
+.B \-\-report
+Generate disk usage report.
+.TP
+.B \-\-request\-id \fIID\fR
+Trace identifier for machine JSONL events.
+.TP
+.B \-\-restore \fIRUN_ID\fR
+Restore quarantine run by ID.
+.TP
+.B \-\-scan
+Run in read-only scan mode.
+.TP
+.B \-\-sim\-stale\-days \fIDAYS\fR
+Threshold days for inactive iOS simulators.
+.TP
+.B \-\-skip \fICATEGORIES\fR
+Comma-separated list of category IDs to exclude.
+.TP
+.B \-\-source \fISOURCE\fR
+Filter apps by installation source (cask, mas, pkg, system).
+.TP
+.B \-\-system
+Prepare system-scope uninstall request for root apply.
+.TP
+.B \-\-tmp\-stale\-days \fIDAYS\fR
+Days before temporary files are eligible for cleanup.
+.TP
+.B \-\-vendor\-uninstaller
+Run verified vendor uninstaller if available.
+.TP
+.B \-\-verbose
+Enable diagnostic and trace logging.
+.TP
+.B \-\-version
+Print version information and exit.
+.TP
+.B \-\-whitelist \fIPATH\fR
+Exclude path from cleanup.
+.TP
+.B \-\-whitelist\-preset \fIPRESET\fR
+Apply common whitelist preset rules.
+.TP
+.B \-\-yes
+Automatically confirm safe and recoverable actions.
+.TP
+.B \-\-zap
+Remove all cask preferences and data with brew.
+.SH AUTHORS
+NkwaByte

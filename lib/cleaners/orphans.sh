@@ -25,8 +25,12 @@ normalize_token() {
 }
 
 is_apple_identifier() {
-  local t
-  t="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  is_apple_identifier_lc "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+}
+
+# Same test for an already-lowercased identifier, without a subshell.
+is_apple_identifier_lc() {
+  local t="$1"
   case "$t" in
     # matches com.apple.* directly, and also group.com.apple.* / <TEAMID>.com.apple.*
     # (macOS's own App Group / team-prefixed container naming conventions)
@@ -59,9 +63,8 @@ is_denylisted_identifier() {
 # >=2 dots => looks like a reverse-DNS bundle id (com.foo.bar), which is the
 # signal used to promote an Application Support entry to the "auto" tier.
 looks_like_bundle_id() {
-  local dots
-  dots="$(printf '%s' "$1" | tr -cd '.' | wc -c | tr -d ' ')"
-  [ "${dots:-0}" -ge 2 ]
+  local dots="${1//[!.]/}"
+  [ "${#dots}" -ge 2 ]
 }
 
 _index_app() {
@@ -173,8 +176,12 @@ is_structural_orphan_name() {
 # (com.github.facebook.watchman -> watchman). Only real executables on PATH
 # count (`type -P`), never shell functions or builtins.
 is_installed_cli_tool() {
-  local t c
-  t="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  is_installed_cli_tool_lc "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+}
+
+# Same test for an already-lowercased name, without a subshell.
+is_installed_cli_tool_lc() {
+  local t="$1" c
   local last="${t##*.}"
   # The last component only counts when it is specific: "agent", "helper" or
   # "updater" name a role, not a tool, and a stray executable called "agent"
@@ -217,31 +224,67 @@ ORPHAN_CANDIDATE_KINDS=()
 # one AND nothing installed claimed it. "weak" = everything else. Neither is
 # ever deleted by this scan; the label only orders the report.
 ORPHAN_CANDIDATE_TIERS=()
+# KB per candidate, filled by cat_orphans so the review file does not size
+# every candidate a second time.
+ORPHAN_CANDIDATE_SIZES=()
 
 collect_orphan_candidates() {
   ORPHAN_CANDIDATE_PATHS=()
   ORPHAN_CANDIDATE_TOKENS=()
   ORPHAN_CANDIDATE_KINDS=()
   ORPHAN_CANDIDATE_TIERS=()
-  local spec root kind policy entry base token norm_token tier
+  local spec root kind policy entry base token norm_token lc_token tier i
   for spec in "${ORPHAN_ROOTS[@]}"; do
-    root="$(printf '%s' "$spec" | awk -F'::' '{print $1}')"
-    kind="$(printf '%s' "$spec" | awk -F'::' '{print $2}')"
-    policy="$(printf '%s' "$spec" | awk -F'::' '{print $3}')"
+    root="${spec%%::*}"
+    kind="${spec#*::}"; kind="${kind%%::*}"
+    policy="${spec##*::}"
     [ -d "$root" ] || continue
+
+    # Pass 1, pure Bash: entries and their tokens (get_token_for_entry's
+    # rules, without a subshell per entry).
+    local -a entries=() tokens=()
     for entry in "$root"/*; do
       [ -e "$entry" ] || continue
-      base="$(basename "$entry")"
-      token="$(get_token_for_entry "$kind" "$base")"
-      norm_token="$(normalize_token "$token")"
+      base="${entry##*/}"
+      case "$base" in *$'\n'*) continue ;; esac
+      token="$base"
+      case "$kind" in
+        plist) token="${token%.plist}" ;;
+        plist-byhost)
+          token="${token%.plist}"
+          looks_like_uuid "${token##*.}" && token="${token%.*}"
+          ;;
+        savedstate) token="${token%.savedState}" ;;
+        binarycookies) token="${token%.binarycookies}" ;;
+      esac
+      entries+=("$entry")
+      tokens+=("$token")
+    done
+    [ "${#entries[@]}" -gt 0 ] || continue
+
+    # Pass 2: every token lowercased and normalised by ONE awk process. Each
+    # entry used to fork several tr processes, ~6 ms per Library entry.
+    local -a lcs=() norms=()
+    local lc n
+    while IFS=$'\t' read -r lc n; do
+      lcs+=("$lc")
+      norms+=("$n")
+    done < <(printf '%s\n' "${tokens[@]}" | awk '{ lc = tolower($0); n = lc; gsub(/[ _-]/, "", n); print lc "\t" n }')
+
+    # Pass 3: the checks, fork-free, in the same order as before.
+    for ((i = 0; i < ${#entries[@]}; i++)); do
+      entry="${entries[$i]}"
+      token="${tokens[$i]}"
+      lc_token="${lcs[$i]}"
+      norm_token="${norms[$i]}"
 
       is_whitelisted "$entry" && continue
       is_identifier_whitelisted "$token" && continue
-      is_apple_identifier "$token" && continue
+      is_apple_identifier_lc "$lc_token" && continue
       is_denylisted_identifier "$norm_token" && continue
       is_structural_orphan_name "$norm_token" && continue
       is_installed_identifier "$norm_token" && continue
-      is_installed_cli_tool "$token" && continue
+      is_installed_cli_tool_lc "$lc_token" && continue
 
       case "$policy" in
         bundle-id-named) tier="strong" ;;
@@ -474,7 +517,10 @@ write_orphans_review_file() {
           continue
           ;;
       esac
-      printf '# [%s] token=%s size=%s\n' "${ORPHAN_CANDIDATE_TIERS[$i]}" "${ORPHAN_CANDIDATE_TOKENS[$i]}" "$(human_kb "$(dir_size_kb "${ORPHAN_CANDIDATE_PATHS[$i]}")")"
+      # Sized once by cat_orphans; measured here only when called on its own.
+      local sz="${ORPHAN_CANDIDATE_SIZES[$i]:-}"
+      [ -n "$sz" ] || sz="$(dir_size_kb "${ORPHAN_CANDIDATE_PATHS[$i]}")"
+      printf '# [%s] token=%s size=%s\n' "${ORPHAN_CANDIDATE_TIERS[$i]}" "${ORPHAN_CANDIDATE_TOKENS[$i]}" "$(human_kb "$sz")"
       printf '%s\n' "${ORPHAN_CANDIDATE_PATHS[$i]}"
     done
   } > "$out"

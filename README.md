@@ -265,7 +265,14 @@ lib/
 schemas/            # JSON Schema specifications (protocol-v1.json, plan-v1.json)
 tests/              # bats suite; ./tests/run
 docs/               # architectural scratchpad, usage reference
+gui/Mimi/           # SwiftUI app. Scan only; it does not delete
 ```
+
+## macOS app
+
+Open `gui/Mimi/Mimi.xcodeproj` in Xcode and run the Mimi scheme. The window scans with the same engine as the command-line tool and lists what it found. It does not clean, restore, purge, or uninstall. Those actions stay in Terminal until the work in [docs/SECURITY_REMEDIATION_PLAN.md](docs/SECURITY_REMEDIATION_PLAN.md) is done. Details are in [docs/guide.md](docs/guide.md).
+
+No extra Swift package is required. The app uses SwiftUI, Observation, and Swift Testing, which ship with the SDK.
 
 ### The old name
 
