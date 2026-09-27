@@ -6,6 +6,8 @@ and a release tag must match it.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-27
+
 ### Security
 
 - `mimi plan` no longer runs cleanup commands. Sixteen categories treated
@@ -43,9 +45,20 @@ and a release tag must match it.
 - Package payload shared with another package listed its owners with a
   leading comma under awks that create an array element before testing it
   (mawk); the owner list no longer depends on evaluation order.
+- Failure paths (a plan that could not be saved, a failed Homebrew
+  hand-off, …) aborted with "unbound variable" instead of reporting the
+  failure; they now exit 8.
+- A plan whose path contains `"` or `\` failed its own integrity check.
+- The leftover scan is about 2.5× faster; `app inspect <bundle id>` resolves
+  through Spotlight instead of listing every installed app first.
 
 ### Changed
 
+- `mimi app uninstall` deletes the app and its data permanently instead of
+  moving them to quarantine, so `mimi restore` no longer brings an
+  uninstalled app back. It is an irreversible action: it needs the typed word
+  `uninstall` (or `--force-risky uninstall` in scripts), and `--keep-data`
+  keeps the app's user data.
 - Quarantine runs live in `~/Library/Application Support/mimi/quarantine`
   (moved from `~/.config/mimi` on first run), excluded from Time Machine and
   Spotlight, and are released after `--quarantine-days` (default 7; `0`
@@ -76,6 +89,8 @@ and a release tag must match it.
 - The test suite also runs on Linux CI. The BSD-only `stat` and `date`
   flags moved into `lib/core/platform.sh`; tests that need macOS itself skip
   on Linux.
+- `SECURITY.md` rewritten: supported versions and platforms, private
+  reporting, the privilege model, and a privacy statement.
 
 ### Removed
 
@@ -91,19 +106,6 @@ and a release tag must match it.
 - Shell completions for bash and zsh, and a `mimi(1)` man page, installed by
   the Homebrew formula.
 - An older mimi run after a newer one now says so, once.
-
-### Fixed
-
-- Failure paths that should exit with status 3 (a plan that could not be
-  saved, a failed Homebrew hand-off, …) aborted with "unbound variable".
-- A plan whose path contains `"` or `\` failed its own integrity check.
-- The leftover scan is about 2.5× faster; `app inspect <bundle id>` resolves
-  through Spotlight instead of listing every installed app first.
-
-### Changed
-
-- `SECURITY.md` rewritten: supported versions and platforms, private
-  reporting, the privilege model, and a privacy statement.
 
 ## [0.2.1] - 2026-09-26
 
@@ -200,7 +202,8 @@ scan/clean modes, profiles, whitelist, typed confirmations, the plan → apply �
 restore → purge workflow with quarantine, JSON Lines protocol v1, and the
 interactive menus. Available through `brew install nkwabyte/mimi/mimi`.
 
-[Unreleased]: https://github.com/nkwabyte/mimi/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/nkwabyte/mimi/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/nkwabyte/mimi/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/nkwabyte/mimi/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/nkwabyte/mimi/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nkwabyte/mimi/releases/tag/v0.1.0
