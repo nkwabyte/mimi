@@ -776,24 +776,74 @@ mimi_root_tool_hardened() {
   printf '%s/usr/local/libexec/mimi/mimi-root-apply' "$prefix"
 }
 
-# The copy to run: the hardened one while it is identical to the bundled
-# one, otherwise the bundled one. Sets ROOT_TOOL_NOTE to advice, if any.
+# Expected owner of a trusted copy: root, or the current user when the
+# root tool is running against a fixture (MIMI_ROOT_TEST).
+_root_tool_expected_owner() {
+  if [ "${MIMI_ROOT_TEST:-0}" = 1 ]; then
+    id -u
+  else
+    printf '0'
+  fi
+}
+
+# True when NODE is a non-symlink owned by the expected owner and not
+# group- or world-writable.
+_root_tool_node_ok() {
+  local node="$1" expected="$2" owner mode
+  [ -e "$node" ] && [ ! -L "$node" ] || return 1
+  owner="$(stat -f '%u' "$node" 2>/dev/null)" || return 1
+  mode="$(stat -f '%Lp' "$node" 2>/dev/null)" || return 1
+  [ "$owner" = "$expected" ] || return 1
+  [ $((8#$mode & 022)) -eq 0 ] || return 1
+}
+
+# True when PATH is a regular executable whose entire parent chain, down to
+# / (or the test prefix), is owned by the expected owner and not writable
+# by group or other. A symlink anywhere in that chain fails.
+_root_tool_trusted() {
+  local path="$1" expected dir stop
+  expected="$(_root_tool_expected_owner)"
+  [ -f "$path" ] && [ ! -L "$path" ] && [ -x "$path" ] || return 1
+  _root_tool_node_ok "$path" "$expected" || return 1
+  if [ "${MIMI_ROOT_TEST:-0}" = 1 ] && [ -n "${MIMI_ROOT_PREFIX:-}" ]; then
+    stop="${MIMI_ROOT_PREFIX%/}"
+  else
+    stop="/"
+  fi
+  dir="$(dirname "$path")"
+  while [ -n "$dir" ] && [ "$dir" != "$stop" ] && [ "$dir" != "/" ]; do
+    _root_tool_node_ok "$dir" "$expected" || return 1
+    dir="$(dirname "$dir")"
+  done
+  if [ "$stop" != "/" ]; then
+    _root_tool_node_ok "$stop" "$expected" || return 1
+  fi
+  return 0
+}
+
+# The only path that may be passed to sudo: the hardened copy, and only
+# while it is byte-identical to this installation and trusted. Never the
+# bundled file. Sets ROOT_TOOL_NOTE when it refuses.
 ROOT_TOOL_NOTE=""
 mimi_root_tool() {
   local bundled hardened
   ROOT_TOOL_NOTE=""
   bundled="$(mimi_root_tool_bundled)" || return 1
   hardened="$(mimi_root_tool_hardened)"
-  if [ -x "$hardened" ]; then
-    if cmp -s "$bundled" "$hardened"; then
-      printf '%s' "$hardened"
-      return 0
+  if [ -e "$hardened" ] || [ -L "$hardened" ]; then
+    if [ -L "$hardened" ] || [ ! -f "$hardened" ] || ! cmp -s "$bundled" "$hardened"; then
+      ROOT_TOOL_NOTE="The copy at $hardened is out of date or not the file this mimi ships. Update it with: sudo \"$bundled\" --install"
+      return 1
     fi
-    ROOT_TOOL_NOTE="The root-owned copy at $hardened is out of date (mimi was upgraded). Update it with: sudo \"$bundled\" --install"
-  else
-    ROOT_TOOL_NOTE="This copy of the root tool is owned by your user account, so anything running as you could change what sudo runs. Once, install a root-owned copy: sudo \"$bundled\" --install"
+    if ! _root_tool_trusted "$hardened"; then
+      ROOT_TOOL_NOTE="The copy at $hardened is not a trusted root-owned file. Its owner, mode, or a parent directory would let another user change what sudo runs. Reinstall with: sudo \"$bundled\" --install"
+      return 1
+    fi
+    printf '%s' "$hardened"
+    return 0
   fi
-  printf '%s' "$bundled"
+  ROOT_TOOL_NOTE="No trusted root-owned copy is installed. Once, install one with: sudo \"$bundled\" --install"
+  return 1
 }
 
 # True for something shaped like a bundle id (com.vendor.app).
@@ -807,9 +857,10 @@ _looks_like_bundle_id_target() {
 }
 
 uninstall_system_request() {
-  local target="$1" bid="" tool listing req n=0
-  mimi_root_tool > /dev/null || { err "libexec/mimi-root-apply is missing from this installation"; return "$EXIT_FAILURE"; }
-  tool="$(mimi_root_tool)"
+  local target="$1" bid="" bundled tool listing req n=0
+  # Candidate listing is read-only and runs as the user. The bundled script
+  # is fine for that. It is never the program named after sudo.
+  bundled="$(mimi_root_tool_bundled)" || { err "libexec/mimi-root-apply is missing from this installation"; return "$EXIT_FAILURE"; }
 
   # The app may already be gone: a bundle id is enough for system cleanup.
   if _looks_like_bundle_id_target "$target"; then
@@ -820,8 +871,8 @@ uninstall_system_request() {
   fi
 
   section "System items for $bid"
-  "$tool" --candidates "$bid" || return "$EXIT_USAGE"
-  listing="$("$tool" --candidates "$bid" --tsv)" || return "$EXIT_USAGE"
+  "$bundled" --candidates "$bid" || return "$EXIT_USAGE"
+  listing="$("$bundled" --candidates "$bid" --tsv)" || return "$EXIT_USAGE"
 
   local -a ids=()
   local id kind path label reason
@@ -849,14 +900,16 @@ uninstall_system_request() {
 
   say ""
   say "Request written: $req (valid for 1 hour)"
-  say "To stop these jobs and move the $n item(s) to a root-only quarantine, run:"
-  say ""
-  say "  ${C_BOLD}sudo \"$tool\" \"$req\"${C_RESET}"
-  say ""
-  say "It lists the items again and asks you to type ${C_BOLD}$bid${C_RESET} before it acts."
-  say "Undo later with: sudo \"$tool\" --restore <run-id>"
-  if [ -n "$ROOT_TOOL_NOTE" ]; then
+  if tool="$(mimi_root_tool)"; then
+    say "To stop these jobs and move the $n item(s) to a root-only quarantine, run:"
     say ""
+    say "  ${C_BOLD}sudo \"$tool\" \"$req\"${C_RESET}"
+    say ""
+    say "It lists the items again and asks you to type ${C_BOLD}$bid${C_RESET} before it acts."
+    say "Undo later with: sudo \"$tool\" --restore <run-id>"
+  else
+    say "No sudo command was printed. The request selects candidate ids only;"
+    say "it is not safe to run the copy of the tool that lives in this installation as root."
     warn "$ROOT_TOOL_NOTE"
   fi
   return "$EXIT_OK"

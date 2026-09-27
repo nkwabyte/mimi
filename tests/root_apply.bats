@@ -255,11 +255,14 @@ apply() { run /bin/bash -c 'printf "%s\n" "$1" | "$2" "$3"' _ "$1" "$TOOL" "$REQ
 # mimi app uninstall --system (writes the request; never runs as root)
 # ---------------------------------------------------------------------------
 
-@test "mimi: --system writes a 0600 request selecting every candidate and prints the sudo command" {
+@test "mimi: --system writes a 0600 request selecting every candidate and does not sudo the bundled tool" {
   setup_root; acme
   run /bin/bash "$MIMI_BIN" app uninstall com.acme.app --system
   [ "$status" -eq 0 ]
-  echo "$output" | grep -q "sudo \".*libexec/mimi-root-apply\" \"$FAKE_HOME/.config/mimi/system-requests/.*\.request\""
+  echo "$output" | grep -q "No sudo command was printed"
+  echo "$output" | grep -q "sudo \".*libexec/mimi-root-apply\" --install"
+  # The request path must not appear on a sudo line.
+  ! echo "$output" | grep -q "sudo \".*\" \".*system-requests/.*\.request\""
   local req
   req="$(ls "$FAKE_HOME/.config/mimi/system-requests"/*.request)"
   [ "$(stat -f '%Lp' "$req")" = 600 ]
@@ -431,21 +434,52 @@ acme_pkg() {
   ls -d "$R/Library/Application Support/mimi/quarantine"/sys-* > /dev/null
 }
 
-@test "hardened copy: mimi prints the root-owned copy when identical, and warns when it is stale or missing" {
+@test "hardened copy: mimi prints sudo only for a trusted identical copy" {
   setup_root; acme
+  chmod 0755 "$R"
   run /bin/bash "$MIMI_BIN" app uninstall com.acme.app --system
-  echo "$output" | grep -q "sudo \"$REPO_ROOT/libexec/mimi-root-apply\""
-  echo "$output" | grep -q "install a root-owned copy"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "No sudo command was printed"
+  echo "$output" | grep -q "No trusted root-owned copy is installed"
+  ! echo "$output" | grep -q "sudo \".*\" \".*system-requests/"
 
   "$TOOL" --install > /dev/null
+  chmod 0755 "$R" "$R/usr" "$R/usr/local" "$R/usr/local/libexec" "$R/usr/local/libexec/mimi"
   run /bin/bash "$MIMI_BIN" app uninstall com.acme.app --system
-  echo "$output" | grep -q "sudo \"$R/usr/local/libexec/mimi/mimi-root-apply\""
-  ! echo "$output" | grep -q "root-owned copy"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "sudo \"$R/usr/local/libexec/mimi/mimi-root-apply\" \".*system-requests/.*\.request\""
+  ! echo "$output" | grep -q "No sudo command was printed"
 
+  # A same-user edit of the hardened copy must not stay on the sudo line.
   printf '# older version\n' >> "$R/usr/local/libexec/mimi/mimi-root-apply"
   run /bin/bash "$MIMI_BIN" app uninstall com.acme.app --system
-  echo "$output" | grep -q "sudo \"$REPO_ROOT/libexec/mimi-root-apply\""
-  echo "$output" | grep -q "is out of date"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "out of date"
+  ! echo "$output" | grep -q "sudo \".*\" \".*system-requests/"
+
+  # Identical again, but group-writable: still not trusted.
+  cp "$TOOL" "$R/usr/local/libexec/mimi/mimi-root-apply"
+  chmod 0775 "$R/usr/local/libexec/mimi/mimi-root-apply"
+  run /bin/bash "$MIMI_BIN" app uninstall com.acme.app --system
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "not a trusted root-owned file"
+  ! echo "$output" | grep -q "sudo \".*\" \".*system-requests/"
+}
+
+@test "require_root: a group-writable copy is refused when trust is enforced" {
+  setup_root
+  local copy="$R/bin/mimi-root-apply"
+  mkdir -p "$R/bin"
+  cp "$TOOL" "$copy"
+  chmod 0755 "$R" "$R/bin"
+  chmod 0777 "$copy"
+  run env MIMI_ROOT_CHECK_TRUST=1 "$copy" --runs
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "not a trusted root-owned tool"
+
+  chmod 0755 "$copy"
+  run env MIMI_ROOT_CHECK_TRUST=1 "$copy" --runs
+  [ "$status" -eq 0 ]
 }
 
 @test "payload: an item listed by two of the app's own packages is one candidate" {
