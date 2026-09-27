@@ -53,9 +53,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      # The project needs the newest Xcode (it was created with Xcode 27 and
-      # uses Swift 6.2 isolation settings). Pick the newest installed one by
-      # name so a change of the image's default does not change this job.
+      # The project needs Xcode 26 or later (Swift 6.2 isolation settings)
+      # and keeps the Xcode 16 project format. Pick the newest installed
+      # Xcode by name so a change of the image's default does not change
+      # this job.
       - name: Select Xcode
         run: |
           xcode="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"

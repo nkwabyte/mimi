@@ -1,7 +1,9 @@
 # Mimi GUI
 
-Open `Mimi/Mimi.xcodeproj` in Xcode and run the Mimi scheme. It needs the Xcode
-version the project was created with (Swift 6.2 or later).
+Open `Mimi/Mimi.xcodeproj` in Xcode and run the Mimi scheme. It needs Xcode 26
+or later (Swift 6.2). Keep the project format at Xcode 16 (object version 77)
+in the File inspector: CI builds with the newest Xcode on GitHub's runners,
+which cannot open a newer format.
 
 ## Signing
 
