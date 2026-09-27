@@ -531,7 +531,8 @@ plan_verify_selection() {
       plan_read_record "$item" || return 1
       case "$PLAN_F_OP" in retain|tool_cleanup) continue ;; esac
       case "$PLAN_F_CAT" in uninstall-*) continue ;; esac
-      cid="$(plan_candidate_id "$PLAN_F_CAT" "$PLAN_F_PATH")"
+      # Candidates are recorded by canonical path; compare like with like.
+      cid="$(plan_candidate_id "$PLAN_F_CAT" "$(path_canonicalize "$PLAN_F_PATH" nofollow)")"
       case $'\n'"$current"$'\n' in
         *$'\n'"$cid"$'\n'*) ;;
         *)
