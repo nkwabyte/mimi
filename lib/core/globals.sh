@@ -15,7 +15,7 @@ SCRIPT_NAME="$(basename -- "$0")"
 # The release version. Single source of truth: `mimi --version`, the JSON
 # protocol's engine_version, and the release workflow (which refuses to
 # publish a tag that does not match it) all read this line.
-MIMI_VERSION="0.3.0"
+MIMI_VERSION="0.4.0"
 
 HOME_DIR="$HOME"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
