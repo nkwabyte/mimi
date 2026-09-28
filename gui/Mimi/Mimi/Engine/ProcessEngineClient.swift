@@ -62,6 +62,58 @@ nonisolated final class ProcessEngineClient: EngineClientProtocol, @unchecked Se
         engineURL = bundled
     }
 
+    var executableURL: URL? {
+        FileManager.default.isExecutableFile(atPath: engineURL.path) ? engineURL : nil
+    }
+
+    /// Runs one command to completion. Output is capped so a runaway engine
+    /// cannot exhaust memory; history documents are a few kilobytes.
+    func output(for command: EngineCommand) async throws -> EngineOutput {
+        guard FileManager.default.isExecutableFile(atPath: engineURL.path) else {
+            throw EngineError.engineNotFound(engineURL.path)
+        }
+        let url = engineURL
+        let arguments = command.arguments
+        let environment = Self.engineEnvironment()
+        return try await Task.detached(priority: .userInitiated) {
+            let proc = Process()
+            let stdout = Pipe()
+            let stderr = Pipe()
+            let stderrCapture = StderrCapture()
+            proc.executableURL = url
+            proc.arguments = arguments
+            proc.standardOutput = stdout
+            proc.standardError = stderr
+            proc.standardInput = FileHandle.nullDevice
+            proc.environment = environment
+            stderr.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if !chunk.isEmpty { stderrCapture.append(chunk) }
+            }
+            do {
+                try proc.run()
+            } catch {
+                stderr.fileHandleForReading.readabilityHandler = nil
+                throw EngineError.engineNotFound(url.path)
+            }
+            var data = Data()
+            let handle = stdout.fileHandleForReading
+            while let chunk = try handle.read(upToCount: 65_536), !chunk.isEmpty {
+                data.append(chunk)
+                if data.count > Self.maxDocumentBytes {
+                    proc.terminate()
+                    stderr.fileHandleForReading.readabilityHandler = nil
+                    throw EngineError.eventTooLarge
+                }
+            }
+            proc.waitUntilExit()
+            stderr.fileHandleForReading.readabilityHandler = nil
+            return EngineOutput(stdout: data, exitCode: proc.terminationStatus, stderr: stderrCapture.text)
+        }.value
+    }
+
+    static let maxDocumentBytes = 16 * 1_024 * 1_024
+
     var engineLocation: String {
         if FileManager.default.isExecutableFile(atPath: engineURL.path) {
             return engineURL.path

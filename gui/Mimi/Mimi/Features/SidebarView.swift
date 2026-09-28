@@ -6,8 +6,8 @@
 import SwiftUI
 
 enum SidebarItem: Hashable, CaseIterable {
-    case cleaner
     case overview
+    case cleaner
     case history
     case settings
 
@@ -24,7 +24,7 @@ enum SidebarItem: Hashable, CaseIterable {
         switch self {
         case .cleaner: "sparkles"
         case .overview: "square.grid.2x2"
-        case .history: "clock"
+        case .history: "clock.arrow.circlepath"
         case .settings: "gear"
         }
     }
