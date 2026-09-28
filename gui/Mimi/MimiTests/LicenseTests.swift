@@ -65,6 +65,21 @@ struct LicenseKeyTests {
         }
     }
 
+    /// A key made by the Python signer in docs/LICENSING_PLAN.md with a fixed
+    /// test key pair (private key bytes 0...31, never used for real licences).
+    /// Proves the server's format and the app's check agree.
+    @Test func aKeyFromThePythonSignerVerifies() throws {
+        let publicKey = try Curve25519.Signing.PublicKey(
+            rawRepresentation: try #require(Data(base64Encoded: "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg="))
+        )
+        let key = "MIMI1.eyJlbWFpbCI6InBlcnNvbkBleGFtcGxlLmNvbSIsImV4cGlyZXMiOiIyMDI2LTEwLTI4VDEyOjAwOjAwWiIsImlkIjoibGljX3B5dGhvbl9maXh0dXJlIiwiaXNzdWVkIjoiMjAyNi0wOS0yOFQxMjowMDowMFoiLCJwbGFuIjoibW9udGhseSIsInNlYXRzIjoyLCJ2IjoxfQ.U52QM2iPIs3OjNYHOz9_MYvE7bCnegxyK49F7OxgFvTszKZM0dYpzHRQnXIDfy5KFXq4l7x1zrES8EbZe-g6CQ"
+        let decoded = try LicenseKey.verify(key, publicKey: publicKey)
+        #expect(decoded.id == "lic_python_fixture")
+        #expect(decoded.plan == .monthly)
+        #expect(decoded.seats == 2)
+        #expect(decoded.expires == Date(timeIntervalSince1970: 1_793_188_800))
+    }
+
     @Test func withoutAPublicKeyNothingVerifies() throws {
         let key = try LicenseKey.make(payload(), signingWith: signer)
         #expect(throws: LicenseKeyError.noPublicKey) { try LicenseKey.verify(key, publicKey: nil) }

@@ -9,7 +9,7 @@ The app is a SwiftUI window over the same engine as `bin/mimi`. It scans, shows 
 - **Overview.** The engine and its version, the last scan, and a card for every CLI feature: scan, clean, choose categories, plan and apply, uninstall apps, installed apps, leftover files, disk report, history and restore, whitelist, profiles. Scan, history and profiles act in the window. The others run their command in Terminal through a one-off `.command` file (no Apple Events, so no automation permission). Each card shows and copies its command.
 - **Cleaner.** Pick Safe, Developer, or Aggressive, then Scan Mac. Rows appear as the engine reports them. Filter them, reveal a path in Finder, or copy it. Cancel stops the scan. Nothing is deleted.
 - **History.** Activity records, restorable quarantine runs, and log files in one list with an icon per kind, status, size, and date. Select rows with the circles (or command and shift click); Delete Selected removes records and logs through `mimi history clear` and purges selected runs through `mimi purge`. Clear All deletes every record and log file and keeps quarantine runs. Every delete is confirmed in a dialog first; the purge dialog says the files cannot be restored.
-- **Settings.** Shows the engine path. It does not write `~/.config/mimi`, and it does not offer `--force-risky` or system-scope uninstall.
+- **Settings.** Licence (status, key entry, buy and manage), default scan profile (the app's own preference; it never writes `~/.config/mimi`), the engine's location and version, where history, logs and quarantine live, and About. It does not offer `--force-risky` or system-scope uninstall. The licence key format and the server plan are in [LICENSING_PLAN.md](LICENSING_PLAN.md).
 
 A scan runs `mimi --jsonl --no-prompt --no-color scan --profile <name>`. History runs `mimi --jsonl --no-prompt --no-color history --limit 500`; clearing adds `--yes history clear ...`, and a purge passes `--force-risky purge` after the app's own confirmation. Arguments are an array. The app never builds a shell string.
 
@@ -22,6 +22,7 @@ gui/Mimi/Mimi/
   ContentView.swift          sidebar
   App/AppModel.swift         scan state
   History/                   history document, rows, store
+  License/                   key format and offline check, keychain storage, licence state
   Engine/                    command, events, decoder, process, mock
   Features/                  Cleaner, Overview, History, Settings, Terminal launcher
   Resources/Fixtures/scan-safe.jsonl
