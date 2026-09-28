@@ -87,7 +87,24 @@ jobs:
         run: |
           xcodebuild -project gui/Mimi/Mimi.xcodeproj -scheme Mimi \
             -destination 'platform=macOS' -only-testing:MimiTests \
+            -resultBundlePath "$RUNNER_TEMP/gui-tests.xcresult" \
             CODE_SIGNING_ALLOWED=NO test
+
+      # xcodebuild names a failing Swift Testing test but not the failed
+      # expectation; the result bundle has it.
+      - name: Show failed expectations
+        if: failure()
+        run: |
+          xcrun xcresulttool get test-results tests --path "$RUNNER_TEMP/gui-tests.xcresult" \
+            | python3 -c 'import json,sys
+          def walk(n, path=""):
+              name = n.get("name", "")
+              if n.get("nodeType") == "Failure Message":
+                  print(path, "->", name)
+              for c in n.get("children", []):
+                  walk(c, path + "/" + name if n.get("nodeType") == "Test Case" else path or name)
+          for n in json.load(sys.stdin).get("testNodes", []):
+              walk(n)'
 
   static-checks:
     name: Static Analysis & Style
