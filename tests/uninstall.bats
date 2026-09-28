@@ -1132,9 +1132,10 @@ vendor_fixture() {
   echo "$output" | /usr/bin/python3 -c '
 import json, sys
 d = json.load(sys.stdin)
-assert d["schema"] == "mimi.history/1"
+assert d["schema"] == "mimi.history/2"
 r = d["records"][-1]
 assert r["v"] == 1 and r["type"] == "uninstall" and r["bundle_id"] == "com.example.histo", r
+assert r["id"].startswith("r") and "@" + r["at"] in r["id"], r
 assert r["removed"] >= 1, r
 assert d["quarantine_runs"] == [], d["quarantine_runs"]
 '

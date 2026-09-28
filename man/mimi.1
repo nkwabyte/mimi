@@ -28,7 +28,19 @@ Restore files from a quarantine run.
 Permanently remove a quarantine run and free its space.
 .TP
 .B history
-List previous uninstall and quarantine operations.
+List what mimi has done (cleans, applies, restores, purges, uninstalls), the
+quarantine runs that can still be restored, and the log files it has kept.
+.TP
+.B history clear
+Delete history records and mimi's own log files: all of them with
+.BR \-\-all ,
+or the ones named with
+.B \-\-records
+and
+.BR \-\-logs .
+Quarantine runs are kept. Asks first;
+.B \-\-yes
+answers.
 .TP
 .B apps
 Inspect and list installed applications.
@@ -159,6 +171,16 @@ Size threshold for large files in report mode.
 .TP
 .B \-\-limit \fIN\fR
 Limit number of records in history output.
+.TP
+.B \-\-all
+history clear: delete every history record and log file.
+.TP
+.B \-\-records \fIID,...\fR
+history clear: delete these records (ids from
+.BR "history \-\-json" ).
+.TP
+.B \-\-logs \fINAME,...\fR
+history clear: delete these log files.
 .TP
 .B \-\-list
 List all available categories and risk classifications.

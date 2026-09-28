@@ -39,6 +39,9 @@ _arguments -C -s \
   '--remove-orphans-from[remove paths listed in a review file]:file:_files' \
   '--plan-out[where to write the plan]:file:_files' \
   '--limit[history: records to show]:number:' \
+  '--all[history clear: every record and log file]' \
+  '--records[history clear: record ids]:ids:' \
+  '--logs[history clear: log file names]:names:' \
   '--large-file-mb[report: minimum file size]:MB:' \
   '--downloads-stale-days[report: days since last opened]:days:' \
   '--keep-device-support[DeviceSupport versions to keep]:number:' \
@@ -91,6 +94,7 @@ case $state in
       restore|purge) _mimi_runs ;;
       app) (( CURRENT == 2 )) && _values 'action' inspect uninstall list || _files -g '*.app(-/)' ;;
       apps) _values 'action' list ;;
+      history) _values 'action' clear ;;
       uninstall) _files -g '*.app(-/)' ;;
     esac ;;
 esac
