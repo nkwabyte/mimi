@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MimiHistoryV2",
+  "description": "Output of `mimi history --json`: the last --limit records from ~/.config/mimi/history.jsonl (oldest first), the user-scope quarantine runs that can still be restored, and the log files mimi has written. Version 2 adds record ids, the clean/apply/restore/purge/expire record types, and the logs list.",
+  "type": "object",
+  "required": ["schema", "records", "quarantine_runs", "logs"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "type": "string", "const": "mimi.history/2" },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "at", "type", "status"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^r[0-9]+@", "description": "r<line>@<at>; pass it to `mimi history clear --records`." },
+          "v": { "type": "integer", "description": "Record version; absent on records written before version 1 existed (same shape)." },
+          "at": { "type": "string" },
+          "type": { "enum": ["clean", "apply", "restore", "purge", "expire", "uninstall", "cask-uninstall", "vendor-uninstaller", "system-request"] },
+          "status": { "type": "string" },
+          "freed_kb": { "type": "integer", "minimum": 0 },
+          "removed": { "type": "integer", "minimum": 0 },
+          "failed": { "type": "integer", "minimum": 0 },
+          "log": { "type": "string", "description": "Name of the run's transcript in ~/Library/Logs/mimi, empty with --no-log." }
+        }
+      }
+    },
+    "quarantine_runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["run_id", "items", "restored", "size_kb"],
+        "additionalProperties": false,
+        "properties": {
+          "run_id": { "type": "string" },
+          "items": { "type": "integer", "minimum": 0 },
+          "restored": { "type": "integer", "minimum": 0 },
+          "size_kb": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "logs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "size_kb", "modified"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^(clean-.*\\.log|orphans-review-.*\\.txt)$" },
+          "size_kb": { "type": "integer", "minimum": 0 },
+          "modified": { "type": "string", "description": "UTC, YYYY-MM-DDTHH:MM:SSZ." }
+        }
+      }
+    }
+  }
+}

@@ -357,9 +357,11 @@ unlock() {
   expected="$(printf '%s\n' \
     'find "$LOG_DIR" -maxdepth 1 -name '"'"'orphans-review-*.txt'"'"' -mtime +30 -delete 2>/dev/null' \
     'rm -f "$LOG_FILE"' \
+    'if rm -f -- "$LOG_DIR/$name"; then' \
     'rm -f "$RUN_LOCK_DIR/pid"' \
     'rm -f "$dir/pid"' \
     'rm -f "$f"' \
+    'rm -f "$tmp"' \
     'rm -f "$tmp"' \
     'rm -f "$tmp"' | sort)"
 
@@ -379,6 +381,8 @@ unlock() {
   grep -qr 'Justified raw rm: the scratch log this process created' "$MIMI_LIB"
   grep -qr 'raw delete for the same reason as the rm above' "$MIMI_LIB"
   grep -qr 'Justified raw rm: our own half-written temporary file' "$MIMI_LIB"
+  grep -qr 'Justified raw rm: our own half-written temporary copy of the history' "$MIMI_LIB"
+  grep -qr "Justified raw rm: this is the tool's own transcript housekeeping, a" "$MIMI_LIB"
 }
 
 # ---------------------------------------------------------------------------
