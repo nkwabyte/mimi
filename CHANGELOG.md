@@ -6,6 +6,25 @@ and a release tag must match it.
 
 ## [Unreleased]
 
+### Added
+
+- `mimi history clear`: delete history records and mimi's own log files,
+  all of them (`--all`) or by id and name (`--records`, `--logs`), after a
+  confirmation (`--yes` answers). Quarantine runs are never touched.
+- Clean, apply, restore, and purge runs are recorded in history, with what
+  they freed, removed, and failed and the name of their log file.
+- The app's History screen lists activity, restorable runs, and log files
+  with an icon per kind, supports multi-select, Delete Selected (purging
+  selected quarantine runs after a confirmation), and Clear All.
+- The app's Overview has a card for every CLI feature; the ones that
+  delete open their command in Terminal.
+
+### Changed
+
+- `mimi history --json` is `mimi.history/2` (`schemas/history-v2.json`):
+  records carry an `id`, and a `logs` list names the log files. The text
+  output ends with the log count.
+
 ## [0.4.0] - 2026-09-28
 
 ### Added

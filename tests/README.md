@@ -80,6 +80,7 @@ tests/
 ├── profiles.bats       # preset profiles, precedence, risk facets & registry
 ├── jsonl.bats          # machine interface & JSON Lines protocol v1 (P1-T06)
 ├── plan.bats           # transactional plans, quarantine, restore & purge (Phase 2)
+├── history.bats        # history records, logs list, and `history clear`
 ├── fixtures/           # static read-only fixture data (see its README)
 └── mocks/bin/          # stubs for every external command clean.sh may call
 ```

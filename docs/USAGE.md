@@ -174,6 +174,41 @@ Permanently deletes the quarantine directory for a specified run. Irreversible: 
 mimi purge plan-20260924-120000-1234 --force-risky purge
 ```
 
+### `mimi history`
+
+Lists what mimi has done, newest last: every clean and applied plan (with
+what it freed, removed, and failed, and the name of its log), restores,
+purges, released quarantine runs, uninstalls, Homebrew and vendor
+hand-offs, and system requests. Below that, the quarantine runs that can
+still be restored, and how many log files mimi has kept in
+`~/Library/Logs/mimi`. A scan records nothing.
+
+```bash
+mimi history                 # the last 20 records
+mimi history --limit 200
+mimi history --json          # schemas/history-v2.json
+```
+
+In `--json`, each record has an `id` (`r<line>@<date>`), and `logs` lists
+the log files by name, size, and date. The GUI's History screen reads this.
+
+### `mimi history clear`
+
+Deletes history records and mimi's own log files (`clean-*.log` run
+transcripts and `orphans-review-*.txt` files):
+
+```bash
+mimi history clear --all                          # every record and log file
+mimi history clear --records r3@2026-09-27T10:30:00Z
+mimi history clear --logs clean-20260927-103000.log,orphans-review-20260925.txt
+```
+
+It asks first; `--yes` answers. A record is deleted only when its line
+still has the date in its id, and a log only when the name is one of
+mimi's log files in its log folder; anything else is reported as not found
+(exit `3`). Quarantine runs are never touched: release them with
+`mimi purge <run-id>`. `--json` prints `schemas/history-clear-v1.json`.
+
 Only one run that changes files at a time: a second `clean`, `apply`,
 `restore`, `purge` or uninstall exits `7` while another holds the lock.
 
@@ -542,6 +577,7 @@ Whitelist  (2 entries)
 | `apply <plan-file>`, `--apply <file>` | Validates plan integrity and moves targets into an isolated quarantine run. |
 | `restore <run-id>`, `--restore <id>` | Restores a previously quarantined run back to original paths. |
 | `purge <run-id>`, `--purge <id>` | Permanently deletes a quarantined run after explicit confirmation. |
+| `history`, `history clear` | What mimi has done, what can be restored, and its log files; clear records and logs. See [its section](#mimi-history). |
 | `apps [list]` | Read-only application inventory. `--json` emits `schemas/apps-list-v1.json`. |
 | `app inspect <target>` | Read-only footprint, provenance, signing, and remnant evidence for one app. `--json` emits `schemas/app-inspect-v1.json`. |
 | `uninstall` | Pick installed apps from a list and uninstall them. See [its section](#mimi-uninstall). |
