@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MimiHistoryClearV1",
+  "description": "Output of `mimi history clear --json`. Exit 0 when everything asked for was removed, 3 when some ids or names were not found, 5 when not confirmed (pass --yes).",
+  "type": "object",
+  "required": ["schema", "records_removed", "logs_removed", "not_found"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "type": "string", "const": "mimi.history-clear/1" },
+    "records_removed": { "type": "integer", "minimum": 0 },
+    "logs_removed": { "type": "integer", "minimum": 0 },
+    "not_found": { "type": "integer", "minimum": 0 }
+  }
+}

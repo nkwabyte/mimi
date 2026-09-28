@@ -21,9 +21,17 @@ SUBCOMMANDS:
   apply <plan-file>       Validate and execute a plan using atomic quarantine.
   restore <run-id>        Restore a previously quarantined run to original paths.
   purge <run-id>          Permanently remove a quarantined run.
-  history [--limit N]     What mimi has done (uninstalls, hand-offs, system
-                          requests) and which quarantine runs can be restored.
-                          --json emits schemas/history-v1.json.
+  history [--limit N]     What mimi has done (cleans, applies, restores, purges,
+                          uninstalls, hand-offs), the quarantine runs that can
+                          be restored, and the log files kept.
+                          --json emits schemas/history-v2.json.
+  history clear           Delete history records and mimi's own log files.
+                          --all             every record and log file
+                          --records ID,...  records by id (from --json)
+                          --logs NAME,...   log files by name
+                          Quarantine runs are kept (see purge). Asks first;
+                          --yes answers. --json emits
+                          schemas/history-clear-v1.json.
   apps [list] [options]   Inventory installed applications (read-only).
                           --source all|app|cask|mas|pkg|system   Filter by provenance.
                           --app-root DIR  Inventory DIR instead (repeatable).
