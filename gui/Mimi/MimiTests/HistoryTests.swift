@@ -32,7 +32,7 @@ struct HistoryDocumentTests {
 
     @Test func cleanRecordsShowWhatWasFreed() throws {
         let clean = HistoryRows.items(from: try sample()).first { $0.kind == .clean }
-        #expect(clean?.bytes == 1_843_200 * 1_024)
+        #expect(clean?.bytes == Int64(1_843_200) * 1_024)
         #expect(clean?.subtitle.contains("214 items removed") == true)
         #expect(clean?.status == "ok")
     }
