@@ -11,7 +11,13 @@ struct DashboardView: View {
     @Binding var selection: SidebarItem
     @State private var launchError: String?
 
-    private let columns = [GridItem(.adaptive(minimum: 250, maximum: 360), spacing: 16, alignment: .top)]
+    /// Cards stay between 260 and 420 points wide; a wider window gets more
+    /// columns instead of wider cards.
+    private let columns = [GridItem(.adaptive(minimum: 260, maximum: 420), spacing: 16, alignment: .top)]
+
+    /// Past this width the content stops growing and is centered, so a
+    /// full-screen window does not leave everything against the left edge.
+    private let maxContentWidth: CGFloat = 1_600
 
     var body: some View {
         ScrollView {
@@ -40,7 +46,10 @@ struct DashboardView: View {
                 }
             }
             .padding(28)
-            .frame(maxWidth: 1_100, alignment: .leading)
+            .frame(maxWidth: maxContentWidth, alignment: .leading)
+            // The scrolled content spans the whole window, so the scroll bar
+            // sits at the window's edge and the column is centered in it.
+            .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("Overview")
