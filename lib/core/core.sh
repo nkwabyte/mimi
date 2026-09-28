@@ -141,6 +141,12 @@ run_selected_categories() {
     exit_code="$EXIT_PARTIAL"
   fi
 
+  if [ "$MODE" = clean ]; then
+    history_record "clean" "$term_status" \
+      "freed_kb=$TOTAL_RECLAIMED_KB" "removed=$ACTION_OK" "skipped=$ACTION_SKIPPED" \
+      "failed=$((ACTION_FAILED + ACTION_DENIED))" "log=$(history_log_name)"
+  fi
+
   if [ "${JSONL_ENABLED:-0}" = 1 ]; then
     json_emit_phase_finished "$MODE" "$term_status"
     json_emit_run_finished "$term_status" "$exit_code" "$TOTAL_RECLAIMED_KB" "$TOTAL_BEFORE_KB" "$ACTION_OK" "$ACTION_SKIPPED" "$ACTION_DENIED" "$ACTION_FAILED"
@@ -458,6 +464,11 @@ plan_execute_loaded() {
       "app=$UNINSTALL_PLAN_APP_NAME" "bundle_id=$UNINSTALL_PLAN_BUNDLE_ID" \
       "plan_id=$PLAN_ID" "removed=$ACTION_OK" \
       "failed=$ACTION_FAILED" "leftovers=${UNINSTALL_LEFTOVER_COUNT:-0}"
+  else
+    history_record "apply" "$term_status" \
+      "plan_id=$PLAN_ID" "freed_kb=$TOTAL_RECLAIMED_KB" "removed=$ACTION_OK" \
+      "failed=$((ACTION_FAILED + ACTION_DENIED))" "run_id=${QUARANTINE_CURRENT_RUN_ID:-}" \
+      "log=$(history_log_name)"
   fi
 
   if [ "${JSONL_ENABLED:-0}" = 1 ]; then
@@ -476,9 +487,11 @@ run_restore() {
   run_lock || return "$EXIT_BUSY"
   say "${C_BOLD}${SCRIPT_NAME}${C_RESET} — restoring quarantine run: ${C_BOLD}$RUN_ID${C_RESET}"
   if quarantine_restore_run "$RUN_ID"; then
+    history_record "restore" "ok" "run_id=$RUN_ID"
     ok "restore completed successfully"
     return "$EXIT_OK"
   else
+    history_record "restore" "partial" "run_id=$RUN_ID"
     err "restore encountered errors"
     return "$EXIT_PARTIAL"
   fi
@@ -501,6 +514,7 @@ run_purge() {
     return "$EXIT_CANCELLED"
   fi
   if quarantine_purge_run "$RUN_ID"; then
+    history_record "purge" "ok" "run_id=$RUN_ID"
     ok "purged quarantine run: $RUN_ID"
     return "$EXIT_OK"
   else
@@ -552,6 +566,7 @@ main() {
     apply) run_apply ;;
     restore) run_restore ;;
     history) mimi_history ;;
+    history_clear) mimi_history_clear ;;
     purge) run_purge ;;
     *) run_selected_categories ;;
   esac

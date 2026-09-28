@@ -11,12 +11,59 @@ nonisolated struct MockEngineClient: EngineClientProtocol, Sendable {
     let lines: [String]
     let delay: Duration
 
-    var engineLocation: String { "Preview data" }
+    /// What `output(for:)` answers; the built-in history document by default.
+    let respond: @Sendable (EngineCommand) -> EngineOutput
 
-    init(lines: [String] = MockEngineClient.builtIn, delay: Duration = .zero) {
+    var engineLocation: String { "Preview data" }
+    var executableURL: URL? { nil }
+
+    init(
+        lines: [String] = MockEngineClient.builtIn,
+        delay: Duration = .zero,
+        respond: @escaping @Sendable (EngineCommand) -> EngineOutput = MockEngineClient.defaultResponse
+    ) {
         self.lines = lines
         self.delay = delay
+        self.respond = respond
     }
+
+    func output(for command: EngineCommand) async throws -> EngineOutput {
+        respond(command)
+    }
+
+    @Sendable static func defaultResponse(_ command: EngineCommand) -> EngineOutput {
+        switch command {
+        case .history:
+            EngineOutput(stdout: Data(sampleHistory.utf8))
+        case .historyClear:
+            EngineOutput(stdout: Data(#"{"schema":"mimi.history-clear/1","records_removed":0,"logs_removed":0,"not_found":0}"#.utf8))
+        default:
+            EngineOutput(stdout: Data())
+        }
+    }
+
+    /// A mimi.history/2 document with one of each kind of row, for previews
+    /// and tests.
+    static let sampleHistory = """
+    {
+      "schema": "mimi.history/2",
+      "records": [
+        {"id":"r1@2026-09-26T09:12:00Z","v":1,"at":"2026-09-26T09:12:00Z","type":"clean","status":"ok","freed_kb":1843200,"removed":214,"skipped":3,"failed":0,"log":"clean-20260926-091200.log"},
+        {"id":"r2@2026-09-26T18:40:00Z","v":1,"at":"2026-09-26T18:40:00Z","type":"uninstall","status":"ok","app":"Zoom","bundle_id":"us.zoom.xos","plan_id":"uninstall-1","removed":7,"failed":0,"leftovers":0},
+        {"id":"r3@2026-09-27T08:05:00Z","v":1,"at":"2026-09-27T08:05:00Z","type":"cask-uninstall","status":"ok","app":"Figma","token":"figma","zap":1},
+        {"id":"r4@2026-09-27T10:30:00Z","v":1,"at":"2026-09-27T10:30:00Z","type":"apply","status":"partial","plan_id":"plan-20260927","freed_kb":51200,"removed":40,"failed":2,"run_id":"plan-20260927","log":"clean-20260927-103000.log"},
+        {"id":"r5@2026-09-27T11:00:00Z","v":1,"at":"2026-09-27T11:00:00Z","type":"restore","status":"ok","run_id":"orphans-20260920-120000"}
+      ],
+      "quarantine_runs": [
+        {"run_id": "plan-20260927", "items": 40, "restored": 0, "size_kb": 51200}
+      ],
+      "logs": [
+        {"name": "clean-20260926-091200.log", "size_kb": 12, "modified": "2026-09-26T09:14:00Z"},
+        {"name": "clean-20260927-103000.log", "size_kb": 8, "modified": "2026-09-27T10:31:00Z"},
+        {"name": "orphans-review-20260925.txt", "size_kb": 4, "modified": "2026-09-25T16:00:00Z"}
+      ]
+    }
+    """
 
     /// The built-in fixture lines (loaded from Resources/Fixtures/scan-safe.jsonl).
     static let builtIn: [String] = {

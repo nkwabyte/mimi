@@ -67,6 +67,9 @@ final class AppModel {
 
     var engineLocation: String { engine.engineLocation }
 
+    /// The engine executable, for running a command in Terminal.
+    var engineExecutable: URL? { engine.executableURL }
+
     var totalBytes: Int64 {
         candidates.reduce(0) { $0 + $1.bytes }
     }

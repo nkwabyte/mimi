@@ -124,7 +124,21 @@ while [ $# -gt 0 ]; do
       MODE="apply"
       PLAN_FILE="$2"
       shift 2 ;;
-    history) MODE="history"; shift ;;
+    history)
+      MODE="history"
+      shift
+      if [ $# -gt 0 ] && [ "$1" = "clear" ]; then
+        MODE="history_clear"
+        shift
+      fi
+      ;;
+    --all) HISTORY_CLEAR_ALL=1; shift ;;
+    --records)
+      require_arg "--records" "$#" "${2-}"
+      HISTORY_CLEAR_RECORDS="$2"; shift 2 ;;
+    --logs)
+      require_arg "--logs" "$#" "${2-}"
+      HISTORY_CLEAR_LOGS="$2"; shift 2 ;;
     --limit)
       require_arg "--limit" "$#" "${2-}"
       validate_int "--limit" "$2"
@@ -395,7 +409,7 @@ validate_config_values
 #
 # Any --include-X flag adds X to ONLY_LIST and opens its gate.
 # --skip always wins over any of the above.
-if [ "$MODE" != "apps" ] && [ "$MODE" != "app_inspect" ] && [ "$MODE" != "app_uninstall" ] && [ "$MODE" != "history" ]; then
+if [ "$MODE" != "apps" ] && [ "$MODE" != "app_inspect" ] && [ "$MODE" != "app_uninstall" ] && [ "$MODE" != "history" ] && [ "$MODE" != "history_clear" ]; then
   if [ -z "$ONLY_LIST" ]; then
     if [ -n "$PROFILE" ]; then
       ONLY_LIST="$(profile_category_list "$PROFILE")"

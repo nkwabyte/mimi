@@ -436,21 +436,71 @@ _history_value() {
   printf '%s' "$v"
 }
 
+# The log file name to put in a history record: the transcript of this run,
+# or nothing when --no-log keeps no transcript.
+history_log_name() {
+  [ "$NO_LOG" = 1 ] && return 0
+  case "${LOG_FILE:-}" in "$LOG_DIR"/*) printf '%s' "${LOG_FILE##*/}" ;; esac
+}
+
+# Files mimi itself writes to LOG_DIR: run transcripts and orphan review
+# files. Only these are listed by `history`, and only these can be cleared.
+history_log_files() {
+  local f
+  for f in "$LOG_DIR"/clean-*.log "$LOG_DIR"/orphans-review-*.txt; do
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    printf '%s\n' "${f##*/}"
+  done
+}
+
+_history_log_name_ok() {
+  case "$1" in
+    '' | */* | .*) return 1 ;;
+    clean-*.log | orphans-review-*.txt) ;;
+    *) return 1 ;;
+  esac
+  [ -f "$LOG_DIR/$1" ] && [ ! -L "$LOG_DIR/$1" ]
+}
+
+# The last LIMIT records as JSON objects, each with an "id" added in front:
+# "r<line>@<at>". Deleting by id checks both, so a line that moved or changed
+# since it was listed is never removed by mistake.
+_history_records_json() {
+  local limit="$1" total start
+  [ -f "$HISTORY_FILE" ] || return 0
+  total="$(awk 'END { print NR }' "$HISTORY_FILE")"
+  start=$((total - limit))
+  [ "$start" -lt 0 ] && start=0
+  awk -v start="$start" '
+    NR > start && /^\{".*\}$/ {
+      at = ""
+      if (match($0, /"at":"[^"]*"/)) at = substr($0, RSTART + 6, RLENGTH - 7)
+      printf "%s\n    {\"id\":\"r%d@%s\",%s", (n++ ? "," : ""), NR, at, substr($0, 2)
+    }
+    END { if (n) printf "\n  " }' "$HISTORY_FILE"
+}
+
+_history_logs_json() {
+  local name first=1 kb mtime
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    kb="$(dir_size_kb "$LOG_DIR/$name")"
+    mtime="$(file_mtime "$LOG_DIR/$name" 2>/dev/null)"
+    [ "$first" = 1 ] || printf ','
+    first=0
+    printf '\n    {"name": "%s", "size_kb": %d, "modified": "%s"}' \
+      "$(json_escape "$name")" "${kb:-0}" \
+      "$(epoch_format "${mtime:-0}" '+%Y-%m-%dT%H:%M:%SZ' -u 2>/dev/null)"
+  done < <(history_log_files)
+  [ "$first" = 1 ] || printf '\n  '
+}
+
 mimi_history() {
   local limit="${HISTORY_LIMIT:-20}" line d n items kb restored first
 
   if [ "${JSONL_ENABLED:-0}" = 1 ]; then
-    printf '{\n  "schema": "mimi.history/1",\n  "records": ['
-    first=1
-    if [ -f "$HISTORY_FILE" ]; then
-      while IFS= read -r line; do
-        case "$line" in '{'*'}') ;; *) continue ;; esac
-        [ "$first" = 1 ] || printf ','
-        first=0
-        printf '\n    %s' "$line"
-      done < <(tail -n "$limit" "$HISTORY_FILE")
-    fi
-    [ "$first" = 1 ] || printf '\n  '
+    printf '{\n  "schema": "mimi.history/2",\n  "records": ['
+    _history_records_json "$limit"
     printf '],\n  "quarantine_runs": ['
     first=1
     for d in "$QUARANTINE_DIR"/*/; do
@@ -465,6 +515,8 @@ mimi_history() {
         "$(json_escape "$(basename "$d")")" "${items:-0}" "${restored:-0}" "${kb:-0}"
     done
     [ "$first" = 1 ] || printf '\n  '
+    printf '],\n  "logs": ['
+    _history_logs_json
     printf ']\n}\n'
     return 0
   fi
@@ -481,6 +533,7 @@ mimi_history() {
       what="$(_history_value "$line" app)"
       [ -n "$what" ] || what="$(_history_value "$line" bundle_id)"
       [ -n "$what" ] || what="$(_history_value "$line" token)"
+      [ -n "$what" ] || what="$(_history_value "$line" plan_id)"
       printf '  %-20s  %-18s  %-10s  %s %s\n' \
         "$(_history_value "$line" at)" "$(_history_value "$line" type)" \
         "$(_history_value "$line" status)" "$what" \
@@ -507,5 +560,136 @@ mimi_history() {
     say "Undo one:            $SCRIPT_NAME restore <run-id>"
     say "Release its space:   $SCRIPT_NAME purge <run-id>"
   fi
+
+  say ""
+  n=0 kb=0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    n=$((n + 1))
+    kb=$((kb + $(dir_size_kb "$LOG_DIR/$line")))
+  done < <(history_log_files)
+  say "${C_BOLD}Logs${C_RESET}: $n file(s), $(human_kb "$kb"), in $LOG_DIR"
+  if [ -s "$HISTORY_FILE" ] || [ "$n" -gt 0 ]; then
+    say "Clear history and logs: $SCRIPT_NAME history clear --all"
+  fi
   return 0
+}
+
+# ---------------------------------------------------------------------------
+# history clear
+#
+#   mimi history clear --all                  every record and every log file
+#   mimi history clear --records ID,... --logs NAME,...
+#
+# Only mimi's own bookkeeping goes: records in history.jsonl and the files
+# history_log_files lists. Quarantine runs are not touched (`mimi purge`
+# releases those), and neither is anything the records point at.
+# ---------------------------------------------------------------------------
+
+HISTORY_CLEAR_ALL=0
+HISTORY_CLEAR_RECORDS=""
+HISTORY_CLEAR_LOGS=""
+
+# Rewrites HISTORY_FILE without the records whose id is in IDS (comma list).
+# Prints how many were removed.
+_history_drop_records() {
+  local ids="$1" tmp removed
+  [ -s "$HISTORY_FILE" ] || { printf '0'; return 0; }
+  tmp="$(mktemp "$HISTORY_FILE.XXXXXX")" || return 1
+  removed="$(awk -v ids=",$ids," -v out="$tmp" '
+    {
+      at = ""
+      if (match($0, /"at":"[^"]*"/)) at = substr($0, RSTART + 6, RLENGTH - 7)
+      if (index(ids, ",r" NR "@" at ",")) { n++; next }
+      print > out
+    }
+    END { close(out); print n + 0 }' "$HISTORY_FILE")"
+  : >> "$tmp"
+  chmod 600 "$tmp" 2>/dev/null
+  if ! mv -f "$tmp" "$HISTORY_FILE"; then
+    # Justified raw rm: our own half-written temporary copy of the history.
+    rm -f "$tmp"
+    return 1
+  fi
+  printf '%s' "${removed:-0}"
+}
+
+mimi_history_clear() {
+  local records=0 logs=0 missing=0 name n rc=0
+  local -a log_names=()
+
+  if [ "$HISTORY_CLEAR_ALL" = 1 ]; then
+    [ -z "$HISTORY_CLEAR_RECORDS$HISTORY_CLEAR_LOGS" ] \
+      || die_usage "history clear: --all already covers --records and --logs"
+    while IFS= read -r name; do
+      [ -n "$name" ] && log_names+=("$name")
+    done < <(history_log_files)
+  else
+    [ -n "$HISTORY_CLEAR_RECORDS$HISTORY_CLEAR_LOGS" ] \
+      || die_usage "history clear needs --all, or --records and/or --logs"
+    local IFS=,
+    for name in $HISTORY_CLEAR_LOGS; do
+      [ -n "$name" ] && log_names+=("$name")
+    done
+    unset IFS
+  fi
+
+  run_lock || return "$EXIT_BUSY"
+  # No transcript for this command, but the lock must still be released.
+  install_exit_trap
+
+  local what
+  if [ "$HISTORY_CLEAR_ALL" = 1 ]; then
+    n=0
+    [ -s "$HISTORY_FILE" ] && n="$(grep -c . "$HISTORY_FILE" 2>/dev/null)"
+    what="all ${n:-0} history record(s) and ${#log_names[@]} log file(s)"
+  else
+    n=0
+    [ -n "$HISTORY_CLEAR_RECORDS" ] && n="$(printf '%s' "$HISTORY_CLEAR_RECORDS" | tr ',' '\n' | grep -c .)"
+    what="$n history record(s) and ${#log_names[@]} log file(s)"
+  fi
+  if [ "${JSONL_ENABLED:-0}" != 1 ]; then
+    say "Delete $what from $CONFIG_DIR and $LOG_DIR?"
+    say "Quarantine runs are kept; release them with: $SCRIPT_NAME purge <run-id>"
+  fi
+  if ! confirm "Delete $what?"; then
+    [ "${JSONL_ENABLED:-0}" = 1 ] || say "Cancelled. Nothing was deleted."
+    return "$EXIT_CANCELLED"
+  fi
+
+  if [ "$HISTORY_CLEAR_ALL" = 1 ]; then
+    if [ -s "$HISTORY_FILE" ]; then
+      records="$(grep -c . "$HISTORY_FILE" 2>/dev/null)"
+      : > "$HISTORY_FILE" || rc="$EXIT_FAILURE"
+    fi
+  elif [ -n "$HISTORY_CLEAR_RECORDS" ]; then
+    records="$(_history_drop_records "$HISTORY_CLEAR_RECORDS")" || { records=0; rc="$EXIT_FAILURE"; }
+    local asked
+    asked="$(printf '%s' "$HISTORY_CLEAR_RECORDS" | tr ',' '\n' | grep -c .)"
+    missing=$((missing + asked - records))
+  fi
+
+  for name in "${log_names[@]}"; do
+    if ! _history_log_name_ok "$name"; then
+      missing=$((missing + 1))
+      continue
+    fi
+    # Justified raw rm: this is the tool's own transcript housekeeping, a
+    # log file mimi wrote into its own LOG_DIR, checked by name and type.
+    if rm -f -- "$LOG_DIR/$name"; then
+      logs=$((logs + 1))
+    else
+      rc="$EXIT_PARTIAL"
+    fi
+  done
+
+  if [ "${JSONL_ENABLED:-0}" = 1 ]; then
+    printf '{\n  "schema": "mimi.history-clear/1",\n  "records_removed": %d,\n  "logs_removed": %d,\n  "not_found": %d\n}\n' \
+      "${records:-0}" "$logs" "$missing"
+  else
+    ok "Deleted ${records:-0} history record(s) and $logs log file(s)."
+    [ "$missing" -gt 0 ] && warn "$missing item(s) were not found (already gone, or changed since they were listed)"
+  fi
+  [ "$rc" = 0 ] && [ "$missing" -gt 0 ] && rc="$EXIT_PARTIAL"
+  return "$rc"
 }
