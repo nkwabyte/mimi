@@ -35,11 +35,13 @@ struct ContentView: View {
 private struct PreviewShell: View {
     @State private var model = AppModel(engine: MockEngineClient())
     @State private var history = HistoryStore(engine: MockEngineClient())
+    @State private var license = LicenseStore(storage: MemoryLicenseStorage())
 
     var body: some View {
         ContentView()
             .environment(model)
             .environment(history)
+            .environment(license)
             .task { model.scan() }
     }
 }

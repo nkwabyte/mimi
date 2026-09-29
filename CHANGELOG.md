@@ -18,6 +18,10 @@ and a release tag must match it.
   selected quarantine runs after a confirmation), and Clear All.
 - The app's Overview has a card for every CLI feature; the ones that
   delete open their command in Terminal.
+- The app's Settings page: licence (enter, check and remove a key, buy
+  links), default scan profile, engine details, data locations, and About.
+  Keys are Ed25519-signed and checked offline; nothing is locked yet.
+  The licence server plan is in `docs/LICENSING_PLAN.md`.
 
 ### Changed
 

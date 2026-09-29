@@ -61,7 +61,14 @@ final class AppModel {
     private(set) var phase: String = ""
     private(set) var permissionNotices: [String] = []
     private(set) var warnings: [String] = []
-    var profile: ScanProfile = .safe
+    /// Starts from the default chosen in Settings.
+    var profile: ScanProfile = ScanProfile(
+        rawValue: UserDefaults.standard.string(forKey: AppModel.defaultProfileKey) ?? ""
+    ) ?? .safe
+
+    /// UserDefaults key for the default scan profile (the app's own
+    /// preference; ~/.config/mimi is never written by the app).
+    static let defaultProfileKey = "defaultScanProfile"
 
     var isRunning: Bool { state == .running }
 

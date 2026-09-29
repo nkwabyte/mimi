@@ -11,6 +11,7 @@ import SwiftUI
 struct MimiApp: App {
     @State private var model: AppModel
     @State private var history: HistoryStore
+    @State private var license = LicenseStore()
 
     init() {
         let engine = ProcessEngineClient()
@@ -23,6 +24,7 @@ struct MimiApp: App {
             ContentView()
                 .environment(model)
                 .environment(history)
+                .environment(license)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
