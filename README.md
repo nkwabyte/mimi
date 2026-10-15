@@ -80,7 +80,7 @@ mimi -i
 The interactive dashboard displays a brand banner, live system snapshot, and clean shortcut cards:
 
 ```
- __  __ _           _ 
+ __  __ _           _
 |  \/  (_)_ __ ___ (_)
 | |\/| | | '_ ` _ \| |  v1.0.0
 | |  | | | | | | | | |  macOS System Cleaner & Optimizer
