@@ -105,9 +105,10 @@ show_brand_banner() {
 }
 
 get_quick_status_line() {
-  local os_prod arch free_info touchid_info=""
+  local os_prod arch free_info touchid_info="" df_target="/System/Volumes/Data"
   arch="$(uname -m 2>/dev/null || echo "mac")"
-  free_info="$(df -H / 2>/dev/null | awk 'NR==2{print $4 " free (" $5 " used)"}' || echo "")"
+  [ -d "$df_target" ] || df_target="${HOME:-/}"
+  free_info="$(df -H "$df_target" 2>/dev/null | awk 'NR==2{print $4 " free (" $5 " used)"}' || echo "")"
   if command -v sw_vers > /dev/null 2>&1; then
     os_prod="$(sw_vers -productVersion 2>/dev/null || echo "macOS")"
   else
@@ -158,7 +159,9 @@ show_version() {
     sip_status="Unknown"
   fi
 
-  disk_free="$(df -H / 2>/dev/null | awk 'NR==2{print $4}' || echo 'Unknown')"
+  local df_target="/System/Volumes/Data"
+  [ -d "$df_target" ] || df_target="${HOME:-/}"
+  disk_free="$(df -H "$df_target" 2>/dev/null | awk 'NR==2{print $4}' || echo 'Unknown')"
 
   check_full_disk_access 2>/dev/null || true
   if [ "${FDA_OK:-0}" = 1 ]; then

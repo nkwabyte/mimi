@@ -315,6 +315,21 @@ automatically.
 
 ## Install
 
+### Native macOS Desktop App (GUI)
+
+Prefer a graphical interface? Download the native macOS app [**iMimi**](https://github.com/nkwabyte/iMimi/releases) (`.dmg` or `.zip`). It runs natively on both Apple Silicon (M-series) and Intel Macs.
+
+> [!NOTE]
+> **First Launch on macOS (Privacy & Security)**
+> Because Mimi is a free open-source community app and is not yet signed with a paid Apple Developer certificate, macOS Gatekeeper may show a dialog saying *“Mimi” cannot be opened because Apple cannot check it for malicious software*.
+>
+> You can easily allow it to run:
+> 1. Open **System Settings** → **Privacy & Security**.
+> 2. Scroll down to the **Security** section.
+> 3. Under *“Mimi” was blocked from use...*, click **Open Anyway**.
+> 4. Enter your Mac password or Touch ID and click **Open**.
+> *(Alternatively, right-click **Mimi.app** in Finder and choose **Open**, or run `xattr -cr /Applications/Mimi.app` in Terminal).*
+
 ### Via Homebrew (Recommended)
 
 ```bash
