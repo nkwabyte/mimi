@@ -36,6 +36,7 @@ for _mimi_module in \
   cleaners/hints.sh \
   cleaners/optimize.sh \
   cleaners/installer.sh \
+  cleaners/purge.sh \
   apps/inventory.sh \
   apps/receipts.sh \
   apps/evidence.sh \

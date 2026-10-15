@@ -482,13 +482,6 @@ run_restore() {
   return "$EXIT_OK"
 }
 
-run_purge() {
-  log_init
-  info "Quarantine has been removed from $SCRIPT_NAME; all removals are verified, direct, and permanent."
-  info "There are no quarantine runs to purge."
-  return "$EXIT_OK"
-}
-
 main() {
   if [ "$REPORT_ONLY" = 1 ]; then
     log_init
@@ -540,7 +533,7 @@ main() {
     restore) run_restore ;;
     history) mimi_history ;;
     history_clear) mimi_history_clear ;;
-    purge) run_purge ;;
+    purge) run_purge "${PURGE_TARGET:-}" ;;
     *) run_selected_categories ;;
   esac
 }

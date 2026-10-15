@@ -30,6 +30,10 @@ SUBCOMMANDS:
   installer [path]        Scan and interactively remove leftover installer packages
                           (.dmg, .pkg, .iso, .xip, installer .zip).
                           --json emits structured installer findings.
+  purge [path]            Scan developer workspaces and purge heavy build artifacts
+                          (node_modules, target, .build, DerivedData, .venv, etc.).
+                          --paths lists/manages search directories.
+                          --json emits structured purge findings.
   plan [options]          Generate an immutable execution plan without mutating.
   apply <plan-file>       Validate and execute a plan directly with verified removal.
   version                 Display detailed system and version diagnostics.

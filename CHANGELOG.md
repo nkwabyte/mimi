@@ -8,6 +8,11 @@ and a release tag must match it.
 
 ### Added
 
+- `mimi purge`: project build artifacts discovery and purge engine inspired by Mole.
+  Scans developer workspaces (`~/Dev`, `~/Projects`, `~/Code`, custom paths via `--paths`),
+  detects heavy build artifacts (`node_modules`, `target`, `.build`, `DerivedData`, `.venv`,
+  `build`, `dist`, `.next`, `.gradle`, etc.) inside valid project roots, and provides
+  an interactive paginated selector with live search filtering, multi-sort, and `--json` telemetry.
 - `mimi history clear`: delete history records and mimi's own log files,
   all of them (`--all`) or by id and name (`--records`, `--logs`), after a
   confirmation (`--yes` answers). Quarantine runs are never touched.

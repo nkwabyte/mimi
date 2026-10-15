@@ -713,6 +713,19 @@ menu_select() {
             esac
           done
         fi ;;
+      p|P)
+        if [ "$title" = "Main menu" ]; then
+          local p_idx
+          for p_idx in "${!MENU_LABELS[@]}"; do
+            case "${MENU_LABELS[$p_idx]}" in
+              *"Purge"*|*"purge"*)
+                tui_clear_frame "$drawn"
+                tui_end
+                MENU_CHOICE="$p_idx"
+                return 0 ;;
+            esac
+          done
+        fi ;;
       *) ;;
     esac
   done
@@ -1384,6 +1397,7 @@ interactive_main() {
       "9  Manage whitelist      — protect custom directories, apps, or paths"
       "0  System diagnostics    — view macOS info, SIP & Full Disk Access"
       "i  Installer packages    — scan and remove leftover DMG, PKG and archives"
+      "p  Purge project artifacts — scan & remove heavy build artifacts (node_modules, target, etc.)"
       "c  Save configuration    — persist selection + settings as default"
       "s  Settings              — configure safety thresholds and preferences"
       "l  View most recent log  — inspect output from latest cleanup session"
@@ -1418,10 +1432,11 @@ interactive_main() {
       8) interactive_whitelist ;;
       9) show_version; interactive_pause ;;
       10) run_installer; interactive_pause ;;
-      11) save_config; interactive_pause ;;
-      12) interactive_settings ;;
-      13) view_last_log; interactive_pause ;;
-      14) exit 0 ;;
+      11) run_purge; interactive_pause ;;
+      12) save_config; interactive_pause ;;
+      13) interactive_settings ;;
+      14) view_last_log; interactive_pause ;;
+      15) exit 0 ;;
     esac
   done
 }

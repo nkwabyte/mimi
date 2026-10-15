@@ -202,10 +202,13 @@ while [ $# -gt 0 ]; do
       RUN_ID="$2"
       shift 2 ;;
     purge)
-      require_arg "purge" "$#" "${2-}"
       MODE="purge"
-      RUN_ID="$2"
-      shift 2 ;;
+      shift
+      if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
+        PURGE_TARGET="$1"
+        shift
+      fi
+      ;;
     --plan) MODE="plan"; shift ;;
     --plan-out)
       require_arg "--plan-out" "$#" "${2-}"
@@ -229,13 +232,16 @@ while [ $# -gt 0 ]; do
       MODE="restore"
       RUN_ID="${1#*=}"; shift ;;
     --purge)
-      require_arg "--purge" "$#" "${2-}"
       MODE="purge"
-      RUN_ID="$2"
-      shift 2 ;;
-    --purge=*)
-      MODE="purge"
-      RUN_ID="${1#*=}"; shift ;;
+      shift
+      if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
+        PURGE_TARGET="$1"
+        shift
+      fi
+      ;;
+    --paths)
+      PURGE_SHOW_PATHS=1
+      shift ;;
     --source)
       require_arg "--source" "$#" "${2-}"
       APP_SOURCE_FILTER="$2"; shift 2 ;;
@@ -459,7 +465,7 @@ validate_config_values
 #
 # Any --include-X flag adds X to ONLY_LIST and opens its gate.
 # --skip always wins over any of the above.
-if [ "$MODE" != "apps" ] && [ "$MODE" != "app_inspect" ] && [ "$MODE" != "app_uninstall" ] && [ "$MODE" != "history" ] && [ "$MODE" != "history_clear" ] && [ "$MODE" != "status" ] && [ "$MODE" != "optimize" ] && [ "$MODE" != "analyze" ] && [ "$MODE" != "touchid" ] && [ "$MODE" != "installer" ]; then
+if [ "$MODE" != "apps" ] && [ "$MODE" != "app_inspect" ] && [ "$MODE" != "app_uninstall" ] && [ "$MODE" != "history" ] && [ "$MODE" != "history_clear" ] && [ "$MODE" != "status" ] && [ "$MODE" != "optimize" ] && [ "$MODE" != "analyze" ] && [ "$MODE" != "touchid" ] && [ "$MODE" != "installer" ] && [ "$MODE" != "purge" ]; then
   if [ -z "$ONLY_LIST" ]; then
     if [ -n "$PROFILE" ]; then
       ONLY_LIST="$(profile_category_list "$PROFILE")"

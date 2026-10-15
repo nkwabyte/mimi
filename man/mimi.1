@@ -71,6 +71,9 @@ Configure or inspect Touch ID for sudo. Actions: status, enable, disable, toggle
 .TP
 .B installer
 Scan and remove leftover installer packages (.dmg, .pkg, .iso, .xip, installer .zip).
+.TP
+.B purge
+Scan developer workspaces and purge heavy build artifacts (node_modules, target, .build, DerivedData, .venv, etc.).
 .SH OPTIONS
 .TP
 .B \-\-aggressive
@@ -236,8 +239,11 @@ Save plan JSON to specified file path.
 .B \-\-profile \fIPROFILE\fR
 Run preset profile (safe, developer, aggressive).
 .TP
-.B \-\-purge \fIRUN_ID\fR
-Purge quarantine run by ID.
+.B \-\-paths
+List or manage search directories for project build artifact purging.
+.TP
+.B \-\-purge \fI[PATH]\fR
+Scan developer workspaces and purge heavy build artifacts.
 .TP
 .B \-\-purge\-data
 Delete the app's attributable data with it during uninstall (the default).
