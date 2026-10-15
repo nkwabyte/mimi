@@ -12,6 +12,10 @@ jobs:
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      released: ${{ steps.check_tag.outputs.exists == 'false' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -86,3 +90,14 @@ jobs:
           git tag -a "$TAG" -m "mimi $TAG"
           git push origin "$TAG"
           gh release create "$TAG" --title "mimi $TAG" --notes "$NOTES"
+
+  update-tap:
+    name: Update Homebrew Tap
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    uses: ./.github/workflows/homebrew-release.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    secrets:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+

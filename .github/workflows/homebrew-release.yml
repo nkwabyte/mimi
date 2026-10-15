@@ -9,6 +9,15 @@ on:
         description: 'Release tag to publish to tap (e.g. v0.1.0)'
         required: true
         type: string
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to publish to tap (e.g. v0.1.0)'
+        required: true
+        type: string
+    secrets:
+      HOMEBREW_TAP_TOKEN:
+        required: true
 
 jobs:
   update-tap:
@@ -68,7 +77,14 @@ jobs:
         run: |
           URL="https://github.com/nkwabyte/mimi/archive/refs/tags/${RELEASE_TAG}.tar.gz"
           echo "Downloading archive from $URL"
-          SHA256="$(curl -sSfL "$URL" | sha256sum | awk '{print $1}')"
+          for i in {1..5}; do
+            SHA256="$(curl -sSfL "$URL" | sha256sum | awk '{print $1}')" || true
+            if [ -n "$SHA256" ] && [ "${#SHA256}" -eq 64 ]; then
+              break
+            fi
+            echo "Waiting for archive to become available (attempt $i/5)..."
+            sleep 2
+          done
           if [ -z "$SHA256" ] || [ "${#SHA256}" -ne 64 ]; then
             echo "ERROR: Failed to compute valid SHA256 (got '$SHA256')" >&2
             exit 1
@@ -87,26 +103,25 @@ jobs:
       - name: Update Formula
         run: |
           mkdir -p homebrew-mimi/Formula
-          cat <<EOF > homebrew-mimi/Formula/mimi.rb
-          class Mimi < Formula
-            desc "macOS junk and developer cache cleaner (Xcode/simulator aware)"
-            homepage "https://github.com/nkwabyte/mimi"
-            url "${{ steps.checksum.outputs.url }}"
-            sha256 "${{ steps.checksum.outputs.sha256 }}"
-            license "MIT"
-
-            def install
-              prefix.install "bin", "lib", "libexec", "schemas"
-              bash_completion.install "completions/mimi.bash" => "mimi"
-              zsh_completion.install "completions/_mimi"
-              man1.install "man/mimi.1"
-            end
-
-            test do
-              assert_match "mimi #{version}", shell_output("#{bin}/mimi --version")
-            end
-          end
-          EOF
+          printf '%s\n' \
+            'class Mimi < Formula' \
+            '  desc "macOS junk and developer cache cleaner (Xcode/simulator aware)"' \
+            '  homepage "https://github.com/nkwabyte/mimi"' \
+            "  url \"${{ steps.checksum.outputs.url }}\"" \
+            "  sha256 \"${{ steps.checksum.outputs.sha256 }}\"" \
+            '  license "MIT"' \
+            '' \
+            '  def install' \
+            '    prefix.install "bin", "lib", "libexec", "schemas"' \
+            '    bash_completion.install "completions/mimi.bash" => "mimi"' \
+            '    zsh_completion.install "completions/_mimi"' \
+            '    man1.install "man/mimi.1"' \
+            '  end' \
+            '' \
+            '  test do' \
+            '    assert_match "mimi #{version}", shell_output("#{bin}/mimi --version")' \
+            '  end' \
+            'end' > homebrew-mimi/Formula/mimi.rb
 
       - name: Commit and push changes
         working-directory: homebrew-mimi
