@@ -48,22 +48,22 @@ load 'test_helper'
 }
 
 @test "update: detects when mimi is already up to date" {
-  MIMI_MOCK_LATEST_VERSION="0.4.0" run "$MIMI_BIN" update --check
+  MIMI_MOCK_LATEST_VERSION="0.5.0" run "$MIMI_BIN" update --check
   [ "$status" -eq 0 ]
   [[ "$output" == *"already up to date"* ]]
 }
 
 @test "update: detects when a new release is available" {
-  MIMI_MOCK_LATEST_VERSION="0.5.0" run "$MIMI_BIN" update --check
+  MIMI_MOCK_LATEST_VERSION="0.6.0" run "$MIMI_BIN" update --check
   [ "$status" -eq 0 ]
-  [[ "$output" == *"A new version of Mimi is available: v0.5.0"* ]]
+  [[ "$output" == *"A new version of Mimi is available: v0.6.0"* ]]
 }
 
 @test "update: emits JSON telemetry with update availability" {
-  MIMI_MOCK_LATEST_VERSION="0.5.0" run "$MIMI_BIN" update --check --json
+  MIMI_MOCK_LATEST_VERSION="0.6.0" run "$MIMI_BIN" update --check --json
   [ "$status" -eq 0 ]
   [[ "$output" == *'"type":"update_check"'* ]]
-  [[ "$output" == *'"latest_version":"0.5.0"'* ]]
+  [[ "$output" == *'"latest_version":"0.6.0"'* ]]
   [[ "$output" == *'"update_available":true'* ]]
 }
 
