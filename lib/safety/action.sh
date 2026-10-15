@@ -233,6 +233,7 @@ tool_cleanup() {
 # and every action checks the flag before starting.
 _on_interrupt() {
   RUN_INTERRUPTED=1
+  stop_spinner 2>/dev/null || true
   say ""
   warn "interrupted — finishing the action in progress, then stopping"
   return 0

@@ -15,6 +15,15 @@ Scan selected categories for junk files and caches without mutating anything.
 .B clean
 Quarantine or delete files in selected categories.
 .TP
+.B optimize
+Safely refresh caches and system services.
+.TP
+.B status
+Display live system health diagnostics.
+.TP
+.B analyze
+Explore disk usage and directory breakdown.
+.TP
 .B plan
 Generate a transaction plan without modifying files.
 .TP
@@ -56,10 +65,19 @@ is the same as
 .TP
 .B app
 Inspect or uninstall an application.
+.TP
+.B touchid
+Configure or inspect Touch ID for sudo. Actions: status, enable, disable, toggle.
+.TP
+.B installer
+Scan and remove leftover installer packages (.dmg, .pkg, .iso, .xip, installer .zip).
 .SH OPTIONS
 .TP
 .B \-\-aggressive
 Run the aggressive profile.
+.TP
+.B \-\-analyze
+Explore disk usage and directory breakdown.
 .TP
 .B \-\-android\-stale\-days \fIDAYS\fR
 Retention threshold for stale Android emulator images.
@@ -84,6 +102,9 @@ Interactive cleaner menu.
 .TP
 .B \-\-downloads\-stale\-days \fIDAYS\fR
 Days before downloads are reported as stale.
+.TP
+.B \-\-dry\-run
+Preview actions without mutating.
 .TP
 .B \-\-force\-risky \fIACTIONS\fR
 Authorize specific risky or irreversible actions (e.g. docker, mail, trash, orphans, purge).
@@ -145,6 +166,9 @@ Include emptying the Trash.
 .B \-\-include\-whatsapp
 Include WhatsApp media cache.
 .TP
+.B \-\-installer
+Scan and remove leftover installer packages.
+.TP
 .B \-\-interactive
 Launch interactive terminal UI.
 .TP
@@ -196,6 +220,9 @@ Non-interactive execution mode.
 .TP
 .B \-\-only \fICATEGORIES\fR
 Comma-separated list of category IDs to run.
+.TP
+.B \-\-optimize
+Safely refresh caches and system services.
 .TP
 .B \-\-plan
 Create a plan before executing.
@@ -254,6 +281,9 @@ Prepare system-scope uninstall request for root apply.
 .TP
 .B \-\-tmp\-stale\-days \fIDAYS\fR
 Days before temporary files are eligible for cleanup.
+.TP
+.B \-\-touchid
+Configure or inspect Touch ID for sudo.
 .TP
 .B \-\-vendor\-uninstaller
 Run verified vendor uninstaller if available.

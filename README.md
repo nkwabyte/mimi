@@ -77,26 +77,108 @@ mimi
 mimi -i
 ```
 
-(Any flag at all — including `--scan` — keeps the script fully scriptable/
-non-interactive, exactly as documented below. Only a truly bare invocation
-from an actual terminal enters the menu.)
-
-The menu is keyboard-driven — arrow keys to move, enter to select:
+The interactive dashboard displays a brand banner, live system snapshot, and clean shortcut cards:
 
 ```
+ __  __ _           _
+|  \/  (_)_ __ ___ (_)
+| |\/| | | '_ ` _ \| |  v1.0.0
+| |  | | | | | | | | |  macOS System Cleaner & Optimizer
+|_|  |_|_|_| |_| |_|_|  Apple Silicon & Developer Aware
+
+macOS 15.0 (arm64) • 142G free (45% used) • config: config
+
 Main menu
-  ↑/↓ move   enter select   q quit
-❯ Quick scan    — code-default safe categories, changes nothing
-  Quick clean   — code-default safe categories
-  Choose categories & run
-  Disk report   — where your space actually went
-  Manage whitelist
-  Settings
-  View category list (current selection)
-  View most recent log
-  Save current selection + settings as default
-  Quit
+  ↑/↓ move   1-9/0 jump   enter select   v info   q quit
+❯ 1  Quick scan            — code-default safe categories (read-only)
+  2  Quick clean           — clean safe caches and temporary files
+  3  Optimize system       — refresh caches, flush DNS & repair configs
+  4  System status         — live memory, swap, disk & battery health
+  5  Uninstall apps        — deep app removal with orphan cleanup
+  6  Choose categories     — pick individual categories to scan or clean
+  7  Disk space report     — inspect space usage and largest consumers
+  8  Manage whitelist      — protect custom directories, apps, or paths
+  9  System diagnostics    — view macOS info, SIP & Full Disk Access
+  0  Save configuration    — persist selection + settings as default
+  s  Settings              — configure safety thresholds and preferences
+  l  View most recent log  — inspect output from latest cleanup session
+  q  Quit
 ```
+
+### Dashboard Shortcuts
+
+| Key | Action |
+|---|---|
+| `1`–`9`, `0` | Direct jump / activate menu option |
+| `↑` `↓` / `k` `j` | Move selection cursor (atomic redraw without flicker) |
+| `enter` / `space` | Run selected action |
+| `s` | Instant Quick scan |
+| `c` | Instant Quick clean |
+| `o` | Optimize system (flush DNS, refresh QuickLook, lint preferences) |
+| `h` | Live system health and resource status |
+| `u` | Deep Application Uninstaller |
+| `v` | System diagnostics, SIP status & Full Disk Access check |
+| `l` | View latest cleanup session log |
+| `q` / `esc` | Quit Mimi cleanly |
+
+### System Health & Status (`mimi status`)
+
+Inspect live CPU, memory pressure (wired, active, compressed), swap usage, disk capacity, and hardware health formatted in a Mole-style terminal dashboard:
+
+```bash
+mimi status         # Pretty visual status card
+mimi status --json  # Structured JSON for scripts and telemetry
+```
+
+### Safe System Optimizations (`mimi optimize`)
+
+Run safe, non-destructive system maintenance routines:
+
+```bash
+mimi optimize             # Execute optimizations
+mimi optimize --dry-run   # Preview actions without mutating
+```
+
+- **DNS Resolver Flush**: Clears local resolver caches and refreshes `mDNSResponder`.
+- **QuickLook Thumbnail Reset**: Cleans stale QuickLook and icon services cache databases and restarts `quicklookd`.
+- **Corrupted Preferences Lint**: Automatically scans `~/Library/Preferences` with `plutil -lint` and safely removes 0-byte or corrupted plist files via `fs_remove`.
+- **Finder .DS_Store Suppression**: Sets persistent macOS preferences to prevent Finder from polluting network shares (SMB/AFP) and USB drives with `.DS_Store` files.
+- **Spotlight Index Verification**: Validates indexing status on root storage.
+
+### Interactive Storage Analyzer (`mimi analyze`)
+
+Explore disk space allocations with visual size bars, direct folder breakdowns, largest files, and interactive drill-down:
+
+```bash
+mimi analyze             # Analyze home directory (~/)
+mimi analyze /Applications # Analyze applications folder
+mimi analyze ~/Downloads # Analyze downloads folder
+mimi analyze --json      # Output structured JSON for analysis
+```
+
+- Features 1-depth directory breakdown sorted by disk consumption.
+- Highlights largest individual files in the target tree.
+- Allows interactive drill-down: press `1`-`8` to enter any subfolder, `b` to navigate up, or `o` to reveal in Finder.
+
+
+### Advanced Application Uninstaller (`mimi uninstall`)
+
+The interactive uninstaller features an alternate screen buffer (`smcup`/`rmcup`), dynamic terminal height sensing, live search filtering, and sorting:
+
+```
+Uninstall applications  (1/42 selected)  [Sort: Size]
+  ↑/↓ move   space select   / search   s sort   enter uninstall   a all   x none   q back
+  Deletes the app and its own files. It cannot be undone.
+
+❯ ● Xcode.app                  cask     31.4 GB   /Applications/Xcode.app
+  ○ Android Studio.app         cask     2.8 GB    /Applications/Android Studio.app
+  ○ Slack.app                  app      480 MB    /Applications/Slack.app
+  — showing 1-15 of 42 —
+```
+
+- Press `/` to enter real-time search mode and filter apps instantly by name or path.
+- Press `s` to toggle sort by Size (descending/ascending) or Name.
+- Press `space` to select apps, `a` for all, `x` to clear, and `enter` to batch uninstall with safety confirmation.
 
 - **Choose categories & run** — a live checklist of every category
   (including all the opt-in ones from this doc — WhatsApp, orphans,

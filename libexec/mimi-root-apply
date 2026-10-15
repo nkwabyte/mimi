@@ -785,7 +785,7 @@ run_dir_for() {
 cmd_restore() {
   local run_dir kind label orig q ident restored=0 failed=0 jobs=0
   require_root
-  run_dir="$(run_dir_for "$1")"
+  run_dir="$(run_dir_for "$1")" || return 1
   while IFS=$'\t' read -r kind label orig q ident; do
     [ -n "$orig" ] || continue
     # The source is always the direct child of this run with the manifest's
@@ -834,7 +834,7 @@ cmd_restore() {
 cmd_purge() {
   local id="$1" run_dir typed
   require_root
-  run_dir="$(run_dir_for "$id")"
+  run_dir="$(run_dir_for "$id")" || return 1
   say "This permanently deletes quarantine run $id:"
   /usr/bin/cut -f3 "$run_dir/manifest.tsv" | /usr/bin/sed 's/^/  /'
   printf 'Type "purge" to delete it for good: '

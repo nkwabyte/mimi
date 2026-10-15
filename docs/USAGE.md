@@ -319,24 +319,25 @@ estimate, and both separately from what is retained.
 ### `mimi uninstall`
 
 Lists the installed applications, leaving out system and Apple apps and
-anything mimi would refuse to uninstall, so you can pick the ones to remove:
+anything mimi would refuse to uninstall, in an interactive paginated alternate screen:
 
 ```
-Uninstall applications  (2/31 selected)
-  ↑/↓ move   space select   enter uninstall   a all   x none   q back
+Uninstall applications  (2/31 selected)  [Sort: Size]
+  ↑/↓ move   space select   / search   s sort   enter uninstall   a all   x none   q back
   Deletes the app and its own files. It cannot be undone.
 
-  ● Figma                        cask     /Applications/Figma.app
-❯ ○ Slack                        app      /Applications/Slack.app
-  ● Zoom                         app      /Applications/zoom.us.app
+  ● Figma                        cask     1.4 GB   /Applications/Figma.app
+❯ ○ Slack                        app      480 MB   /Applications/Slack.app
+  ● Zoom                         app      180 MB   /Applications/zoom.us.app
 ```
 
-The keys are the same as the category picker: `space` selects or clears the
-app under the cursor (`●` selected, `○` not), `a` selects every app, `x`
-clears the selection, and `q` leaves without changing anything. `enter`
-lists the selected apps and asks you to type `uninstall` once for all of
-them; each app is then uninstalled exactly as `mimi app uninstall` would
-(below), one after the other. `--keep-data` keeps their user data.
+The keys:
+- `space` selects or clears the app under the cursor (`●` selected, `○` not)
+- `/` enters live search filter mode (matching name or path substrings)
+- `s` cycles sorting mode between Size (descending/ascending) and Name
+- `a` selects every visible app, `x` clears the selection
+- `q` or `esc` leaves without changing anything
+- `enter` lists the selected apps and asks you to type `uninstall` once for all of them; each app is then uninstalled cleanly. `--keep-data` keeps their user data.
 
 It needs a terminal. `mimi uninstall <target>` is the same as
 `mimi app uninstall <target>`, and the menu's "Uninstall applications" opens

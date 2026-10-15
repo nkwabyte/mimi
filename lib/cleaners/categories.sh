@@ -527,7 +527,7 @@ cat_mail() {
 # removing a hand-picked subset.
 cat_orphans() {
   if [ "$MODE" = "clean" ] && [ "$REMOVE_ORPHANS" = 1 ]; then
-    section "Application leftovers (moving to quarantine)"
+    section "Application leftovers (cleaning)"
   else
     section "Possible application leftovers (report only)"
   fi
@@ -536,8 +536,9 @@ cat_orphans() {
     return
   fi
 
-  info "indexing installed applications (Spotlight + standard app folders)..."
+  start_spinner "Indexing installed applications..."
   build_installed_identifiers
+  stop_spinner 2>/dev/null || true
 
   if [ "$ORPHAN_INDEX_COMPLETE" != 1 ]; then
     warn "the installed-application index is INCOMPLETE: $ORPHAN_INDEX_NOTE"
@@ -546,7 +547,9 @@ cat_orphans() {
     warn "an application was uninstalled — check each one yourself."
   fi
 
+  start_spinner "Collecting orphan candidate paths..."
   collect_orphan_candidates
+  stop_spinner 2>/dev/null || true
 
   local n="${#ORPHAN_CANDIDATE_PATHS[@]}"
   if [ "$n" -eq 0 ]; then
@@ -580,7 +583,7 @@ cat_orphans() {
     return 0
   fi
   if [ "$REMOVE_ORPHANS" = 1 ]; then
-    info "(scan mode — with clean, these $n item(s) would be moved to quarantine)"
+    info "(scan mode — with clean, these $n item(s) would be safely removed)"
     return 0
   fi
   warn "Both tiers are heuristic. Neither is removed by this scan."
@@ -594,7 +597,7 @@ cat_orphans() {
     warn "$ORPHAN_REVIEW_SKIPPED candidate(s) contain a newline in their name and could not be"
     warn "listed in a line-based file; remove those by hand."
   fi
-  info "To move ALL of them to quarantine (undo with 'restore'), run:"
+  info "To remove ALL of them, run:"
   info "  $SCRIPT_NAME clean --only orphans --remove-orphans"
   info "To remove only some, delete the lines you want to KEEP from that file, then run:"
   info "  $SCRIPT_NAME clean --remove-orphans-from \"$review_file\""
@@ -604,29 +607,22 @@ cat_orphans() {
   return 0
 }
 
-# Move every current orphan candidate into one quarantine run.
+# Remove every current orphan candidate directly with verified checks.
 #
 # Every path goes through the same checks as a reviewed-file line
 # (validate_orphan_target: still exists, a direct child of a scanned root,
-# canonical, not whitelisted) immediately before it is moved, and SIP-protected
-# entries are left alone. A user LaunchAgent is stopped first so it does not
-# keep running from the quarantine.
+# canonical, not whitelisted) immediately before it is removed, and SIP-protected
+# entries are left alone. A user LaunchAgent is stopped first.
 orphans_quarantine_all() {
   local total_kb="${1:-0}" n="${#ORPHAN_CANDIDATE_PATHS[@]}"
-  local run_id="orphans-$TIMESTAMP" i p canon ident size moved=0 moved_kb=0
+  local i p canon ident size removed=0 removed_kb=0
 
   say ""
   if [ "$INCLUDE_WEAK_ORPHANS" != 1 ]; then
-    info "Moving the [strong] leftovers to quarantine run $run_id; [weak] guesses stay"
-    info "(add --include-weak to move those too, or pick them in the review file)."
+    info "Removing the [strong] leftovers; [weak] guesses stay"
+    info "(add --include-weak to remove those too, or pick them in the review file)."
   else
-    info "Moving $n leftover(s) ($(human_kb "$total_kb")) to quarantine run $run_id ..."
-  fi
-  quarantine_expire_runs
-  if ! quarantine_init_run "$run_id"; then
-    err "could not create the quarantine run; nothing was moved"
-    record_action failed
-    return 1
+    info "Removing $n leftover(s) ($(human_kb "$total_kb")) ..."
   fi
 
   for ((i = 0; i < n; i++)); do
@@ -641,7 +637,7 @@ orphans_quarantine_all() {
     fi
     if ! validate_orphan_target "$p"; then
       case "$ORPHAN_DENY_REASON" in
-        missing) verbose "gone before it was moved: $p" ;;
+        missing) verbose "gone before it was removed: $p" ;;
         whitelisted) record_action skipped; info "whitelisted, skipped: $p" ;;
         *) record_action skipped; warn "refused ($(orphan_deny_message)): $p" ;;
       esac
@@ -658,28 +654,24 @@ orphans_quarantine_all() {
     if [[ "$canon" == *"/LaunchAgents/"* ]]; then
       unload_launch_agent "$canon" || true
     fi
-    if quarantine_target "orphan-$i" "orphans" "$canon" "$ident" "$((size * 1024))"; then
+    if fs_remove "$canon"; then
       record_action ok
-      moved=$((moved + 1))
-      moved_kb=$((moved_kb + size))
-      TOTAL_QUARANTINED_KB=$((TOTAL_QUARANTINED_KB + size))
-      ok "quarantined: $canon  ($(human_kb "$size"))"
-      [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "quarantined" "$canon" "$((size * 1024))"
+      removed=$((removed + 1))
+      removed_kb=$((removed_kb + size))
+      TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + size))
+      ok "removed: $canon  ($(human_kb "$size"))"
+      [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "ok" "$canon" "$((size * 1024))"
     else
       record_action failed
-      err "could not move to quarantine: $canon"
+      err "could not remove: $canon"
     fi
   done
 
   say ""
-  if [ "$moved" -gt 0 ]; then
-    ok "$moved leftover(s), $(human_kb "$moved_kb"), moved to quarantine run $run_id"
-    info "Something missing from an app? Put everything back with:"
-    info "  $SCRIPT_NAME restore $run_id"
-    info "The space is released once you are sure, with:"
-    info "  $SCRIPT_NAME purge $run_id"
+  if [ "$removed" -gt 0 ]; then
+    ok "$removed leftover(s), $(human_kb "$removed_kb"), removed"
   else
-    info "nothing was moved"
+    info "nothing was removed"
   fi
   return 0
 }
