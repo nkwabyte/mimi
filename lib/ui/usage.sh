@@ -11,26 +11,33 @@ usage() {
 mimi — macOS junk cleaner (Xcode/simulator aware)
 
 USAGE:
-  mimi [scan | clean | plan | apply | restore | purge | apps | app] [options]
-  mimi [--scan | --cleaner | --plan] [options]
+  mimi [scan | clean | optimize | status | analyze | plan | apply | apps | app] [options]
+  mimi [--scan | --cleaner | --optimize | --analyze | --plan] [options]
 
 SUBCOMMANDS:
   scan [options]          Report reclaimable space only. Deletes nothing.
   clean [options]         Actually remove junk with confirmation.
+  optimize [options]      Safely refresh caches and system services (DNS, QuickLook,
+                          preferences integrity lint, and .DS_Store suppression).
+                          --dry-run preview without mutating.
+  status [options]        Display live system health (CPU, Memory, Swap, Disk, Battery, SIP).
+                          --json emits structured health data.
+  analyze [path]          Interactive disk space analyzer: inspect directory usage,
+                          largest files, and drill down into subdirectories.
+                          --json emits structured storage analysis.
+  touchid [action]        Configure or check Touch ID for sudo (enable, disable, status).
+                          --dry-run preview without mutating PAM configs.
   plan [options]          Generate an immutable execution plan without mutating.
-  apply <plan-file>       Validate and execute a plan using atomic quarantine.
-  restore <run-id>        Restore a previously quarantined run to original paths.
-  purge <run-id>          Permanently remove a quarantined run.
-  history [--limit N]     What mimi has done (cleans, applies, restores, purges,
-                          uninstalls, hand-offs), the quarantine runs that can
-                          be restored, and the log files kept.
+  apply <plan-file>       Validate and execute a plan directly with verified removal.
+  version                 Display detailed system and version diagnostics.
+  history [--limit N]     What mimi has done (cleans, applies, optimizations,
+                          uninstalls, hand-offs), and the log files kept.
                           --json emits schemas/history-v2.json.
   history clear           Delete history records and mimi's own log files.
                           --all             every record and log file
                           --records ID,...  records by id (from --json)
                           --logs NAME,...   log files by name
-                          Quarantine runs are kept (see purge). Asks first;
-                          --yes answers. --json emits
+                          Asks first; --yes answers. --json emits
                           schemas/history-clear-v1.json.
   apps [list] [options]   Inventory installed applications (read-only).
                           --source all|app|cask|mas|pkg|system   Filter by provenance.
@@ -73,6 +80,7 @@ MODES:
                           answer. --clean is still accepted as a synonym.
   --plan                  Generate an immutable plan file (synonym for 'plan').
   --apply <file>          Apply an execution plan (synonym for 'apply').
+  --touchid               Inspect or configure Touch ID for sudo.
   --restore <run-id>      Restore a quarantined run (synonym for 'restore').
   --purge <run-id>        Permanently purge a quarantine run (synonym for 'purge').
   -i, --interactive       Menu-driven mode: toggle categories, edit the

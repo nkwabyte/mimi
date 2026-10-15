@@ -479,7 +479,7 @@ MENU_CHOICE=-1
 
 menu_select() {
   # $1 = title, $2 = starting index
-  local title="$1" cur="${2:-0}" count drawn=0 key i rows vh top=0
+  local title="$1" cur="${2:-0}" count drawn=0 key i rows vh top=0 reserved
   count="${#MENU_LABELS[@]}"
   [ "$count" -gt 0 ] || { MENU_CHOICE=-1; return 1; }
   [ "$cur" -ge "$count" ] && cur=0
@@ -489,7 +489,7 @@ menu_select() {
       printf '  %2d) %s\n' "$((i + 1))" "${MENU_LABELS[$i]}"
     done
     local sel
-    read -r -p "> " sel </dev/tty
+    _tui_read -p "> " sel 2>/dev/null || read -r -p "> " sel </dev/tty 2>/dev/null || sel=""
     case "$sel" in
       ''|*[!0-9]*) MENU_CHOICE=-1; return 1 ;;
     esac
@@ -502,8 +502,17 @@ menu_select() {
   tui_begin
   while true; do
     rows="$(term_rows)"
-    vh=$((rows - 5))
-    [ "$vh" -lt 4 ] && vh=4
+    if [ "$title" = "Main menu" ]; then
+      if [ "$rows" -ge 24 ]; then
+        reserved=11
+      else
+        reserved=6
+      fi
+    else
+      reserved=4
+    fi
+    vh=$((rows - reserved))
+    [ "$vh" -lt 3 ] && vh=3
     [ "$vh" -gt "$count" ] && vh="$count"
     [ "$cur" -lt "$top" ] && top="$cur"
     [ "$cur" -ge $((top + vh)) ] && top=$((cur - vh + 1))
@@ -511,11 +520,23 @@ menu_select() {
 
     local end=$((top + vh)) mw frame label
     [ "$end" -gt "$count" ] && end="$count"
-    mw=$(( $(term_cols) - 3 ))
+    mw=$(( $(term_cols) - 4 ))
     [ "$mw" -lt 10 ] && mw=10
     frame="$(
-      printf '%s\n' "${C_BOLD}${title}${C_RESET}"
-      printf '%s\n' "${C_DIM}  ↑/↓ move   enter select   q quit${C_RESET}"
+      if [ "$title" = "Main menu" ]; then
+        if [ "$rows" -ge 24 ]; then
+          show_brand_banner
+        else
+          printf '%s\n' "${C_CYAN}${C_BOLD}MIMI${C_RESET} ${C_GRAY}v${MIMI_VERSION}${C_RESET} — macOS System Cleaner & Optimizer"
+        fi
+        get_quick_status_line
+        printf '\n\n'
+        printf '%s\n' "${C_BOLD}${title}${C_RESET}"
+        printf '%s\n' "${C_DIM}  ↑/↓ move   1-9/0 jump   enter select   v info   q quit${C_RESET}"
+      else
+        printf '%s\n' "${C_BOLD}${title}${C_RESET}"
+        printf '%s\n' "${C_DIM}  ↑/↓ move   enter select   q quit${C_RESET}"
+      fi
       i="$top"
       while [ "$i" -lt "$end" ]; do
         label="${MENU_LABELS[$i]:0:$mw}"
@@ -528,7 +549,12 @@ menu_select() {
       done
     )"
     tui_paint "$drawn" "$frame"
-    drawn=$((vh + 2))
+    if [ -z "$frame" ]; then
+      drawn=0
+    else
+      local tmp="${frame//$'\n'/}"
+      drawn=$(( ${#frame} - ${#tmp} + 1 ))
+    fi
 
     key="$(read_key)"
     case "$key" in
@@ -546,13 +572,129 @@ menu_select() {
         tui_end
         MENU_CHOICE=-1
         return 1 ;;
-      [0-9])
+      [1-9])
         i=$((key - 1))
         if [ "$i" -ge 0 ] && [ "$i" -lt "$count" ]; then
           tui_clear_frame "$drawn"
           tui_end
           MENU_CHOICE="$i"
           return 0
+        fi ;;
+      0)
+        if [ "$count" -ge 10 ]; then
+          tui_clear_frame "$drawn"
+          tui_end
+          MENU_CHOICE=9
+          return 0
+        fi ;;
+      v|V)
+        if [ "$title" = "Main menu" ]; then
+          local v_idx
+          for v_idx in "${!MENU_LABELS[@]}"; do
+            case "${MENU_LABELS[$v_idx]}" in
+              *"diagnostics"*|*"Diagnostics"*)
+                tui_clear_frame "$drawn"
+                tui_end
+                MENU_CHOICE="$v_idx"
+                return 0 ;;
+            esac
+          done
+        fi ;;
+      s|S)
+        if [ "$title" = "Main menu" ]; then
+          tui_clear_frame "$drawn"
+          tui_end
+          MENU_CHOICE=0
+          return 0
+        fi ;;
+      c|C)
+        if [ "$title" = "Main menu" ]; then
+          tui_clear_frame "$drawn"
+          tui_end
+          MENU_CHOICE=1
+          return 0
+        fi ;;
+      a|A)
+        if [ "$title" = "Main menu" ]; then
+          local a_idx
+          for a_idx in "${!MENU_LABELS[@]}"; do
+            case "${MENU_LABELS[$a_idx]}" in
+              *"analyze"*|*"Analyze"*)
+                tui_clear_frame "$drawn"
+                tui_end
+                MENU_CHOICE="$a_idx"
+                return 0 ;;
+            esac
+          done
+        fi ;;
+      o|O)
+        if [ "$title" = "Main menu" ]; then
+          local o_idx
+          for o_idx in "${!MENU_LABELS[@]}"; do
+            case "${MENU_LABELS[$o_idx]}" in
+              *"optimize"*|*"Optimize"*)
+                tui_clear_frame "$drawn"
+                tui_end
+                MENU_CHOICE="$o_idx"
+                return 0 ;;
+            esac
+          done
+        fi ;;
+      h|H)
+        if [ "$title" = "Main menu" ]; then
+          local h_idx
+          for h_idx in "${!MENU_LABELS[@]}"; do
+            case "${MENU_LABELS[$h_idx]}" in
+              *"status"*|*"Status"*)
+                tui_clear_frame "$drawn"
+                tui_end
+                MENU_CHOICE="$h_idx"
+                return 0 ;;
+            esac
+          done
+        fi ;;
+      u|U)
+        if [ "$title" = "Main menu" ]; then
+          local u_idx
+          for u_idx in "${!MENU_LABELS[@]}"; do
+            case "${MENU_LABELS[$u_idx]}" in
+              *"uninstall"*|*"Uninstall"*)
+                tui_clear_frame "$drawn"
+                tui_end
+                MENU_CHOICE="$u_idx"
+                return 0 ;;
+            esac
+          done
+          tui_clear_frame "$drawn"
+          tui_end
+          MENU_CHOICE=3
+          return 0
+        fi ;;
+      l|L)
+        if [ "$title" = "Main menu" ]; then
+          local l_idx
+          for l_idx in "${!MENU_LABELS[@]}"; do
+            case "${MENU_LABELS[$l_idx]}" in
+              *"recent log"*|*"Recent log"*)
+                tui_clear_frame "$drawn"
+                tui_end
+                MENU_CHOICE="$l_idx"
+                return 0 ;;
+            esac
+          done
+        fi ;;
+      t|T)
+        if [ "$title" = "Main menu" ]; then
+          local t_idx
+          for t_idx in "${!MENU_LABELS[@]}"; do
+            case "${MENU_LABELS[$t_idx]}" in
+              *"Touch ID"*|*"touchid"*)
+                tui_clear_frame "$drawn"
+                tui_end
+                MENU_CHOICE="$t_idx"
+                return 0 ;;
+            esac
+          done
         fi ;;
       *) ;;
     esac
@@ -864,18 +1006,20 @@ APP_PICK_MSG=""
 # records system apps; this screen does not show them.
 _apps_only_selectable() {
   local i n=0
-  local -a paths names sources
+  local -a paths names sources sizes
   for i in "${!APP_INV_PATHS[@]}"; do
     [ "${APP_INV_SYSTEM[$i]}" = 1 ] && continue
     [ "${APP_INV_ELIGIBLE[$i]}" = 1 ] || continue
     paths[$n]="${APP_INV_PATHS[$i]}"
     names[$n]="${APP_INV_NAMES[$i]}"
     sources[$n]="${APP_INV_SOURCES[$i]}"
+    sizes[$n]="${APP_INV_SIZES[$i]:-0}"
     n=$((n + 1))
   done
   APP_INV_PATHS=()
   APP_INV_NAMES=()
   APP_INV_SOURCES=()
+  APP_INV_SIZES=()
   APP_INV_SYSTEM=()
   APP_INV_ELIGIBLE=()
   APP_INV_COUNT=0
@@ -883,6 +1027,7 @@ _apps_only_selectable() {
   APP_INV_PATHS=("${paths[@]}")
   APP_INV_NAMES=("${names[@]}")
   APP_INV_SOURCES=("${sources[@]}")
+  APP_INV_SIZES=("${sizes[@]}")
   local j
   for ((j = 0; j < n; j++)); do
     APP_INV_SYSTEM[$j]=0
@@ -908,24 +1053,36 @@ _apps_mark() {
   fi
 }
 
-# Draws exactly vh + 5 lines: header, keys, warning, status, the rows, and a
-# footer. A fixed height keeps tui_paint's cursor arithmetic right.
+# Draws header, keys, warning, status, the rows, and a footer.
 _apps_draw() {
   local cur="$1" top="$2" vh="$3" cols="${4:-}"
-  local i name src path line count dw
+  local i idx name src path line count visible_count dw
   count="${#APP_INV_PATHS[@]}"
+  visible_count="${#APP_VIEW_INDICES[@]}"
   [ -n "$cols" ] || cols="$(term_cols)"
   # "❯ ● " + 28 name + 9 source = 41 columns before the path. Rows must not
   # wrap, so the path is cut to what is left.
   dw=$(( cols - 42 ))
   [ "$dw" -lt 10 ] && dw=10
-  printf '%s\n' "${C_BOLD}Uninstall applications${C_RESET}  ${C_DIM}($(_apps_selected_count)/${count} selected)${C_RESET}"
-  if [ "$cols" -ge 84 ]; then
-    printf '%s\n' "${C_DIM}  ↑/↓ move   space select   enter uninstall   a all   x none   q back${C_RESET}"
+
+  local sort_label="Name"
+  [ "$APP_SORT_MODE" = "size" ] && sort_label="Size"
+  [ "$APP_SORT_REV" = 1 ] && sort_label="${sort_label} (rev)"
+
+  local search_status=""
+  if [ -n "$APP_SEARCH_QUERY" ]; then
+    search_status="  ${C_CYAN}[Filter: \"$APP_SEARCH_QUERY\"]${C_RESET}"
+  fi
+
+  printf '%s\n' "${C_BOLD}Uninstall applications${C_RESET}  ${C_DIM}($(_apps_selected_count)/${count} selected)${C_RESET}${search_status}  ${C_GRAY}[Sort: ${sort_label}]${C_RESET}"
+  if [ "$APP_SEARCH_MODE" = 1 ]; then
+    printf '%s\n' "${C_YELLOW}  Search: ${APP_SEARCH_QUERY}█${C_RESET} ${C_DIM}(enter/esc to finish, backspace to delete)${C_RESET}"
+  elif [ "$cols" -ge 84 ]; then
+    printf '%s\n' "${C_DIM}  ↑/↓ move   space select   / search   s sort   enter uninstall   a all   x none   q back${C_RESET}"
   elif [ "$cols" -ge 60 ]; then
-    printf '%s\n' "${C_DIM}  ↑↓ move  space select  ⏎ uninstall  q back${C_RESET}"
+    printf '%s\n' "${C_DIM}  ↑↓ move  space select  / search  s sort  ⏎ uninstall  q back${C_RESET}"
   else
-    printf '%s\n' "${C_DIM}  ↑↓ space ⏎ q${C_RESET}"
+    printf '%s\n' "${C_DIM}  ↑↓ space / s ⏎ q${C_RESET}"
   fi
   printf '%s\n' "${C_DIM}  Deletes the app and its own files. It cannot be undone.${C_RESET}"
   if [ -n "$APP_PICK_MSG" ]; then
@@ -934,15 +1091,16 @@ _apps_draw() {
     printf '\n'
   fi
   local end=$((top + vh))
-  [ "$end" -gt "$count" ] && end="$count"
+  [ "$end" -gt "$visible_count" ] && end="$visible_count"
   i="$top"
   while [ "$i" -lt "$end" ]; do
-    name="${APP_INV_NAMES[$i]}"
-    src="${APP_INV_SOURCES[$i]}"
-    path="${APP_INV_PATHS[$i]}"
+    idx="${APP_VIEW_INDICES[$i]}"
+    name="${APP_INV_NAMES[$idx]}"
+    src="${APP_INV_SOURCES[$idx]}"
+    path="${APP_INV_PATHS[$idx]}"
     [ ${#name} -gt 28 ] && name="${name:0:25}..."
     [ ${#path} -gt "$dw" ] && path="…${path: -$((dw - 1))}"
-    printf -v line '%s %-28s %-8s %s' "$(_apps_mark "$i")" "$name" "$src" "$path"
+    printf -v line '%s %-28s %-8s %s' "$(_apps_mark "$idx")" "$name" "$src" "$path"
     if [ "$i" = "$cur" ]; then
       printf '%s\n' "${C_BOLD}${C_CYAN}❯ ${C_RESET}${C_BOLD}${line}${C_RESET}"
     else
@@ -950,8 +1108,10 @@ _apps_draw() {
     fi
     i=$((i + 1))
   done
-  if [ "$count" -gt "$vh" ]; then
-    printf '%s\n' "${C_DIM}  — showing $((top + 1))-$end of $count —${C_RESET}"
+  if [ "$visible_count" -gt "$vh" ]; then
+    printf '%s\n' "${C_DIM}  — showing $((top + 1))-$end of $visible_count —${C_RESET}"
+  elif [ "$visible_count" -eq 0 ]; then
+    printf '%s\n' "${C_YELLOW}  — no applications match \"$APP_SEARCH_QUERY\" —${C_RESET}"
   else
     printf '\n'
   fi
@@ -1078,10 +1238,17 @@ interactive_uninstall_apps() {
   fi
 
   local count cur=0 top=0 vh rows cols drawn key frame
-  count="${#APP_INV_PATHS[@]}"
+  APP_SORT_MODE="name"
+  APP_SORT_REV=0
+  APP_SEARCH_QUERY=""
+  APP_SEARCH_MODE=0
+  app_build_view_indices "$APP_SEARCH_QUERY" "$APP_SORT_MODE" "$APP_SORT_REV"
+
+  enter_alt_screen
   tui_begin
   drawn=0
   while true; do
+    count="${#APP_VIEW_INDICES[@]}"
     rows="$(term_rows)"
     cols="$(term_cols)"
     vh=$((rows - 7))
@@ -1092,9 +1259,42 @@ interactive_uninstall_apps() {
     [ "$top" -lt 0 ] && top=0
     frame="$(_apps_draw "$cur" "$top" "$vh" "$cols")"
     tui_paint "$drawn" "$frame"
-    drawn=$((vh + 5))
+    if [ -z "$frame" ]; then
+      drawn=0
+    else
+      local tmp="${frame//$'\n'/}"
+      drawn=$(( ${#frame} - ${#tmp} + 1 ))
+    fi
     key="$(read_key)"
     APP_PICK_MSG=""
+
+    if [ "$APP_SEARCH_MODE" = 1 ]; then
+      case "$key" in
+        enter|esc)
+          APP_SEARCH_MODE=0
+          ;;
+        backspace)
+          if [ -n "$APP_SEARCH_QUERY" ]; then
+            APP_SEARCH_QUERY="${APP_SEARCH_QUERY%?}"
+            app_build_view_indices "$APP_SEARCH_QUERY" "$APP_SORT_MODE" "$APP_SORT_REV"
+            cur=0; top=0
+          else
+            APP_SEARCH_MODE=0
+          fi
+          ;;
+        quit|q|Q)
+          APP_SEARCH_MODE=0
+          ;;
+        [a-zA-Z0-9._\ -])
+          APP_SEARCH_QUERY="${APP_SEARCH_QUERY}${key}"
+          app_build_view_indices "$APP_SEARCH_QUERY" "$APP_SORT_MODE" "$APP_SORT_REV"
+          cur=0; top=0
+          ;;
+        *) ;;
+      esac
+      continue
+    fi
+
     case "$key" in
       up|k)    cur=$((cur - 1)); [ "$cur" -lt 0 ] && cur=$((count - 1)) ;;
       down|j)  cur=$((cur + 1)); [ "$cur" -ge "$count" ] && cur=0 ;;
@@ -1102,9 +1302,28 @@ interactive_uninstall_apps() {
       pgdn)    cur=$((cur + vh)); [ "$cur" -ge "$count" ] && cur=$((count - 1)) ;;
       home|g)  cur=0 ;;
       end|G)   cur=$((count - 1)) ;;
-      space|right) _apps_toggle "$cur" ;;
+      space|right)
+        if [ "$count" -gt 0 ]; then
+          _apps_toggle "${APP_VIEW_INDICES[$cur]}"
+        fi ;;
       a|A) _apps_set_all 1 ;;
       x|X|n|N) _apps_set_all 0 ;;
+      /)
+        APP_SEARCH_MODE=1
+        ;;
+      s|S)
+        if [ "$APP_SORT_MODE" = "name" ]; then
+          APP_SORT_MODE="size"
+          APP_SORT_REV=0
+        elif [ "$APP_SORT_MODE" = "size" ] && [ "$APP_SORT_REV" = 0 ]; then
+          APP_SORT_REV=1
+        else
+          APP_SORT_MODE="name"
+          APP_SORT_REV=0
+        fi
+        app_build_view_indices "$APP_SEARCH_QUERY" "$APP_SORT_MODE" "$APP_SORT_REV"
+        cur=0; top=0
+        ;;
       enter|u|U)
         if [ "$(_apps_selected_count)" -eq 0 ]; then
           APP_PICK_MSG="Nothing selected. Press space on an app to select it."
@@ -1112,6 +1331,7 @@ interactive_uninstall_apps() {
         fi
         tui_clear_frame "$drawn"
         tui_end
+        leave_alt_screen
         _apps_wipe_selected || rc=$?
         [ "$as_command" = 1 ] || interactive_pause
         return "$rc"
@@ -1119,6 +1339,7 @@ interactive_uninstall_apps() {
       q|Q|b|B|esc|quit)
         tui_clear_frame "$drawn"
         tui_end
+        leave_alt_screen
         return 0 ;;
       *) ;;
     esac
@@ -1129,23 +1350,26 @@ interactive_main() {
   log_init
   build_category_state
   local last=0
-  say "${C_BOLD}${SCRIPT_NAME} — interactive mode${C_RESET}  (config: $CONFIG_FILE)"
-  if tui_available; then
-    say "${C_DIM}Arrow keys to move, enter to select. Number keys still work.${C_RESET}"
+  if ! tui_available; then
+    say "${C_BOLD}${SCRIPT_NAME} — interactive mode${C_RESET}  (config: $CONFIG_FILE)"
+    say "${C_DIM}Enter a number to select an option.${C_RESET}"
   fi
   while true; do
     MENU_LABELS=(
-      "Quick scan    — code-default safe categories, changes nothing"
-      "Quick clean   — code-default safe categories"
-      "Choose categories & run"
-      "Uninstall applications"
-      "Disk report   — where your space actually went"
-      "Manage whitelist"
-      "Settings"
-      "View category list (current selection)"
-      "View most recent log"
-      "Save current selection + settings as default"
-      "Quit"
+      "1  Quick scan            — code-default safe categories (read-only)"
+      "2  Quick clean           — clean safe caches and temporary files"
+      "3  Optimize system       — refresh caches, flush DNS & repair configs"
+      "4  System status         — live memory, swap, disk & battery health"
+      "5  Uninstall apps        — deep app removal with orphan cleanup"
+      "6  Choose categories     — pick individual categories to scan or clean"
+      "7  Storage analyzer      — explore disk usage & interactive drill-down"
+      "8  Touch ID for sudo     — configure biometric auth for admin commands"
+      "9  Manage whitelist      — protect custom directories, apps, or paths"
+      "0  System diagnostics    — view macOS info, SIP & Full Disk Access"
+      "c  Save configuration    — persist selection + settings as default"
+      "s  Settings              — configure safety thresholds and preferences"
+      "l  View most recent log  — inspect output from latest cleanup session"
+      "q  Quit"
     )
     if ! menu_select "Main menu" "$last"; then
       exit 0
@@ -1167,15 +1391,18 @@ interactive_main() {
         tui_run_clean
         interactive_pause
         ;;
-      2) interactive_choose_categories ;;
-      3) interactive_uninstall_apps ;;
-      4) log_init; report_system_data; report_top_offenders; interactive_pause ;;
-      5) interactive_whitelist ;;
-      6) interactive_settings ;;
-      7) print_live_category_state; interactive_pause ;;
-      8) view_last_log; interactive_pause ;;
-      9) save_config; interactive_pause ;;
-      10) exit 0 ;;
+      2) run_optimize; interactive_pause ;;
+      3) run_status; interactive_pause ;;
+      4) interactive_uninstall_apps ;;
+      5) interactive_choose_categories ;;
+      6) run_analyze "$HOME_DIR"; interactive_pause ;;
+      7) run_touchid toggle; interactive_pause ;;
+      8) interactive_whitelist ;;
+      9) show_version; interactive_pause ;;
+      10) save_config; interactive_pause ;;
+      11) interactive_settings ;;
+      12) view_last_log; interactive_pause ;;
+      13) exit 0 ;;
     esac
   done
 }

@@ -16,8 +16,10 @@ _mimi_lib_dir="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" > /dev/null 2>&1 && pwd)
 
 for _mimi_module in \
   core/globals.sh \
+  ui/theme.sh \
   core/platform.sh \
   ui/log.sh \
+  ui/spinner.sh \
   core/util.sh \
   ui/json.sh \
   transaction/plan.sh \
@@ -31,6 +33,8 @@ for _mimi_module in \
   cleaners/registry.sh \
   cleaners/categories.sh \
   cleaners/orphans.sh \
+  cleaners/hints.sh \
+  cleaners/optimize.sh \
   apps/inventory.sh \
   apps/receipts.sh \
   apps/evidence.sh \
@@ -38,6 +42,10 @@ for _mimi_module in \
   apps/process.sh \
   apps/uninstall.sh \
   ui/report.sh \
+  ui/health.sh \
+  ui/analyze.sh \
+  ui/touchid.sh \
+  ui/menu_paginated.sh \
   ui/tui.sh \
   core/core.sh; do
   # shellcheck source=/dev/null
