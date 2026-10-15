@@ -521,6 +521,7 @@ main() {
     optimize) run_optimize ;;
     analyze) run_analyze "${ANALYZE_TARGET:-}" ;;
     touchid) run_touchid "${TOUCHID_ACTION:-status}" ;;
+    installer) run_installer "${INSTALLER_TARGET:-}" ;;
     apps) mimi_apps_list ;;
     app_inspect) mimi_app_inspect ;;
     app_uninstall)

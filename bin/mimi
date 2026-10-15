@@ -92,6 +92,22 @@ while [ $# -gt 0 ]; do
       fi
       ;;
     --analyze) MODE="analyze"; shift ;;
+    installer)
+      MODE="installer"
+      shift
+      if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
+        INSTALLER_TARGET="$1"
+        shift
+      fi
+      ;;
+    --installer)
+      MODE="installer"
+      shift
+      if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
+        INSTALLER_TARGET="$1"
+        shift
+      fi
+      ;;
     plan) MODE="plan"; shift ;;
     apps)
       MODE="apps"
@@ -443,7 +459,7 @@ validate_config_values
 #
 # Any --include-X flag adds X to ONLY_LIST and opens its gate.
 # --skip always wins over any of the above.
-if [ "$MODE" != "apps" ] && [ "$MODE" != "app_inspect" ] && [ "$MODE" != "app_uninstall" ] && [ "$MODE" != "history" ] && [ "$MODE" != "history_clear" ] && [ "$MODE" != "status" ] && [ "$MODE" != "optimize" ] && [ "$MODE" != "analyze" ] && [ "$MODE" != "touchid" ]; then
+if [ "$MODE" != "apps" ] && [ "$MODE" != "app_inspect" ] && [ "$MODE" != "app_uninstall" ] && [ "$MODE" != "history" ] && [ "$MODE" != "history_clear" ] && [ "$MODE" != "status" ] && [ "$MODE" != "optimize" ] && [ "$MODE" != "analyze" ] && [ "$MODE" != "touchid" ] && [ "$MODE" != "installer" ]; then
   if [ -z "$ONLY_LIST" ]; then
     if [ -n "$PROFILE" ]; then
       ONLY_LIST="$(profile_category_list "$PROFILE")"
