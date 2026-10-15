@@ -18,6 +18,8 @@ subcommands=(
   'apply:apply a plan through quarantine'
   'restore:put a quarantine run back'
   'purge:scan and purge project build artifacts (node_modules, target, etc.)'
+  'completion:install or generate shell completions (zsh, bash)'
+  'update:check for updates and upgrade mimi'
   'history:what mimi did and what can be restored'
   'apps:inventory installed applications'
   'app:inspect or uninstall one application'
@@ -61,6 +63,9 @@ _arguments -C -s \
   '--optimize[safely refresh caches and system services]' \
   '--touchid[configure or inspect Touch ID for sudo]' \
   '--installer[scan and clean leftover installer packages]' \
+  '--completion[install or generate shell completions]' \
+  '--update[check for updates and upgrade mimi]' \
+  '--check[check for updates without installing]' \
   '--dry-run[preview actions without mutating]' \
   '(--clean --cleaner)'{--clean,--cleaner}'[actually delete]' \
   '--scan[report only (default)]' \
@@ -108,6 +113,8 @@ case $state in
       apps) _values 'action' list ;;
       touchid) _values 'action' enable disable status toggle ;;
       installer) _files ;;
+      completion) _values 'action' install zsh bash ;;
+      update) _arguments '--check[check for updates without installing]' ;;
       history) _values 'action' clear ;;
       uninstall) _files -g '*.app(-/)' ;;
     esac ;;

@@ -8,6 +8,12 @@ and a release tag must match it.
 
 ### Added
 
+- `mimi completion`: shell completion generator and installer for zsh and bash
+  (`mimi completion [install|zsh|bash]`), with shell auto-detection, idempotent profile
+  configuration, and `--dry-run` preview.
+- `mimi update`: installation channel detection (Homebrew, Git checkout, standalone script),
+  remote release discovery via GitHub API, semver comparison, `--check` mode, and `--json`
+  telemetry.
 - `mimi purge`: project build artifacts discovery and purge engine inspired by Mole.
   Scans developer workspaces (`~/Dev`, `~/Projects`, `~/Code`, custom paths via `--paths`),
   detects heavy build artifacts (`node_modules`, `target`, `.build`, `DerivedData`, `.venv`,

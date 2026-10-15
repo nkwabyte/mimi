@@ -74,6 +74,12 @@ Scan and remove leftover installer packages (.dmg, .pkg, .iso, .xip, installer .
 .TP
 .B purge
 Scan developer workspaces and purge heavy build artifacts (node_modules, target, .build, DerivedData, .venv, etc.).
+.TP
+.B completion
+Install or generate shell completion scripts (zsh, bash).
+.TP
+.B update
+Check GitHub for new releases and upgrade mimi.
 .SH OPTIONS
 .TP
 .B \-\-aggressive
@@ -97,11 +103,17 @@ Apply an execution plan.
 .B \-\-cask
 Use Homebrew cask uninstall integration.
 .TP
+.B \-\-check
+Check for updates without upgrading (used with update).
+.TP
 .B \-\-clean
 Run in clean mode.
 .TP
 .B \-\-cleaner
 Interactive cleaner menu.
+.TP
+.B \-\-completion
+Install or generate shell completions.
 .TP
 .B \-\-downloads\-stale\-days \fIDAYS\fR
 Days before downloads are reported as stale.
@@ -290,6 +302,9 @@ Days before temporary files are eligible for cleanup.
 .TP
 .B \-\-touchid
 Configure or inspect Touch ID for sudo.
+.TP
+.B \-\-update
+Check GitHub for new releases and upgrade mimi.
 .TP
 .B \-\-vendor\-uninstaller
 Run verified vendor uninstaller if available.

@@ -662,6 +662,15 @@ menu_select() {
           local u_idx
           for u_idx in "${!MENU_LABELS[@]}"; do
             case "${MENU_LABELS[$u_idx]}" in
+              *"update"*|*"Update"*)
+                tui_clear_frame "$drawn"
+                tui_end
+                MENU_CHOICE="$u_idx"
+                return 0 ;;
+            esac
+          done
+          for u_idx in "${!MENU_LABELS[@]}"; do
+            case "${MENU_LABELS[$u_idx]}" in
               *"uninstall"*|*"Uninstall"*)
                 tui_clear_frame "$drawn"
                 tui_end
@@ -673,6 +682,19 @@ menu_select() {
           tui_end
           MENU_CHOICE=3
           return 0
+        fi ;;
+      k|K)
+        if [ "$title" = "Main menu" ]; then
+          local k_idx
+          for k_idx in "${!MENU_LABELS[@]}"; do
+            case "${MENU_LABELS[$k_idx]}" in
+              *"completion"*|*"Completion"*)
+                tui_clear_frame "$drawn"
+                tui_end
+                MENU_CHOICE="$k_idx"
+                return 0 ;;
+            esac
+          done
         fi ;;
       l|L)
         if [ "$title" = "Main menu" ]; then
@@ -1398,6 +1420,8 @@ interactive_main() {
       "0  System diagnostics    — view macOS info, SIP & Full Disk Access"
       "i  Installer packages    — scan and remove leftover DMG, PKG and archives"
       "p  Purge project artifacts — scan & remove heavy build artifacts (node_modules, target, etc.)"
+      "u  Check for updates     — query GitHub for newer releases & upgrade"
+      "k  Shell completions     — configure tab completions for zsh / bash"
       "c  Save configuration    — persist selection + settings as default"
       "s  Settings              — configure safety thresholds and preferences"
       "l  View most recent log  — inspect output from latest cleanup session"
@@ -1433,10 +1457,12 @@ interactive_main() {
       9) show_version; interactive_pause ;;
       10) run_installer; interactive_pause ;;
       11) run_purge; interactive_pause ;;
-      12) save_config; interactive_pause ;;
-      13) interactive_settings ;;
-      14) view_last_log; interactive_pause ;;
-      15) exit 0 ;;
+      12) run_update; interactive_pause ;;
+      13) run_completion install; interactive_pause ;;
+      14) save_config; interactive_pause ;;
+      15) interactive_settings ;;
+      16) view_last_log; interactive_pause ;;
+      17) exit 0 ;;
     esac
   done
 }

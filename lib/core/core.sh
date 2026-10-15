@@ -534,6 +534,8 @@ main() {
     history) mimi_history ;;
     history_clear) mimi_history_clear ;;
     purge) run_purge "${PURGE_TARGET:-}" ;;
+    completion) run_completion "${COMPLETION_ACTION:-}" "${COMPLETION_TARGET:-}" ;;
+    update) run_update ;;
     *) run_selected_categories ;;
   esac
 }

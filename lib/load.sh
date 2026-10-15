@@ -48,6 +48,8 @@ for _mimi_module in \
   ui/analyze.sh \
   ui/touchid.sh \
   ui/menu_paginated.sh \
+  ui/completion.sh \
+  ui/update.sh \
   ui/tui.sh \
   core/core.sh; do
   # shellcheck source=/dev/null
