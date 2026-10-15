@@ -6,7 +6,7 @@ Created: 2026-09-14
 
 Primary plan: [CLI improvement and uninstaller plan](IMPROVEMENT_PLAN.md)
 
-GUI work: deferred until the CLI safety and protocol gates in [GUI wrapper plan](GUI_WRAPPER_PLAN.md) are complete.
+GUI work: moved to dedicated macOS app repository (iMimi).
 
 Archive: completed phase plans, the progress log and past handoffs are in [archive/CLI_IMPLEMENTATION_LOG_2026-09.md](archive/CLI_IMPLEMENTATION_LOG_2026-09.md).
 

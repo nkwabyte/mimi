@@ -351,14 +351,7 @@ lib/
 schemas/            # JSON Schemas: protocol, plan (schema 3), history, apps list, app inspect
 tests/              # bats suite; ./tests/run (review_fixes.bats guards the 2026-09 review)
 docs/               # usage reference, system review, design notes
-gui/Mimi/           # SwiftUI app: scan, history, feature cards
 ```
-
-## macOS app
-
-Open `gui/Mimi/Mimi.xcodeproj` in Xcode and run the Mimi scheme. To sign it, copy `gui/Mimi/Config/Local.xcconfig.example` to `Local.xcconfig` in the same folder and put your team id in it; that file is not committed. The window scans with the same engine as the command-line tool, shows your history with multi-select delete and Clear All for records and log files, and has an Overview card for every CLI feature. Cleaning and uninstalling open in Terminal from those cards, so mimi's typed confirmations still apply. Details are in [docs/guide.md](docs/guide.md).
-
-No extra Swift package is required. The app uses SwiftUI, Observation, and Swift Testing, which ship with the SDK.
 
 ### The old name
 

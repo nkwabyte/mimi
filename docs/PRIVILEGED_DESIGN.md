@@ -105,8 +105,8 @@ Login Items. mimi talks to it over XPC; the daemon verifies the caller's code
 signature (Team ID + designated requirement) and accepts only typed,
 plan-bound operations.
 
-- **For:** strongest caller verification; GUI-friendly authorization; the
-  natural base for the planned GUI (see `GUI_WRAPPER_PLAN.md`).
+- **For:** strongest caller verification; GUI-friendly authorization; a
+  natural base for graphical wrappers.
 - **Against:** requires a **Developer ID** certificate and notarization (this
   machine has an *Apple Development* identity only, which is not enough to
   distribute); must ship as an app bundle, so Homebrew distribution moves from
