@@ -11,6 +11,12 @@ _format_gb() {
   awk -v b="$bytes" 'BEGIN { printf "%.2f", b / (1024 * 1024 * 1024) }' 2>/dev/null || echo "0.00"
 }
 
+_format_disk_gb() {
+  local bytes="${1:-0}"
+  # macOS standard storage calculation uses decimal gigabytes (1 GB = 10^9 bytes)
+  awk -v b="$bytes" 'BEGIN { printf "%.2f", b / (1000 * 1000 * 1000) }' 2>/dev/null || echo "0.00"
+}
+
 _format_mb() {
   local bytes="${1:-0}"
   awk -v b="$bytes" 'BEGIN { printf "%.1f", b / (1024 * 1024) }' 2>/dev/null || echo "0.0"
@@ -138,22 +144,59 @@ collect_system_health() {
   HEALTH_SWAP_PCT="$(awk -v u="$HEALTH_SWAP_USED_MB" -v t="$HEALTH_SWAP_TOTAL_MB" 'BEGIN { if (t > 0) printf "%d", (u / t) * 100; else print 0 }' 2>/dev/null || echo "0")"
 
   # Disk Space
-  local df_root
-  df_root="$(df -k / 2>/dev/null | tail -1 || echo "")"
-  local root_total_kb root_used_kb
-  root_total_kb="$(printf '%s\n' "$df_root" | awk '{print $2}' || echo "0")"
-  root_used_kb="$(printf '%s\n' "$df_root" | awk '{print $3}' || echo "0")"
-  case "$root_total_kb" in ''|*[!0-9]*) root_total_kb=0 ;; esac
-  case "$root_used_kb" in ''|*[!0-9]*) root_used_kb=0 ;; esac
-
-  HEALTH_DISK_TOTAL_GB="$(_format_gb "$(( root_total_kb * 1024 ))")"
-  HEALTH_DISK_USED_GB="$(_format_gb "$(( root_used_kb * 1024 ))")"
-  HEALTH_DISK_FREE_GB="$(_format_gb "$(( (root_total_kb - root_used_kb) * 1024 ))")"
-  if [ "$root_total_kb" -gt 0 ]; then
-    HEALTH_DISK_PCT="$(awk -v u="$root_used_kb" -v t="$root_total_kb" 'BEGIN { printf "%d", (u / t) * 100 }' 2>/dev/null || echo "0")"
-  else
-    HEALTH_DISK_PCT=0
+  # On modern macOS APFS, / is a read-only sealed system snapshot (~13 GB),
+  # while user data, applications, and caches reside on /System/Volumes/Data.
+  # Both share the APFS container. We inspect the Data volume to reflect
+  # actual available container space and overall disk usage accurately.
+  local df_line=""
+  if [ -d "/System/Volumes/Data" ]; then
+    df_line="$(df -k /System/Volumes/Data 2>/dev/null | tail -1)"
   fi
+  if [ -z "$df_line" ] && [ -n "$HOME" ]; then
+    df_line="$(df -k "$HOME" 2>/dev/null | tail -1)"
+  fi
+  if [ -z "$df_line" ]; then
+    df_line="$(df -k / 2>/dev/null | tail -1)"
+  fi
+
+  local total_kb avail_kb used_kb pct_raw
+  total_kb="$(printf '%s\n' "$df_line" | awk '{print $2}' || echo "0")"
+  avail_kb="$(printf '%s\n' "$df_line" | awk '{print $4}' || echo "0")"
+  case "$total_kb" in ''|*[!0-9]*) total_kb=0 ;; esac
+  case "$avail_kb" in ''|*[!0-9]*) avail_kb=0 ;; esac
+
+  if [ "$total_kb" -gt 0 ]; then
+    if [ "$total_kb" -ge "$avail_kb" ]; then
+      used_kb=$(( total_kb - avail_kb ))
+    else
+      used_kb="$(printf '%s\n' "$df_line" | awk '{print $3}' || echo "0")"
+    fi
+  else
+    used_kb=0
+  fi
+  case "$used_kb" in ''|*[!0-9]*) used_kb=0 ;; esac
+
+  local total_disk_bytes=$(( total_kb * 1024 ))
+  local avail_disk_bytes=$(( avail_kb * 1024 ))
+  local used_disk_bytes=$(( used_kb * 1024 ))
+
+  HEALTH_DISK_TOTAL_GB="$(_format_disk_gb "$total_disk_bytes")"
+  HEALTH_DISK_USED_GB="$(_format_disk_gb "$used_disk_bytes")"
+  HEALTH_DISK_FREE_GB="$(_format_disk_gb "$avail_disk_bytes")"
+
+  pct_raw="$(printf '%s\n' "$df_line" | awk '{print $5}' | tr -d '%' || echo "")"
+  case "$pct_raw" in
+    ''|*[!0-9]*)
+      if [ "$total_kb" -gt 0 ]; then
+        HEALTH_DISK_PCT="$(awk -v u="$used_kb" -v t="$total_kb" 'BEGIN { printf "%d", (u / t) * 100 }' 2>/dev/null || echo "0")"
+      else
+        HEALTH_DISK_PCT=0
+      fi
+      ;;
+    *)
+      HEALTH_DISK_PCT="$pct_raw"
+      ;;
+  esac
 
   # Battery / Power
   HEALTH_POWER_SOURCE="AC"
@@ -262,7 +305,7 @@ run_status() {
   printf '%s│%s                                                                    %s│%s\n' "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET"
   printf '%s│%s  %sSwap%s      %s  %3d%%   %6s MB / %-6s MB                 %s│%s\n' "$C_CYAN" "$C_RESET" "$C_BOLD" "$C_RESET" "$swap_bar" "$HEALTH_SWAP_PCT" "$HEALTH_SWAP_USED_MB" "$HEALTH_SWAP_TOTAL_MB" "$C_CYAN" "$C_RESET"
   printf '%s│%s                                                                    %s│%s\n' "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET"
-  printf '%s│%s  %sDisk (/)%s  %s  %3d%%   %6s GB / %-6s GB (%s GB free)     %s│%s\n' "$C_CYAN" "$C_RESET" "$C_BOLD" "$C_RESET" "$disk_bar" "$HEALTH_DISK_PCT" "$HEALTH_DISK_USED_GB" "$HEALTH_DISK_TOTAL_GB" "$HEALTH_DISK_FREE_GB" "$C_CYAN" "$C_RESET"
+  printf '%s│%s  %sDisk%s      %s  %3d%%   %6s GB / %-6s GB (%s GB free)     %s│%s\n' "$C_CYAN" "$C_RESET" "$C_BOLD" "$C_RESET" "$disk_bar" "$HEALTH_DISK_PCT" "$HEALTH_DISK_USED_GB" "$HEALTH_DISK_TOTAL_GB" "$HEALTH_DISK_FREE_GB" "$C_CYAN" "$C_RESET"
   printf '%s│%s                                                                    %s│%s\n' "$C_CYAN" "$C_RESET" "$C_CYAN" "$C_RESET"
   printf '%s│%s  %sSecurity:%s SIP: %s • Full Disk Access: %s                  %s│%s\n' "$C_CYAN" "$C_RESET" "$C_BOLD" "$C_RESET" "$sip_colored" "$fda_colored" "$C_CYAN" "$C_RESET"
   printf '%s└────────────────────────────────────────────────────────────────────┘%s\n' "$C_CYAN" "$C_RESET"
