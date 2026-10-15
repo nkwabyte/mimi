@@ -320,9 +320,9 @@ automatically.
 Prefer a graphical interface? Download the native macOS app [**iMimi**](https://github.com/nkwabyte/iMimi/releases) (`.dmg` or `.zip`). It runs natively on both Apple Silicon (M-series) and Intel Macs.
 
 > [!NOTE]
-> **First Launch on macOS (Privacy & Security)**  
-> Because Mimi is a free open-source community app and is not yet signed with a paid Apple Developer certificate, macOS Gatekeeper may show a dialog saying *“Mimi” cannot be opened because Apple cannot check it for malicious software*.  
-> 
+> **First Launch on macOS (Privacy & Security)**
+> Because Mimi is a free open-source community app and is not yet signed with a paid Apple Developer certificate, macOS Gatekeeper may show a dialog saying *“Mimi” cannot be opened because Apple cannot check it for malicious software*.
+>
 > You can easily allow it to run:
 > 1. Open **System Settings** → **Privacy & Security**.
 > 2. Scroll down to the **Security** section.
