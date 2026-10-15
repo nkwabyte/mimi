@@ -1,4 +1,4 @@
-.TH MIMI 1 "September 2026" "mimi 0.3.0" "User Commands"
+.TH MIMI 1 "October 2026" "mimi 0.5.0" "User Commands"
 .SH NAME
 mimi \- Safe macOS system cleaner and app uninstaller
 .SH SYNOPSIS
@@ -71,6 +71,15 @@ Configure or inspect Touch ID for sudo. Actions: status, enable, disable, toggle
 .TP
 .B installer
 Scan and remove leftover installer packages (.dmg, .pkg, .iso, .xip, installer .zip).
+.TP
+.B purge
+Scan developer workspaces and purge heavy build artifacts (node_modules, target, .build, DerivedData, .venv, etc.).
+.TP
+.B completion
+Install or generate shell completion scripts (zsh, bash).
+.TP
+.B update
+Check GitHub for new releases and upgrade mimi.
 .SH OPTIONS
 .TP
 .B \-\-aggressive
@@ -94,11 +103,17 @@ Apply an execution plan.
 .B \-\-cask
 Use Homebrew cask uninstall integration.
 .TP
+.B \-\-check
+Check for updates without upgrading (used with update).
+.TP
 .B \-\-clean
 Run in clean mode.
 .TP
 .B \-\-cleaner
 Interactive cleaner menu.
+.TP
+.B \-\-completion
+Install or generate shell completions.
 .TP
 .B \-\-downloads\-stale\-days \fIDAYS\fR
 Days before downloads are reported as stale.
@@ -236,8 +251,11 @@ Save plan JSON to specified file path.
 .B \-\-profile \fIPROFILE\fR
 Run preset profile (safe, developer, aggressive).
 .TP
-.B \-\-purge \fIRUN_ID\fR
-Purge quarantine run by ID.
+.B \-\-paths
+List or manage search directories for project build artifact purging.
+.TP
+.B \-\-purge \fI[PATH]\fR
+Scan developer workspaces and purge heavy build artifacts.
 .TP
 .B \-\-purge\-data
 Delete the app's attributable data with it during uninstall (the default).
@@ -284,6 +302,9 @@ Days before temporary files are eligible for cleanup.
 .TP
 .B \-\-touchid
 Configure or inspect Touch ID for sudo.
+.TP
+.B \-\-update
+Check GitHub for new releases and upgrade mimi.
 .TP
 .B \-\-vendor\-uninstaller
 Run verified vendor uninstaller if available.

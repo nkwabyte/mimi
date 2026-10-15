@@ -17,7 +17,9 @@ subcommands=(
   'plan:write an immutable plan without changing anything'
   'apply:apply a plan through quarantine'
   'restore:put a quarantine run back'
-  'purge:permanently delete a quarantine run'
+  'purge:scan and purge project build artifacts (node_modules, target, etc.)'
+  'completion:install or generate shell completions (zsh, bash)'
+  'update:check for updates and upgrade mimi'
   'history:what mimi did and what can be restored'
   'apps:inventory installed applications'
   'app:inspect or uninstall one application'
@@ -61,6 +63,9 @@ _arguments -C -s \
   '--optimize[safely refresh caches and system services]' \
   '--touchid[configure or inspect Touch ID for sudo]' \
   '--installer[scan and clean leftover installer packages]' \
+  '--completion[install or generate shell completions]' \
+  '--update[check for updates and upgrade mimi]' \
+  '--check[check for updates without installing]' \
   '--dry-run[preview actions without mutating]' \
   '(--clean --cleaner)'{--clean,--cleaner}'[actually delete]' \
   '--scan[report only (default)]' \
@@ -89,7 +94,8 @@ _arguments -C -s \
   '--app-target[application target]:app:_files' \
   '--apply[apply a plan]:plan:_files' \
   '--restore[restore a run]:run:_mimi_runs' \
-  '--purge[purge a run]:run:_mimi_runs' \
+  '--purge[scan and purge project build artifacts]:directory:_directories' \
+  '--paths[purge: list or manage search paths]' \
   '--include-android' '--include-caches' '--include-claude-cache' '--include-device-support' \
   '--include-docker' '--include-docker-cache' '--include-homebrew-old' '--include-ide-stale' \
   '--include-ios-backups' '--include-logs' '--include-mail' '--include-ml-caches' \
@@ -101,11 +107,14 @@ case $state in
   args)
     case $words[1] in
       apply) _files ;;
-      restore|purge) _mimi_runs ;;
+      restore) _mimi_runs ;;
+      purge) _files -/ ;;
       app) (( CURRENT == 2 )) && _values 'action' inspect uninstall list || _files -g '*.app(-/)' ;;
       apps) _values 'action' list ;;
       touchid) _values 'action' enable disable status toggle ;;
       installer) _files ;;
+      completion) _values 'action' install zsh bash ;;
+      update) _arguments '--check[check for updates without installing]' ;;
       history) _values 'action' clear ;;
       uninstall) _files -g '*.app(-/)' ;;
     esac ;;

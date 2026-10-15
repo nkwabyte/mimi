@@ -36,6 +36,7 @@ for _mimi_module in \
   cleaners/hints.sh \
   cleaners/optimize.sh \
   cleaners/installer.sh \
+  cleaners/purge.sh \
   apps/inventory.sh \
   apps/receipts.sh \
   apps/evidence.sh \
@@ -47,6 +48,8 @@ for _mimi_module in \
   ui/analyze.sh \
   ui/touchid.sh \
   ui/menu_paginated.sh \
+  ui/completion.sh \
+  ui/update.sh \
   ui/tui.sh \
   core/core.sh; do
   # shellcheck source=/dev/null

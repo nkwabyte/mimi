@@ -11,8 +11,8 @@ usage() {
 mimi — macOS junk cleaner (Xcode/simulator aware)
 
 USAGE:
-  mimi [scan | clean | optimize | status | analyze | plan | apply | apps | app] [options]
-  mimi [--scan | --cleaner | --optimize | --analyze | --plan] [options]
+  mimi [scan | clean | optimize | status | analyze | plan | apply | apps | app | completion | update] [options]
+  mimi [--scan | --cleaner | --optimize | --analyze | --plan | --completion | --update] [options]
 
 SUBCOMMANDS:
   scan [options]          Report reclaimable space only. Deletes nothing.
@@ -30,6 +30,15 @@ SUBCOMMANDS:
   installer [path]        Scan and interactively remove leftover installer packages
                           (.dmg, .pkg, .iso, .xip, installer .zip).
                           --json emits structured installer findings.
+  purge [path]            Scan developer workspaces and purge heavy build artifacts
+                          (node_modules, target, .build, DerivedData, .venv, etc.).
+                          --paths lists/manages search directories.
+                          --json emits structured purge findings.
+  completion [action]     Generate or install shell completion scripts for zsh and bash.
+                          --dry-run preview profile modifications without mutating.
+  update [options]        Check GitHub for newer releases and upgrade installation.
+                          --check checks version without upgrading.
+                          --json emits structured version telemetry.
   plan [options]          Generate an immutable execution plan without mutating.
   apply <plan-file>       Validate and execute a plan directly with verified removal.
   version                 Display detailed system and version diagnostics.
@@ -85,6 +94,8 @@ MODES:
   --apply <file>          Apply an execution plan (synonym for 'apply').
   --touchid               Inspect or configure Touch ID for sudo.
   --installer             Scan and clean leftover installer packages.
+  --completion            Generate or install shell completion scripts.
+  --update                Check GitHub for newer releases and upgrade.
   --restore <run-id>      Restore a quarantined run (synonym for 'restore').
   --purge <run-id>        Permanently purge a quarantine run (synonym for 'purge').
   -i, --interactive       Menu-driven mode: toggle categories, edit the
@@ -285,6 +296,7 @@ AUTOMATION & PROTOCOL:
   --jsonl, --json         Emit structured JSON Lines events to stdout for machine
                           integration (protocol v1). Diagnostics go to stderr.
   --request-id <id>       Correlation ID for protocol v1 events.
+  --check                 Check for latest releases without upgrading (with update).
   --no-color              Suppress ANSI color escape codes in terminal output.
   --no-prompt             Do not prompt interactively; fail with exit 5 if
                           authorization is missing.

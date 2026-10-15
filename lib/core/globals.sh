@@ -15,7 +15,8 @@ SCRIPT_NAME="$(basename -- "$0")"
 # The release version. Single source of truth: `mimi --version`, the JSON
 # protocol's engine_version, and the release workflow (which refuses to
 # publish a tag that does not match it) all read this line.
-MIMI_VERSION="0.4.0"
+MIMI_VERSION="0.5.0"
+MIMI_ROOT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/../.." > /dev/null 2>&1 && pwd)"
 
 HOME_DIR="$HOME"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"

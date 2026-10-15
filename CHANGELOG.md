@@ -6,8 +6,21 @@ and a release tag must match it.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-15
+
 ### Added
 
+- `mimi completion`: shell completion generator and installer for zsh and bash
+  (`mimi completion [install|zsh|bash]`), with shell auto-detection, idempotent profile
+  configuration, and `--dry-run` preview.
+- `mimi update`: installation channel detection (Homebrew, Git checkout, standalone script),
+  remote release discovery via GitHub API, semver comparison, `--check` mode, and `--json`
+  telemetry.
+- `mimi purge`: project build artifacts discovery and purge engine inspired by Mole.
+  Scans developer workspaces (`~/Dev`, `~/Projects`, `~/Code`, custom paths via `--paths`),
+  detects heavy build artifacts (`node_modules`, `target`, `.build`, `DerivedData`, `.venv`,
+  `build`, `dist`, `.next`, `.gradle`, etc.) inside valid project roots, and provides
+  an interactive paginated selector with live search filtering, multi-sort, and `--json` telemetry.
 - `mimi history clear`: delete history records and mimi's own log files,
   all of them (`--all`) or by id and name (`--records`, `--logs`), after a
   confirmation (`--yes` answers). Quarantine runs are never touched.
@@ -230,7 +243,8 @@ scan/clean modes, profiles, whitelist, typed confirmations, the plan → apply �
 restore → purge workflow with quarantine, JSON Lines protocol v1, and the
 interactive menus. Available through `brew install nkwabyte/mimi/mimi`.
 
-[Unreleased]: https://github.com/nkwabyte/mimi/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/nkwabyte/mimi/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/nkwabyte/mimi/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/nkwabyte/mimi/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/nkwabyte/mimi/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/nkwabyte/mimi/compare/v0.2.0...v0.2.1
