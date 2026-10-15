@@ -683,15 +683,15 @@ menu_select() {
           MENU_CHOICE=3
           return 0
         fi ;;
-      k|K)
+      e|E)
         if [ "$title" = "Main menu" ]; then
-          local k_idx
-          for k_idx in "${!MENU_LABELS[@]}"; do
-            case "${MENU_LABELS[$k_idx]}" in
+          local e_idx
+          for e_idx in "${!MENU_LABELS[@]}"; do
+            case "${MENU_LABELS[$e_idx]}" in
               *"completion"*|*"Completion"*)
                 tui_clear_frame "$drawn"
                 tui_end
-                MENU_CHOICE="$k_idx"
+                MENU_CHOICE="$e_idx"
                 return 0 ;;
             esac
           done
@@ -1421,7 +1421,7 @@ interactive_main() {
       "i  Installer packages    — scan and remove leftover DMG, PKG and archives"
       "p  Purge project artifacts — scan & remove heavy build artifacts (node_modules, target, etc.)"
       "u  Check for updates     — query GitHub for newer releases & upgrade"
-      "k  Shell completions     — configure tab completions for zsh / bash"
+      "e  Shell completions     — configure tab completions for zsh / bash"
       "c  Save configuration    — persist selection + settings as default"
       "s  Settings              — configure safety thresholds and preferences"
       "l  View most recent log  — inspect output from latest cleanup session"
