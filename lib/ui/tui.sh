@@ -696,6 +696,19 @@ menu_select() {
             esac
           done
         fi ;;
+      i|I)
+        if [ "$title" = "Main menu" ]; then
+          local i_idx
+          for i_idx in "${!MENU_LABELS[@]}"; do
+            case "${MENU_LABELS[$i_idx]}" in
+              *"Installer"*|*"installer"*)
+                tui_clear_frame "$drawn"
+                tui_end
+                MENU_CHOICE="$i_idx"
+                return 0 ;;
+            esac
+          done
+        fi ;;
       *) ;;
     esac
   done
@@ -1366,6 +1379,7 @@ interactive_main() {
       "8  Touch ID for sudo     — configure biometric auth for admin commands"
       "9  Manage whitelist      — protect custom directories, apps, or paths"
       "0  System diagnostics    — view macOS info, SIP & Full Disk Access"
+      "i  Installer packages    — scan and remove leftover DMG, PKG and archives"
       "c  Save configuration    — persist selection + settings as default"
       "s  Settings              — configure safety thresholds and preferences"
       "l  View most recent log  — inspect output from latest cleanup session"
@@ -1399,10 +1413,11 @@ interactive_main() {
       7) run_touchid toggle; interactive_pause ;;
       8) interactive_whitelist ;;
       9) show_version; interactive_pause ;;
-      10) save_config; interactive_pause ;;
-      11) interactive_settings ;;
-      12) view_last_log; interactive_pause ;;
-      13) exit 0 ;;
+      10) run_installer; interactive_pause ;;
+      11) save_config; interactive_pause ;;
+      12) interactive_settings ;;
+      13) view_last_log; interactive_pause ;;
+      14) exit 0 ;;
     esac
   done
 }

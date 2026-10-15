@@ -27,6 +27,9 @@ SUBCOMMANDS:
                           --json emits structured storage analysis.
   touchid [action]        Configure or check Touch ID for sudo (enable, disable, status).
                           --dry-run preview without mutating PAM configs.
+  installer [path]        Scan and interactively remove leftover installer packages
+                          (.dmg, .pkg, .iso, .xip, installer .zip).
+                          --json emits structured installer findings.
   plan [options]          Generate an immutable execution plan without mutating.
   apply <plan-file>       Validate and execute a plan directly with verified removal.
   version                 Display detailed system and version diagnostics.
@@ -81,6 +84,7 @@ MODES:
   --plan                  Generate an immutable plan file (synonym for 'plan').
   --apply <file>          Apply an execution plan (synonym for 'apply').
   --touchid               Inspect or configure Touch ID for sudo.
+  --installer             Scan and clean leftover installer packages.
   --restore <run-id>      Restore a quarantined run (synonym for 'restore').
   --purge <run-id>        Permanently purge a quarantine run (synonym for 'purge').
   -i, --interactive       Menu-driven mode: toggle categories, edit the

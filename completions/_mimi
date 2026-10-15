@@ -13,6 +13,7 @@ subcommands=(
   'status:monitor live system and hardware health'
   'analyze:explore disk usage and directory breakdown'
   'touchid:configure or inspect Touch ID for sudo'
+  'installer:scan and clean leftover installer packages'
   'plan:write an immutable plan without changing anything'
   'apply:apply a plan through quarantine'
   'restore:put a quarantine run back'
@@ -59,6 +60,7 @@ _arguments -C -s \
   '--analyze[explore disk usage and directory breakdown]' \
   '--optimize[safely refresh caches and system services]' \
   '--touchid[configure or inspect Touch ID for sudo]' \
+  '--installer[scan and clean leftover installer packages]' \
   '--dry-run[preview actions without mutating]' \
   '(--clean --cleaner)'{--clean,--cleaner}'[actually delete]' \
   '--scan[report only (default)]' \
@@ -103,6 +105,7 @@ case $state in
       app) (( CURRENT == 2 )) && _values 'action' inspect uninstall list || _files -g '*.app(-/)' ;;
       apps) _values 'action' list ;;
       touchid) _values 'action' enable disable status toggle ;;
+      installer) _files ;;
       history) _values 'action' clear ;;
       uninstall) _files -g '*.app(-/)' ;;
     esac ;;
