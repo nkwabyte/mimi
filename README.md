@@ -82,24 +82,29 @@ The interactive dashboard displays a brand banner, live system snapshot, and cle
 ```
  __  __ _           _
 |  \/  (_)_ __ ___ (_)
-| |\/| | | '_ ` _ \| |  v1.0.0
+| |\/| | | '_ ` _ \| |  v0.5.0
 | |  | | | | | | | | |  macOS System Cleaner & Optimizer
 |_|  |_|_|_| |_| |_|_|  Apple Silicon & Developer Aware
 
-macOS 15.0 (arm64) • 142G free (45% used) • config: config
+macOS 15.0 (arm64) • 84GB free (62% used) • config: config.conf • Touch ID: on
 
 Main menu
-  ↑/↓ move   1-9/0 jump   enter select   v info   q quit
+  ↑/↓ move   1-9/0/i/p/u/e/c/s/l jump   enter select   q quit
 ❯ 1  Quick scan            — code-default safe categories (read-only)
   2  Quick clean           — clean safe caches and temporary files
   3  Optimize system       — refresh caches, flush DNS & repair configs
   4  System status         — live memory, swap, disk & battery health
   5  Uninstall apps        — deep app removal with orphan cleanup
   6  Choose categories     — pick individual categories to scan or clean
-  7  Disk space report     — inspect space usage and largest consumers
-  8  Manage whitelist      — protect custom directories, apps, or paths
-  9  System diagnostics    — view macOS info, SIP & Full Disk Access
-  0  Save configuration    — persist selection + settings as default
+  7  Storage analyzer      — inspect directory usage & largest files
+  8  Touch ID for sudo     — toggle biometric authentication for sudo
+  9  Manage whitelist      — protect custom directories, apps, or paths
+  0  System diagnostics    — view macOS info, SIP & Full Disk Access
+  i  Leftover installers   — discover and clean stale .dmg, .pkg, .iso
+  p  Purge build artifacts — clean node_modules, target, .build, .venv
+  u  Check for updates     — query GitHub releases & self-update
+  e  Shell completion      — install or generate zsh and bash completions
+  c  Save configuration    — persist selection + settings as default
   s  Settings              — configure safety thresholds and preferences
   l  View most recent log  — inspect output from latest cleanup session
   q  Quit
@@ -110,10 +115,11 @@ Main menu
 | Key | Action |
 |---|---|
 | `1`–`9`, `0` | Direct jump / activate menu option |
+| `i`, `p`, `u`, `e` | Quick jump to installers, purge artifacts, self-update, shell completion |
 | `↑` `↓` / `k` `j` | Move selection cursor (atomic redraw without flicker) |
 | `enter` / `space` | Run selected action |
-| `s` | Instant Quick scan |
-| `c` | Instant Quick clean |
+| `s` | Instant Quick scan (from category list: opens Settings) |
+| `c` | Instant Quick clean (from main menu: save current config) |
 | `o` | Optimize system (flush DNS, refresh QuickLook, lint preferences) |
 | `h` | Live system health and resource status |
 | `u` | Deep Application Uninstaller |
@@ -179,6 +185,68 @@ Uninstall applications  (1/42 selected)  [Sort: Size]
 - Press `/` to enter real-time search mode and filter apps instantly by name or path.
 - Press `s` to toggle sort by Size (descending/ascending) or Name.
 - Press `space` to select apps, `a` for all, `x` to clear, and `enter` to batch uninstall with safety confirmation.
+
+### Developer Workspace Purge (`mimi purge`)
+
+Deep cleaning for developer workspaces to reclaim tens of gigabytes of heavy build dependencies and artifacts:
+
+```bash
+mimi purge             # Interactively scan & select project build artifacts
+mimi purge ~/Dev       # Target specific workspace root
+mimi purge --dry-run   # Preview discoverable artifacts without deleting
+mimi purge --paths     # View or configure searched workspace paths
+mimi purge --json      # Output structured artifact findings
+```
+
+- **Supported Ecosystems**:
+  - Node.js / Web: `node_modules`, `.next`, `.nuxt`, `.output`, `.turbo`, `.parcel-cache`
+  - Rust: `target`
+  - Apple / Swift: `.build`, `DerivedData`
+  - Python: `.venv`, `venv`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`
+  - Java / Kotlin / Android: `.gradle`, `build`, `.cxx`
+  - Mobile & Other: `Pods`, `vendor`, `.dart_tool`, `dist`, `.zig-cache`
+- **Safety**: Verifies directory is within a genuine project root (checks for `package.json`, `Cargo.toml`, `Package.swift`, `pyproject.toml`, etc.) before presenting it.
+- **Interactive UI**: Alternate screen buffer with live fuzzy search (`/`), sorting by size or age (`s`), and batch selection.
+
+### Leftover Installer Discovery (`mimi installer`)
+
+Scans standard download locations (`~/Downloads`, `~/Desktop`, Mail downloads, browser caches) for forgotten installation images and packages:
+
+```bash
+mimi installer           # Interactive picker for leftover installers
+mimi installer ~/Downloads # Target specific folder
+mimi installer --dry-run # Preview found installers without removal
+mimi installer --json    # Structured JSON output
+```
+
+- **Package Types**: Detects `.dmg`, `.pkg`, `.mpkg`, `.iso`, `.xip`, and installer `.zip` files.
+- **Safety**: Automatically ignores active partial downloads (`.crdownload`, `.download`), symlinks, and whitelisted files.
+
+### Touch ID for sudo (`mimi touchid`)
+
+Enable Apple Silicon / Touch ID biometric authentication for `sudo` commands in Terminal, iTerm2, and other shell sessions:
+
+```bash
+mimi touchid status      # Check if Touch ID for sudo is currently active
+mimi touchid enable      # Safely configure Touch ID PAM module
+mimi touchid disable     # Restore standard password authentication
+mimi touchid toggle      # Toggle current configuration state
+mimi touchid --dry-run   # Preview PAM changes without mutating
+```
+
+- **macOS Sonoma & Sequoia Native**: Uses `/etc/pam.d/sudo_local` (Apple's official PAM extension), ensuring Touch ID persists across macOS system updates.
+- **Hardware Aware**: Validates biometric hardware availability before touching system configuration.
+
+### Shell Completions (`mimi completion`)
+
+Generate or automatically install rich completions for Zsh and Bash:
+
+```bash
+mimi completion install     # Automatically install to ~/.zshrc or ~/.bashrc
+mimi completion zsh         # Output raw Zsh completion script
+mimi completion bash        # Output raw Bash completion script
+mimi completion install --dry-run # Preview shell profile modification
+```
 
 - **Choose categories & run** — a live checklist of every category
   (including all the opt-in ones from this doc — WhatsApp, orphans,
@@ -274,22 +342,24 @@ No install needed to try it — `./bin/mimi` works straight out of the checkout.
 
 ### Updating
 
-Check what you have with `mimi --version`, and what changed in
-[CHANGELOG.md](CHANGELOG.md).
+Check what you have with `mimi --version` or use the built-in self-updater:
 
 ```bash
-# Installed with Homebrew
-brew update
-brew upgrade nkwabyte/mimi/mimi
+# Check GitHub for newer versions without upgrading
+mimi update --check
 
-# Installed from source (install.sh links, so pulling is enough)
+# Self-update to the latest release
+mimi update
+
+# Or via Homebrew
+brew update && brew upgrade nkwabyte/mimi/mimi
+
+# Or from source checkout (install.sh links, so pulling is enough)
 cd path/to/mimi && git pull
 ```
 
-Homebrew picks up a new version once it is published as a GitHub release
-(maintainers: see [scripts/README.md](scripts/README.md)).
-Updating never touches your config, whitelist, plans, history, or quarantine
-in `~/.config/mimi`.
+Homebrew and self-update pick up new versions once published as GitHub releases.
+Updating never touches your config, whitelist, plans, or history in `~/.config/mimi`.
 
 ## Quick start
 
@@ -307,25 +377,39 @@ mimi clean
 # 3. Clean with safe developer profile (includes Xcode DerivedData, build artifacts)
 mimi --cleaner --profile developer
 
-# 4. Write a reviewable plan (runs no cleanup command, deletes nothing)
-mimi plan
-# Re-check it and carry it out; removed files go to a quarantine run:
-mimi apply ~/.config/mimi/plans/plan-*.json
+# 4. System health and resource dashboard
+mimi status
 
-# 5. Undo a quarantine run, or release its space now (runs older than
-#    --quarantine-days, default 7, are released automatically)
-mimi restore <run-id>
-mimi purge <run-id>
-mimi history                             # what ran, and what can still be restored
+# 5. Optimize system caches, DNS resolver, and preferences integrity
+mimi optimize
 
-# 6. Inventory and inspect applications (read-only, zero mutation)
+# 6. Interactive disk storage analyzer
+mimi analyze
+
+# 7. Purge developer workspace build artifacts (node_modules, target, .build, .venv)
+mimi purge
+
+# 8. Clean leftover installation packages (.dmg, .pkg, .iso)
+mimi installer
+
+# 9. Toggle Touch ID biometric authentication for sudo
+mimi touchid toggle
+
+# 10. Inventory and inspect applications (read-only, zero mutation)
 mimi apps list
 mimi app inspect Slack
 mimi app inspect "com.tinyspeck.slackmacgap" --json
 
-# 7. Uninstall apps and their remnants (permanent; typed confirmation)
+# 11. Uninstall apps and their remnants (permanent; typed confirmation)
 mimi uninstall                           # pick from a list: space selects, enter uninstalls
 mimi app uninstall Slack                 # or name one app directly
+
+# 12. Write and apply a reviewable execution plan
+mimi plan
+mimi apply ~/.config/mimi/plans/plan-*.json
+
+# 13. Install shell completions for Zsh and Bash
+mimi completion install
 ```
 
 `--scan` (or `mimi scan`, the default) **never deletes anything**. You always have to pass
@@ -796,7 +880,29 @@ mimi --list
 
 `--skip` always wins, even over `--only` or the defaults.
 
-## Other options
+## Subcommands and CLI options
+
+| Subcommand | Description |
+|---|---|
+| `scan` | Report reclaimable space only, delete nothing (default) |
+| `clean` | Actually clean selected caches and temporary files |
+| `status` | Visual system health dashboard (CPU, Memory, Swap, Disk, Battery, SIP) |
+| `optimize` | Refresh system caches, flush DNS, reset QuickLook, lint plists (`--dry-run`) |
+| `analyze [path]` | Interactive storage analyzer and directory drill-down (`--json`) |
+| `purge [path]` | Scan and purge project build artifacts (`node_modules`, `target`, `.build`, `.venv`) |
+| `installer [path]` | Scan and clean leftover installer packages (`.dmg`, `.pkg`, `.iso`, `.zip`) |
+| `touchid [action]` | Configure Touch ID biometric authentication for sudo (`status`, `enable`, `disable`, `toggle`) |
+| `completion [action]` | Generate or install shell completion scripts (`install`, `zsh`, `bash`) |
+| `update` | Check GitHub for newer releases and self-update (`--check`) |
+| `apps [list]` | Read-only inventory of installed applications (`--source`, `--json`) |
+| `app inspect <target>` | Inspect application footprint, code signature, and remnants |
+| `uninstall` | Interactive full-screen application uninstaller |
+| `app uninstall <target>` | Deep uninstall an application and attributable files |
+| `plan` | Generate an immutable execution plan file |
+| `apply <plan-file>` | Preflight and apply an execution plan with verified removals |
+| `history` | View history of actions and retained log transcripts (`clear` to prune) |
+
+### Flags
 
 | Flag | What it does |
 |---|---|
@@ -804,7 +910,6 @@ mimi --list
 | `--report` | Print where your disk space actually went, then exit. Deletes nothing. |
 | `--no-log` | Leave no log file behind at all |
 | `--keep-logs N` | Past run logs to keep (default 5, 0 = none). Older ones are pruned every run |
-| `--quarantine-days N` | Release quarantine runs older than N days at the next run that quarantines (default 7, 0 = keep until `mimi purge`) |
 | `--no-color` | No ANSI colours (also off when stdout is not a terminal, or `NO_COLOR` is set) |
 | `--include-timemachine` | Thin local Time Machine APFS snapshots (opt-in) |
 | `--include-device-support` | Prune old Xcode iOS DeviceSupport symbols (opt-in) |
