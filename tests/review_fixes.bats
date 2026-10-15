@@ -99,7 +99,7 @@ read_only_call() {
   [ ! -e "$base/other" ]
 }
 
-@test "R-07: applying a cleared folder keeps the folder and quarantines its contents" {
+@test "R-07: applying a cleared folder keeps the folder and clears its contents directly" {
   mkdir -p "$FAKE_HOME/.Trash/sub"
   printf 't\n' > "$FAKE_HOME/.Trash/sub/f"
   run_mimi plan --only trash --include-trash --no-color
@@ -110,7 +110,7 @@ read_only_call() {
   [ "$status" -eq 0 ]
   [ -d "$FAKE_HOME/.Trash" ]
   [ ! -e "$FAKE_HOME/.Trash/sub" ]
-  echo "$output" | grep -q "Moved to quarantine"
+  [ ! -d "$FAKE_HOME/Library/Application Support/mimi/quarantine" ]
 }
 
 @test "R-05: a cross-volume move keeps the copy when the original cannot be removed" {

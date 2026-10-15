@@ -39,6 +39,7 @@ prune_old_logs() {
 # through install_exit_trap, so whichever runs first wins and neither
 # clobbers the other.
 _cleanup_on_exit() {
+  stop_spinner 2>/dev/null || true
   tui_end 2>/dev/null
   run_unlock
   if [ "$NO_LOG" = 1 ] && [ -n "${LOG_FILE:-}" ] && [ -f "$LOG_FILE" ]; then
@@ -128,6 +129,7 @@ run_unlock() {
 }
 
 say() {
+  [ -n "${SPINNER_PID:-}" ] && stop_spinner 2>/dev/null || true
   if [ "${JSONL_ENABLED:-0}" = 1 ]; then
     printf '%s\n' "$*" >&2
     printf '%s\n' "$*" >> "$LOG_FILE"
@@ -144,6 +146,7 @@ section() {
 
 # Diagnostics go to stderr, so `mimi scan > report.txt` keeps them visible.
 say_err() {
+  [ -n "${SPINNER_PID:-}" ] && stop_spinner 2>/dev/null || true
   printf '%s\n' "$*" >&2
   printf '%s\n' "$*" >> "$LOG_FILE"
 }

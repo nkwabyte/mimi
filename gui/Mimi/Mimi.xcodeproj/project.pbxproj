@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 110;
 	objects = {
 
 /* Begin PBXContainerItemProxy section */
@@ -78,14 +78,6 @@
 			);
 			sourceTree = "<group>";
 		};
-		BC5646D33068D136003051E2 /* Config */ = {
-			isa = PBXGroup;
-			children = (
-				BC5646D23068D136003051E2 /* Signing.xcconfig */,
-			);
-			path = Config;
-			sourceTree = "<group>";
-		};
 		BC5646A83068D134003051E2 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -94,6 +86,14 @@
 				BC5646BE3068D135003051E2 /* MimiUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		BC5646D33068D136003051E2 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				BC5646D23068D136003051E2 /* Signing.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -226,21 +226,20 @@
 		BC5646D13068D136003051E2 /* Copy Engine */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
 			name = "Copy Engine";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\nROOT=\"$SRCROOT/../..\"\nDEST=\"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Resources/engine\"\nrm -rf \"$DEST\"\nmkdir -p \"$DEST/bin\" \"$DEST/lib\" \"$DEST/libexec\"\ncp \"$ROOT/bin/mimi\" \"$DEST/bin/mimi\"\ncp -R \"$ROOT/lib/.\" \"$DEST/lib/\"\ncp -R \"$ROOT/libexec/.\" \"$DEST/libexec/\"\nchmod 755 \"$DEST/bin/mimi\" \"$DEST/libexec/mimi-root-apply\"\n";
+			shellScript = (
+				"set -eu",
+				"ROOT=\"$SRCROOT/../..\"",
+				"DEST=\"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Resources/engine\"",
+				"rm -rf \"$DEST\"",
+				"mkdir -p \"$DEST/bin\" \"$DEST/lib\" \"$DEST/libexec\"",
+				"cp \"$ROOT/bin/mimi\" \"$DEST/bin/mimi\"",
+				"cp -R \"$ROOT/lib/.\" \"$DEST/lib/\"",
+				"cp -R \"$ROOT/libexec/.\" \"$DEST/libexec/\"",
+				"chmod 755 \"$DEST/bin/mimi\" \"$DEST/libexec/mimi-root-apply\"",
+				"",
+			);
 		};
 /* End PBXShellScriptBuildPhase section */
 

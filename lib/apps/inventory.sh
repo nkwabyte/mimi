@@ -762,6 +762,7 @@ _app_in_bundle_dir() {
 
 inventory_scan_apps() {
   local depth="${1:-list}"
+  start_spinner "Scanning installed applications..."
 
   # The receipt-to-app table is built once here, in this process. Per-app
   # lookups run in a subshell and would otherwise rebuild the whole package
@@ -848,6 +849,7 @@ inventory_scan_apps() {
     APP_INV_CASK_TOKENS+=("$APP_INFO_CASK_TOKEN")
     APP_INV_ELIGIBLE+=("$APP_INFO_ELIGIBLE")
     APP_INV_COUNT=$((APP_INV_COUNT + 1))
+    update_spinner_message "Scanning applications ($APP_INV_COUNT found: $(basename "$canon"))..."
     return 0
   }
 
@@ -923,6 +925,7 @@ inventory_scan_apps() {
   done
 
   APP_INV_SCANNED=1
+  stop_spinner 2>/dev/null || true
   unset -f _app_is_visited _record_app
   return 0
 }

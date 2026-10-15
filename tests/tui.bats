@@ -105,6 +105,43 @@ UP=$'\033[A'
   [ "$MENU_CHOICE" = -1 ]
 }
 
+@test "menu: main menu single-key shortcuts s, c, v, and 0" {
+  source_lib
+  MENU_LABELS=(
+    "1  Quick scan"
+    "2  Quick clean"
+    "3  Choose categories"
+    "4  Uninstall apps"
+    "5  Disk report"
+    "6  Manage whitelist"
+    "7  System diagnostics"
+    "8  Settings"
+    "9  View category state"
+    "0  Save settings"
+    "l  View recent log"
+    "q  Quit"
+  )
+
+  keys 's'
+  menu_select "Main menu" 0 > /dev/null 2>&1
+  [ "$MENU_CHOICE" = 0 ]
+
+  keys 'c'
+  _TUI_INPUT_OPEN=0
+  menu_select "Main menu" 0 > /dev/null 2>&1
+  [ "$MENU_CHOICE" = 1 ]
+
+  keys 'v'
+  _TUI_INPUT_OPEN=0
+  menu_select "Main menu" 0 > /dev/null 2>&1
+  [ "$MENU_CHOICE" = 6 ]
+
+  keys '0'
+  _TUI_INPUT_OPEN=0
+  menu_select "Main menu" 0 > /dev/null 2>&1
+  [ "$MENU_CHOICE" = 9 ]
+}
+
 @test "settings: space toggles a switch, l and h adjust a number" {
   source_lib
   VERBOSE=0
@@ -147,6 +184,7 @@ fake_inventory() {
     APP_INV_SYSTEM=(0 0 1 0)
     APP_INV_ELIGIBLE=(1 1 0 1)
     APP_INV_COUNT=4
+    APP_INV_SIZES=(10000 50000 0 20000)
   }
   mimi_app_uninstall() {
     printf '%s|%s|%s\n' "$APP_TARGET" "$UNINSTALL_DATA_MODE" "$FORCE_RISKY_LIST" >> "$TEST_TMPDIR/uninstalled"
@@ -207,6 +245,26 @@ $HOME/Applications/Gamma.app|purge|uninstall" ]
   [ "$(wc -l < "$TEST_TMPDIR/uninstalled" | tr -d ' ')" = 3 ]
   ! grep -q "Safari" "$TEST_TMPDIR/uninstalled"
   ! grep -qv "|keep|" "$TEST_TMPDIR/uninstalled"
+}
+
+@test "apps picker: / search filters visible apps in real-time" {
+  source_lib
+  fake_inventory
+  # Filter for Gamma, select it, enter and confirm
+  keys '/Gamma\n \nuninstall\n'
+  run interactive_uninstall_apps command
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TEST_TMPDIR/uninstalled")" = "$HOME/Applications/Gamma.app|purge|uninstall" ]
+}
+
+@test "apps picker: s key sorts by size descending" {
+  source_lib
+  fake_inventory
+  # Press s to sort by size (Beta is largest), select it, enter and confirm
+  keys 's \nuninstall\n'
+  run interactive_uninstall_apps command
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TEST_TMPDIR/uninstalled")" = "/Applications/Beta.app|purge|uninstall" ]
 }
 
 @test "mimi uninstall: without a terminal it asks for a target instead of listing" {

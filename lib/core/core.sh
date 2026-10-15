@@ -12,7 +12,17 @@ run_category() {
   local handler
   handler="$(category_handler "$id")"
   if [ -n "$handler" ] && declare -f "$handler" >/dev/null 2>&1; then
+    local cat_info cat_desc
+    cat_info="$(category_info "$id")"
+    cat_desc="$(printf '%s' "$cat_info" | cut -d'|' -f3)"
+    [ -z "$cat_desc" ] && cat_desc="$id"
+    if [ "$MODE" = "clean" ]; then
+      start_spinner "Cleaning $cat_desc..."
+    else
+      start_spinner "Scanning $cat_desc..."
+    fi
     "$handler"
+    stop_spinner 2>/dev/null || true
   else
     warn "unknown category: $id"
   fi
@@ -94,19 +104,15 @@ run_selected_categories() {
     process_orphans_review_file
   fi
 
+  stop_spinner 2>/dev/null || true
   section "Summary"
-  if [ "$MODE" = "scan" ]; then
-    say "Estimated reclaimable space: ${C_BOLD}$(human_kb "$TOTAL_BEFORE_KB")${C_RESET}"
-    say "Run again with ${C_BOLD}--clean${C_RESET} to actually remove these files."
-  else
-    say "Space freed this run: ${C_BOLD}$(human_kb "$TOTAL_RECLAIMED_KB")${C_RESET}"
-    local free_after
-    free_after="$(df -H / | awk 'NR==2{print $4}')"
-    say "Free space before: $free_before  ->  after: $free_after"
-    say "Actions: ${ACTION_OK} succeeded, ${ACTION_SKIPPED} skipped, ${ACTION_DENIED} permission-denied, ${ACTION_FAILED} failed"
+  local free_after=""
+  [ "$MODE" = "clean" ] && free_after="$(df -H / 2>/dev/null | awk 'NR==2{print $4}' || true)"
+  render_summary_card "$MODE" "$TOTAL_BEFORE_KB" "$TOTAL_RECLAIMED_KB" "${free_before:-}" "$free_after"
+  if [ "$MODE" = "clean" ]; then
     if [ "${ACTION_PROTECTED:-0}" -gt 0 ]; then
-      say "  ${ACTION_PROTECTED} item(s) are protected by macOS (System Integrity Protection) and"
-      say "  were left alone. Nothing can remove them, including sudo; macOS manages them."
+      say "  ${C_GRAY}${ICON_EMPTY}${C_RESET} ${ACTION_PROTECTED} item(s) are protected by macOS (System Integrity Protection) and"
+      say "    were left alone. Nothing can remove them, including sudo; macOS manages them."
     fi
     if [ "$ACTION_DENIED" -gt 0 ]; then
       warn "$ACTION_DENIED action(s) were refused by the system. Full Disk Access in"
@@ -117,12 +123,18 @@ run_selected_categories() {
       warn "$ACTION_FAILED action(s) failed; see the log for the exact errors."
     fi
   fi
+  # Developer hints, project artifact warnings, and clean ledger export
+  probe_project_artifact_hints 2>/dev/null || true
+  show_cleanup_hints "$MODE"
+  export_clean_preview_ledger "$MODE"
+
   # Anything a cleaner must not delete for you still has to be findable.
   if [ "$REPORT_ONLY" = 1 ] || [ "$MODE" = "scan" ]; then
     say ""
     info "Tip: run ${C_BOLD}mimi --report${C_RESET} for a full breakdown of where the"
     info "rest of your disk went (VM disks, SDKs, model weights, node_modules)."
   fi
+
   if [ "$NO_LOG" = 1 ]; then
     say "Log: not kept (--no-log)"
   else
@@ -335,20 +347,6 @@ plan_execute_loaded() {
     fi
   fi
 
-  local needs_quarantine=0 item_probe
-  for item_probe in "${PLAN_ACTIONS[@]}"; do
-    plan_read_record "$item_probe" || continue
-    case "$PLAN_F_OP" in
-      quarantine|remove_path|clear_dir_contents) needs_quarantine=1 ;;
-    esac
-  done
-  if [ "$needs_quarantine" = 1 ]; then
-    quarantine_expire_runs
-    quarantine_init_run "$PLAN_ID" || {
-      err "failed to initialize quarantine run"
-      return "$EXIT_FAILURE"
-    }
-  fi
 
   TOTAL_BEFORE_KB=0
   TOTAL_RECLAIMED_KB=0
@@ -395,29 +393,37 @@ plan_execute_loaded() {
         fi
         ;;
       clear_dir_contents)
-        if quarantine_dir_contents "$act_id" "$cat" "$p" "$ident"; then
+        local before_kb after_kb freed_kb
+        before_kb="$(dir_size_kb "$p")"
+        if clear_dir_contents "$p"; then
+          after_kb="$(dir_size_kb "$p")"
+          freed_kb=$((before_kb - after_kb))
+          [ "$freed_kb" -lt 0 ] && freed_kb=0
+          TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + freed_kb))
           record_action ok
-          ok "quarantined the contents of: $p ($(human_kb "$QUARANTINE_DIR_KB"))"
+          [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "ok" "$p" "$((freed_kb * 1024))"
+          ok "cleared the contents of: $p"
         else
           record_action failed
-          err "some of the contents of $p could not be quarantined"
+          [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "failed" "$p" 0
+          err "some of the contents of $p could not be cleared"
         fi
-        TOTAL_QUARANTINED_KB=$((TOTAL_QUARANTINED_KB + QUARANTINE_DIR_KB))
-        [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "quarantined" "$p" "$((QUARANTINE_DIR_KB * 1024))"
         ;;
       remove_path|quarantine)
         if [ "$cat" = "uninstall-launchagent" ] && [ -f "$p" ]; then
           unload_launch_agent "$p" || true
         fi
-        if quarantine_target "$act_id" "$cat" "$p" "$ident" "$bytes"; then
+        local rem_kb
+        rem_kb="$(dir_size_kb "$p")"
+        if plan_wipe_target "$cat" "$p" "$ident"; then
           record_action ok
-          TOTAL_QUARANTINED_KB=$((TOTAL_QUARANTINED_KB + (bytes / 1024)))
-          [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "quarantined" "$p" "$bytes"
-          ok "quarantined: $p"
+          TOTAL_RECLAIMED_KB=$((TOTAL_RECLAIMED_KB + rem_kb))
+          [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "ok" "$p" "$((rem_kb * 1024))"
+          ok "removed: $p"
         else
           record_action failed
           [ "${JSONL_ENABLED:-0}" = 1 ] && json_emit_action_result "failed" "$p" 0
-          err "failed to quarantine: $p"
+          err "failed to remove: $p"
         fi
         ;;
       retain)
@@ -435,18 +441,9 @@ plan_execute_loaded() {
   fi
 
   section "Apply summary"
-  say "Actions: ${ACTION_OK} succeeded, ${ACTION_SKIPPED} skipped, ${ACTION_DENIED} denied, ${ACTION_FAILED} failed"
+  say "Actions: ${ACTION_OK} succeeded, ${ACTION_SKIPPED} skipped, ${ACTION_DENIED} permission-denied, ${ACTION_FAILED} failed"
   [ "$TOTAL_RECLAIMED_KB" -gt 0 ] && say "Freed now: $(human_kb "$TOTAL_RECLAIMED_KB")"
-  if [ "$needs_quarantine" = 1 ]; then
-    say "Moved to quarantine: $(human_kb "$TOTAL_QUARANTINED_KB") (freed when purged, or after ${QUARANTINE_KEEP_DAYS} day(s))"
-    say "Quarantine run ID: ${C_BOLD}$QUARANTINE_CURRENT_RUN_ID${C_RESET}"
-    say "Quarantine directory: $QUARANTINE_CURRENT_RUN_DIR"
-    say ""
-    say "To restore this run if needed:"
-    say "  ${C_BOLD}$SCRIPT_NAME restore \"$QUARANTINE_CURRENT_RUN_ID\"${C_RESET}"
-    say "To release the space for good (irreversible):"
-    say "  ${C_BOLD}$SCRIPT_NAME purge \"$QUARANTINE_CURRENT_RUN_ID\"${C_RESET}"
-  elif [ "$is_uninstall" = 1 ]; then
+  if [ "$is_uninstall" = 1 ]; then
     say "Uninstall is permanent. Nothing was moved to quarantine."
   fi
 
@@ -480,47 +477,16 @@ plan_execute_loaded() {
 
 run_restore() {
   log_init
-  if [ -z "$RUN_ID" ]; then
-    err "restore requires a run ID or quarantine directory"
-    return "$EXIT_USAGE"
-  fi
-  run_lock || return "$EXIT_BUSY"
-  say "${C_BOLD}${SCRIPT_NAME}${C_RESET} — restoring quarantine run: ${C_BOLD}$RUN_ID${C_RESET}"
-  if quarantine_restore_run "$RUN_ID"; then
-    history_record "restore" "ok" "run_id=$RUN_ID"
-    ok "restore completed successfully"
-    return "$EXIT_OK"
-  else
-    history_record "restore" "partial" "run_id=$RUN_ID"
-    err "restore encountered errors"
-    return "$EXIT_PARTIAL"
-  fi
+  info "Quarantine has been removed from $SCRIPT_NAME; all removals are verified, direct, and permanent."
+  info "There are no quarantine runs to restore."
+  return "$EXIT_OK"
 }
 
 run_purge() {
   log_init
-  if [ -z "$RUN_ID" ]; then
-    err "purge requires a run ID or quarantine directory"
-    return "$EXIT_USAGE"
-  fi
-  run_lock || return "$EXIT_BUSY"
-  # F-03: purge is irreversible — --yes does NOT authorize this.
-  # Only --force-risky purge (for scripts/CI) or a typed terminal confirmation
-  # (the word "purge") can proceed. confirm_action_ok enforces this via the
-  # 'purge' registry entry in lib/safety/confirm.sh.
-  local prompt
-  prompt="Permanently purge quarantine run '${RUN_ID}'? This is irreversible."
-  if ! confirm_action_ok "purge" "$prompt"; then
-    return "$EXIT_CANCELLED"
-  fi
-  if quarantine_purge_run "$RUN_ID"; then
-    history_record "purge" "ok" "run_id=$RUN_ID"
-    ok "purged quarantine run: $RUN_ID"
-    return "$EXIT_OK"
-  else
-    err "failed to purge quarantine run: $RUN_ID"
-    return "$EXIT_FAILURE"
-  fi
+  info "Quarantine has been removed from $SCRIPT_NAME; all removals are verified, direct, and permanent."
+  info "There are no quarantine runs to purge."
+  return "$EXIT_OK"
 }
 
 main() {
@@ -551,11 +517,17 @@ main() {
   fi
 
   case "$MODE" in
+    status) run_status ;;
+    optimize) run_optimize ;;
+    analyze) run_analyze "${ANALYZE_TARGET:-}" ;;
+    touchid) run_touchid "${TOUCHID_ACTION:-status}" ;;
     apps) mimi_apps_list ;;
     app_inspect) mimi_app_inspect ;;
     app_uninstall)
       # No app named: pick from the list (needs a terminal to pick on).
-      if [ -z "${APP_TARGET:-}" ] && [ "$UNINSTALL_SYSTEM" != 1 ] && [ "${JSONL_ENABLED:-0}" != 1 ] \
+      # Only 'mimi uninstall' (without 'app') opens the picker; 'mimi app uninstall' requires a target.
+      if [ -z "${APP_TARGET:-}" ] && [ "${APP_UNINSTALL_EXPLICIT:-0}" != 1 ] \
+        && [ "$UNINSTALL_SYSTEM" != 1 ] && [ "${JSONL_ENABLED:-0}" != 1 ] \
         && { tui_available || confirm_can_prompt; }; then
         log_init
         interactive_uninstall_apps command

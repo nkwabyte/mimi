@@ -241,7 +241,7 @@ assert data["plan_id"] == "test-plan-save"
   [ ! -d "$QUARANTINE_DIR/test-run-purge" ]
 }
 
-@test "lifecycle: discover -> plan -> apply -> verify -> restore -> purge" {
+@test "lifecycle: discover -> plan -> apply -> verify direct removal without quarantine" {
   mkdir -p "$FAKE_HOME/Library/Caches/myapp"
   printf 'hello-lifecycle\n' > "$FAKE_HOME/Library/Caches/myapp/cache.db"
 
@@ -252,7 +252,7 @@ assert data["plan_id"] == "test-plan-save"
   [ -f "$plan_file" ]
   [ -f "$FAKE_HOME/Library/Caches/myapp/cache.db" ]
 
-  # 2. Apply
+  # 2. Apply (direct verified removal)
   run_clean --apply "$plan_file" --yes
   [ "$status" -eq 0 ]
   [ ! -e "$FAKE_HOME/Library/Caches/myapp/cache.db" ]
@@ -262,25 +262,8 @@ assert data["plan_id"] == "test-plan-save"
   plan_id="$(sed -n 's/.*"plan_id": "\([^"]*\)".*/\1/p' "$plan_file" | head -1)"
   [ -n "$plan_id" ]
 
-  # 3. Restore
-  run_clean --restore "$plan_id"
-  [ "$status" -eq 0 ]
-  [ -f "$FAKE_HOME/Library/Caches/myapp/cache.db" ]
-  [ "$(cat "$FAKE_HOME/Library/Caches/myapp/cache.db")" = "hello-lifecycle" ]
-
-  # 4. Re-apply and Purge
-  local plan2="$TEST_TMPDIR/plan2.json"
-  run_clean --plan --only caches --plan-out "$plan2"
-  run_clean --apply "$plan2" --yes
-  [ "$status" -eq 0 ]
-  [ ! -e "$FAKE_HOME/Library/Caches/myapp/cache.db" ]
-
-  local plan2_id
-  plan2_id="$(sed -n 's/.*"plan_id": "\([^"]*\)".*/\1/p' "$plan2" | head -1)"
-  # purge is irreversible; --yes cannot authorize it (F-03). Use --force-risky.
-  run_clean --purge "$plan2_id" --force-risky purge
-  [ "$status" -eq 0 ]
-  [ ! -d "$FAKE_HOME/Library/Application Support/mimi/quarantine/$plan2_id" ]
+  # 3. Verify no quarantine directory was created
+  [ ! -d "$FAKE_HOME/Library/Application Support/mimi/quarantine/$plan_id" ]
 }
 
 @test "plan: a path containing a quote or backslash survives save and preflight" {

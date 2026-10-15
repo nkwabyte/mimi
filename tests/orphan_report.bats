@@ -396,29 +396,13 @@ orphan_run_id() {
   [ "$status" -eq 0 ]
   [ ! -e "$strong" ]
   [ ! -e "$weak" ]
-  local run_id
-  run_id="$(orphan_run_id "$output")"
-  [ -n "$run_id" ]
-  [ "$(ls "$FAKE_HOME/Library/Application Support/mimi/quarantine/$run_id" | grep -c '__orphan-')" -eq 2 ]
-  echo "$output" | grep -q "restore $run_id"
+  [ ! -d "$FAKE_HOME/Library/Application Support/mimi/quarantine" ]
 }
 
-@test "remove-orphans: everything comes back with restore" {
-  local strong weak
-  strong="$(CONTAINERS)/com.zzqqxx9.vvbbnn7"
-  weak="$(APPSUP)/Zzqqxx9BareName"
-  mkdir -p "$strong" "$weak"
-  printf 'keep\n' > "$weak/data"
-
-  run_clean --clean --yes --only orphans --remove-orphans --include-weak
-  local run_id
-  run_id="$(orphan_run_id "$output")"
-  [ ! -e "$weak" ]
-
-  run_mimi restore "$run_id" --yes
+@test "remove-orphans: restore explains quarantine removal" {
+  run_mimi restore "orphans-test"
   [ "$status" -eq 0 ]
-  [ -d "$strong" ]
-  [ "$(cat "$weak/data")" = "keep" ]
+  echo "$output" | grep -q "Quarantine has been removed"
 }
 
 @test "remove-orphans: needs neither --force-risky nor a terminal" {
@@ -442,7 +426,7 @@ orphan_run_id() {
   run_clean --scan --only orphans --remove-orphans
   [ "$status" -eq 0 ]
   [ -d "$(APPSUP)/Zzqqxx9BareName" ]
-  echo "$output" | grep -q 'would be moved to quarantine'
+  echo "$output" | grep -q 'would be safely removed'
 }
 
 @test "remove-orphans: a leftover LaunchAgent is stopped before it is moved" {
@@ -457,7 +441,7 @@ orphan_run_id() {
   grep -q "launchctl bootout gui/.*/com.zzqqxx9.agent" "$MOCK_CALL_LOG"
 }
 
-@test "remove-orphans: ticking orphans in the menus quarantines the strong ones on clean" {
+@test "remove-orphans: ticking orphans in the menus cleans the strong ones on clean" {
   local strong weak
   strong="$(CONTAINERS)/com.zzqqxx9.vvbbnn7"
   weak="$(APPSUP)/Zzqqxx9BareName"
@@ -470,7 +454,7 @@ orphan_run_id() {
   tui_run_clean < /dev/null > "$TEST_TMPDIR/out" 2>&1 || true
   [ ! -e "$strong" ]
   [ -d "$weak" ]
-  grep -q "moved to quarantine run orphans-" "$TEST_TMPDIR/out"
+  grep -q "leftover(s), .* removed" "$TEST_TMPDIR/out"
   [ "$REMOVE_ORPHANS" = 0 ]
 }
 

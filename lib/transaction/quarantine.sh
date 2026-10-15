@@ -521,28 +521,77 @@ mimi_history() {
     return 0
   fi
 
-  say "${C_BOLD}History${C_RESET} (last $limit, from $HISTORY_FILE)"
+  local total_ops=0 total_freed_kb=0 total_ok=0
+  if [ -s "$HISTORY_FILE" ]; then
+    while IFS= read -r line; do
+      case "$line" in '{'*'}') ;; *) continue ;; esac
+      total_ops=$((total_ops + 1))
+      local fkb st
+      fkb="$(_history_value "$line" freed_kb)"
+      [ -n "$fkb" ] && total_freed_kb=$((total_freed_kb + fkb))
+      st="$(_history_value "$line" status)"
+      [ "$st" = "ok" ] && total_ok=$((total_ok + 1))
+    done < "$HISTORY_FILE"
+  fi
+
+  local n_logs=0 logs_kb=0
+  while IFS= read -r log_file; do
+    [ -n "$log_file" ] || continue
+    n_logs=$((n_logs + 1))
+    logs_kb=$((logs_kb + $(dir_size_kb "$LOG_DIR/$log_file")))
+  done < <(history_log_files)
+
+  render_card_header "Mimi History & Reclamation Summary"
+  printf "  ${C_CYAN}%-20s${C_RESET} %-16s ${C_CYAN}%-20s${C_RESET} %s\n" \
+    "Total Operations:" "$total_ops runs" \
+    "Total Reclaimed:" "$(human_kb "$total_freed_kb")"
+  printf "  ${C_CYAN}%-20s${C_RESET} %-16s ${C_CYAN}%-20s${C_RESET} %s\n" \
+    "Successful Runs:" "$total_ok / $total_ops" \
+    "Active Logs:" "$n_logs file(s) ($(human_kb "$logs_kb"))"
+  render_card_footer
+  say ""
+
+  say "${C_BOLD}Recent Operations${C_RESET} (last $limit, from $HISTORY_FILE):"
   if [ ! -s "$HISTORY_FILE" ]; then
     say "  (nothing recorded yet)"
   else
+    printf "  ${C_FAINT}%-19s  %-12s  %-12s  %-10s  %s${C_RESET}\n" "Timestamp" "Action" "Status" "Reclaimed" "Details"
     n=0
     while IFS= read -r line; do
       case "$line" in '{'*'}') ;; *) continue ;; esac
       n=$((n + 1))
-      local what
+      local what at type status fkb st_icon rec_freed
+      at="$(_history_value "$line" at)"
+      type="$(_history_value "$line" type)"
+      status="$(_history_value "$line" status)"
+      fkb="$(_history_value "$line" freed_kb)"
       what="$(_history_value "$line" app)"
       [ -n "$what" ] || what="$(_history_value "$line" bundle_id)"
       [ -n "$what" ] || what="$(_history_value "$line" token)"
       [ -n "$what" ] || what="$(_history_value "$line" plan_id)"
-      printf '  %-20s  %-18s  %-10s  %s %s\n' \
-        "$(_history_value "$line" at)" "$(_history_value "$line" type)" \
-        "$(_history_value "$line" status)" "$what" \
-        "$(r="$(_history_value "$line" run_id)"; [ -n "$r" ] && printf '(run %s)' "$r")"
+      [ -n "$what" ] || what="$(_history_value "$line" log)"
+      
+      case "$status" in
+        ok) st_icon="${C_GREEN}${ICON_SUCCESS} ok${C_RESET}" ;;
+        partial) st_icon="${C_YELLOW}${ICON_WARNING} partial${C_RESET}" ;;
+        *) st_icon="${C_RED}${ICON_ERROR} $status${C_RESET}" ;;
+      esac
+
+      if [ -n "$fkb" ] && [ "$fkb" -gt 0 ] 2>/dev/null; then
+        rec_freed="$(human_kb "$fkb")"
+      else
+        rec_freed="-"
+      fi
+
+      local at_clean="${at/T/ }"
+      at_clean="${at_clean%Z}"
+      printf '  %-19s  %-12s  %-20b  %-10s  %s\n' \
+        "$at_clean" "$type" "$st_icon" "$rec_freed" "$what"
     done < <(tail -n "$limit" "$HISTORY_FILE")
   fi
 
   say ""
-  say "${C_BOLD}Quarantine runs${C_RESET} (restorable until purged, in $QUARANTINE_DIR)"
+  say "${C_BOLD}Quarantine runs${C_RESET} (deprecated / direct removal active, in $QUARANTINE_DIR)"
   n=0
   for d in "$QUARANTINE_DIR"/*/; do
     [ -d "$d" ] || continue
@@ -562,14 +611,8 @@ mimi_history() {
   fi
 
   say ""
-  n=0 kb=0
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    n=$((n + 1))
-    kb=$((kb + $(dir_size_kb "$LOG_DIR/$line")))
-  done < <(history_log_files)
-  say "${C_BOLD}Logs${C_RESET}: $n file(s), $(human_kb "$kb"), in $LOG_DIR"
-  if [ -s "$HISTORY_FILE" ] || [ "$n" -gt 0 ]; then
+  say "${C_BOLD}Audit Logs${C_RESET}: $n_logs file(s), $(human_kb "$logs_kb"), in $LOG_DIR"
+  if [ -s "$HISTORY_FILE" ] || [ "$n_logs" -gt 0 ]; then
     say "Clear history and logs: $SCRIPT_NAME history clear --all"
   fi
   return 0
