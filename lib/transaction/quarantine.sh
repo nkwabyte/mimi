@@ -570,7 +570,7 @@ mimi_history() {
       [ -n "$what" ] || what="$(_history_value "$line" token)"
       [ -n "$what" ] || what="$(_history_value "$line" plan_id)"
       [ -n "$what" ] || what="$(_history_value "$line" log)"
-      
+
       case "$status" in
         ok) st_icon="${C_GREEN}${ICON_SUCCESS} ok${C_RESET}" ;;
         partial) st_icon="${C_YELLOW}${ICON_WARNING} partial${C_RESET}" ;;

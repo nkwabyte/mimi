@@ -112,7 +112,7 @@ All icons are standardized UTF-8 symbols with automatic ASCII fallbacks for basi
 Rendered at the top of the interactive menu when terminal height is at least 24 rows:
 
 ```
- __  __ _           _ 
+ __  __ _           _
 |  \/  (_)_ __ ___ (_)
 | |\/| | | '_ ` _ \| |  v0.5.0
 | |  | | | | | | | | |  macOS System Cleaner & Optimizer
