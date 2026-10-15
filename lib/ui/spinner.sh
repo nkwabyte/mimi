@@ -23,8 +23,10 @@ format_spinner_message() {
   msg="${msg//$'\r'/ }"
   msg="${msg//$'\n'/ }"
 
-  local cols=80
-  if command -v tput >/dev/null 2>&1; then
+  local cols=""
+  if [ -n "${COLUMNS:-}" ]; then
+    cols="$COLUMNS"
+  elif command -v tput >/dev/null 2>&1; then
     cols="$(tput cols 2>/dev/null || echo 80)"
   fi
   case "$cols" in

@@ -182,8 +182,12 @@ term_rows() {
 
 term_cols() {
   local c
-  c="$(stty size </dev/tty 2>/dev/null | awk '{print $2}')"
-  case "$c" in ''|*[!0-9]*) c="$(tput cols 2>/dev/null)" ;; esac
+  if [ -n "${COLUMNS:-}" ]; then
+    c="$COLUMNS"
+  else
+    c="$(stty size </dev/tty 2>/dev/null | awk '{print $2}')"
+    case "$c" in ''|*[!0-9]*) c="$(tput cols 2>/dev/null)" ;; esac
+  fi
   case "$c" in ''|*[!0-9]*) c=80 ;; esac
   [ "$c" -lt 40 ] && c=40
   printf '%s' "$c"

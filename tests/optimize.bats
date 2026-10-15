@@ -13,6 +13,7 @@ load 'test_helper'
 }
 
 @test "optimize: lints preferences and removes corrupted plist while preserving valid ones" {
+  require_tool plutil
   local prefs="$FAKE_HOME/Library/Preferences"
   mkdir -p "$prefs"
   printf "INVALID NOT A PLIST" > "$prefs/com.broken.app.plist"
@@ -25,6 +26,7 @@ load 'test_helper'
 }
 
 @test "optimize: whitelisted plist survives preference linting" {
+  require_tool plutil
   local prefs="$FAKE_HOME/Library/Preferences"
   mkdir -p "$prefs"
   printf "INVALID NOT A PLIST" > "$prefs/com.protected.app.plist"
