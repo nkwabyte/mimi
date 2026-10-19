@@ -46,6 +46,13 @@ AGGRESSIVE=0
 PROFILE=""
 KEEP_DEVICE_SUPPORT=3
 
+# Prevent Corepack (Node.js shim for pnpm and yarn) from prompting interactively
+# when shims exist but the package manager has not yet been downloaded.
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+
+# Prevent uv from blocking for 300 seconds if another process holds a cache lock.
+export UV_LOCK_TIMEOUT="${UV_LOCK_TIMEOUT:-10}"
+
 INCLUDE_TRASH=0
 INCLUDE_MAIL=0
 INCLUDE_DOCKER=0
