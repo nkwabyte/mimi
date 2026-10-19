@@ -198,7 +198,7 @@ tool_cleanup() {
     before="$(dir_size_kb "$measure")"
   fi
 
-  "$@" >> "$LOG_FILE" 2>&1 || rc=$?
+  "$@" < /dev/null >> "$LOG_FILE" 2>&1 || rc=$?
 
   if [ -n "$measure" ]; then
     after=0

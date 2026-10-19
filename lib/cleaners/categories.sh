@@ -301,14 +301,16 @@ cat_yarn() {
   # and `yarn cache clean` only works from inside a project, so Berry's cache
   # is cleared directly. Everything in it is re-fetched from the registry.
   local cache_dir
-  cache_dir="$(yarn cache dir 2>/dev/null)"
+  cache_dir="$(COREPACK_ENABLE_DOWNLOAD_PROMPT=0 COREPACK_ENABLE_NETWORK=0 run_with_timeout 10 yarn cache dir < /dev/null 2>/dev/null)"
   case "$cache_dir" in
     /*) ;;
     *) cache_dir="" ;;     # Berry prints usage/error text, not a path
   esac
   if [ -z "$cache_dir" ] || [ ! -d "$cache_dir" ]; then
     if [ -d "$HOME_DIR/.yarn/berry/cache" ]; then
-      info "Yarn Berry detected (v$(yarn --version 2>/dev/null)) — clearing its global cache"
+      local berry_ver
+      berry_ver="$(COREPACK_ENABLE_DOWNLOAD_PROMPT=0 COREPACK_ENABLE_NETWORK=0 run_with_timeout 5 yarn --version < /dev/null 2>/dev/null)"
+      info "Yarn Berry detected (v${berry_ver:-unknown}) — clearing its global cache"
       clear_dir_contents "$HOME_DIR/.yarn/berry/cache"
       return
     fi
@@ -336,8 +338,8 @@ cat_pnpm() {
   section "pnpm store"
   command -v pnpm >/dev/null 2>&1 || { info "pnpm not installed, skipped"; return; }
   local store_dir
-  store_dir="$(pnpm store path 2>/dev/null)"
-  [ -d "$store_dir" ] || { info "no pnpm store found"; return; }
+  store_dir="$(COREPACK_ENABLE_DOWNLOAD_PROMPT=0 COREPACK_ENABLE_NETWORK=0 run_with_timeout 10 pnpm store path < /dev/null 2>/dev/null)"
+  [ -n "$store_dir" ] && [ -d "$store_dir" ] || { info "no pnpm store found"; return; }
   if is_whitelisted "$store_dir"; then
     info "whitelisted, skipped: $store_dir"
     return
