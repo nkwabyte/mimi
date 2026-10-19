@@ -6,6 +6,8 @@ and a release tag must match it.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-19
+
 ### Fixed
 
 - Prevent interactive prompts and hangs when scanning or cleaning `pnpm` and `yarn` by disabling Corepack download prompts (`COREPACK_ENABLE_DOWNLOAD_PROMPT=0`), blocking network downloads during store path discovery (`COREPACK_ENABLE_NETWORK=0`), and adding 10-second command timeouts.
@@ -250,7 +252,8 @@ scan/clean modes, profiles, whitelist, typed confirmations, the plan → apply �
 restore → purge workflow with quarantine, JSON Lines protocol v1, and the
 interactive menus. Available through `brew install nkwabyte/mimi/mimi`.
 
-[Unreleased]: https://github.com/nkwabyte/mimi/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/nkwabyte/mimi/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/nkwabyte/mimi/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/nkwabyte/mimi/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/nkwabyte/mimi/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/nkwabyte/mimi/compare/v0.2.1...v0.3.0
