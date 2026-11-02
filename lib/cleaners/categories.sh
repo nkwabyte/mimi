@@ -90,7 +90,23 @@ cat_dsstore() {
     record_action ok
     removed=$((removed + 1))
     removed_kb=$((removed_kb + size))
-  done < <(find "$HOME_DIR" -xdev -name '.DS_Store' -not -path '*/.Trash/*' -print0 2>/dev/null)
+  done < <(find "$HOME_DIR" -xdev \
+    \( -path "$HOME_DIR/Music" -o \
+       -path "$HOME_DIR/Movies" -o \
+       -path "$HOME_DIR/Pictures" -o \
+       -path "$HOME_DIR/Documents" -o \
+       -path "$HOME_DIR/Downloads" -o \
+       -path "$HOME_DIR/Desktop" -o \
+       -path "$HOME_DIR/Library/Mobile Documents" -o \
+       -path "$HOME_DIR/Library/Containers" -o \
+       -path "$HOME_DIR/Library/Group Containers" -o \
+       -path "$HOME_DIR/Library/Application Support" -o \
+       -path "$HOME_DIR/Library/Mail" -o \
+       -path "$HOME_DIR/Library/Messages" -o \
+       -path "$HOME_DIR/Library/Safari" -o \
+       -path "$HOME_DIR/Library/Photos" -o \
+       -path "$HOME_DIR/.Trash" \) -prune \
+    -o -name '.DS_Store' -type f -print0 2>/dev/null)
 
   TOTAL_BEFORE_KB=$((TOTAL_BEFORE_KB + found_kb))
   if is_dry_run; then
